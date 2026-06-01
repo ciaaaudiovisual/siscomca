@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: comsoc-c2
+    env: docker
+    plan: free
+    port: 8080
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: TELEGRAM_TOKEN
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: ELEVENLABS_VOICE_ID
+        sync: false
+      - key: STORAGE_SECRET
+        generateValue: true
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: HOST
+        value: "0.0.0.0"
+      - key: PORT
+        value: "8080"
+    disk:
+      name: comsoc-nicegui-sessions
+      mountPath: /app/.nicegui
+      sizeGB: 1
