@@ -4,6 +4,7 @@ services:
     env: docker
     plan: free
     port: 8080
+    
     envVars:
       - key: SUPABASE_URL
         sync: false
@@ -25,6 +26,8 @@ services:
         value: "0.0.0.0"
       - key: PORT
         value: "8080"
+      - key: TZ
+        value: America/Sao_Paulo
     disk:
       name: comsoc-nicegui-sessions
       mountPath: /app/.nicegui
