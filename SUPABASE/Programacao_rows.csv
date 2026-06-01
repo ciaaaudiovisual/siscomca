@@ -1,0 +1,99 @@
+id,data,horario,descricao,local,responsavel,obs,data_conclusao,concluido_por,destinatarios,status,pelotoes_concluidos
+10,2025-06-30 00:00:00,15:10:00,Entrega de documentos,Auditório ECAC,CIAA-15,VRF pronto da Secretaria Escolar,01/07/2025 16:11,calaca,Todos,Concluído,"MIKE-1, MIKE-2, MIKE-3, MIKE-4, MIKE-5, MIKE-6, QTPA"
+101,2025-07-07 00:00:00,18:20:00,"Palestra: “Leitura do Cap. 2 – Doutrina de Liderança da Marinha, do EMA 137 (Rev.1/Mod2)”",Auditório ECAC,CIAA-34,X-X-X,12/07/2025 12:09,calaca,Todos,Concluído,
+102,2025-07-07 00:00:00,19:00:00,Palestra: OGSA (Normas Sobre pessoal – Embarque e Distribuição de Praças),Auditório ECAC,CIAA-34,Cap. 3 Título III,,,Todos,A Realizar,
+103,2025-07-07 00:00:00,20:00:00,Hinos e Canções Militares,Auditório ECAC,CIAA-34,X-X-X,08/07/2025 00:29,calaca,Todos,Concluído,
+108,2025-07-08 00:00:00,07:30:00,PEFA (Prática de Exercícios Físicos),Campo 02,CIAA-35,VRF disponibilidade da DAF/Dep. Saúde,08/07/2025 17:21,calaca,Todos,Concluído,
+109,2025-07-08 00:00:00,09:00:00,Ordem unida,Campo de Formatura,CIAA-34,X-X-X,08/07/2025 23:49,calaca,Todos,Concluído,
+11,2025-06-30 00:00:00,17:00:00,Introdução de Ordem Unida e Formatura para o Cerimonial à Bandeira,Em frente ao Prédio 21,-,X-X-X,30/06/2025 22:55,calaca,Todos,Concluído,"MIKE-1, MIKE-2, MIKE-3, MIKE-4, MIKE-5, QTPA"
+111,2025-07-08 00:00:00,13:00:00,Palestra: Pagamento e auxílio transporte,Auditório ECAC,CIAA-52,VRF pronto do Pagamento,08/07/2025 23:49,calaca,Todos,Concluído,
+112,2025-07-08 00:00:00,14:30:00,Palestra: Serviço de Orientação Educacional (SOE)/ Serviço de Orientação Pedagógica (SOP)/ Departamento de Orientação e Avaliação (DOA),Auditório ECAC,CIAA-14,X-X-X,10/07/2025 00:22,calaca,Todos,Concluído,
+113,2025-07-08 00:00:00,17:20:00,Adestramento prático do Cerimonial à Bandeira (alunos assumem as funções/posições para simulação do evento),Prédio 21,CIAA-34,X-X-X,10/07/2025 00:57,calaca,Todos,Concluído,
+115,2025-07-08 00:00:00,18:30:00,Palestra: RUMB,Auditório ECAC,CIAA-34,X-X-X,12/07/2025 12:10,calaca,Todos,Concluído,
+116,2025-07-08 00:00:00,19:00:00,Palestra: “Regulamento de Continência: - Do Procedimento Normal e Cerimonial da Marinha – Honras de Portaló”,Auditório ECAC,CIAA-34,"* RCONT – Cap. III do Titulo II, Seção I/ * CM: Artigos 1-3-1; 1-3-2;1-3-3; 1-3-5;2-2-1;2-2-2; 2-2-22 e 2-2-23",12/07/2025 12:15,admin,Todos,Concluído,
+117,2025-07-08 00:00:00,20:00:00,Palestra: “Regulamento de Continência: - “ Da apresentação / Da continência da tropa”,Auditório ECAC,CIAA-34,"* Capítulo IV – Art: 41 e 42 (todo); 44; 45; 52; 53; incisos I, II e III do Art:61; Art: 64 e 69",,,Todos,A Realizar,
+122,2025-07-09 00:00:00,07:30:00,PEFA (Prática de Exercícios Físicos),Campo 02,CIAA-35,VRF disponibilidade da DAF/Dep. Saúde,08/07/2025 23:50,calaca,Todos,Concluído,
+123,2025-07-09 00:00:00,09:00:00,Palestra: Preparação para o TAF e sua aplicação,Auditório ECAC,CIAA-35,VRF pronto do DAF,10/07/2025 00:22,calaca,Todos,Concluído,
+124,2025-07-09 00:00:00,10:30:00,Palestra: Serviço de Assistência Religiosa,Auditório ECAC,CIAA-022,VRF pronto Assistência Religiosa,,,Todos,A Realizar,
+126,2025-07-09 00:00:00,13:00:00,Apresentação dos Programas do NAS (Núcleo de Assistência Social) e Prevenção a Dependência Química,Auditório ECAC,CIAA-023,VRF pronto do NAS,10/07/2025 00:30,calaca,Todos,Concluído,
+127,2025-07-09 00:00:00,15:00:00,Regras de Conduta e convivência entre militares da Marinha,Auditório ECAC,CIAA-014,VRF PRONTO da Assessoria Juríca,10/07/2025 00:57,calaca,Todos,Concluído,
+128,2025-07-09 00:00:00,16:00:00,Ordem Unida – Hinos e Canções Militares em deslocamento,Circuito CIAA,CIAA-34,X-X-X,10/07/2025 01:14,calaca,Todos,Concluído,
+129,2025-07-09 00:00:00,17:20:00,Adestramento prático do Cerimonial à Bandeira,Em frente ao Prédio 21,CIAA-34,(alunos assumem as funções/posições para a simulação do evento),12/07/2025 12:10,calaca,Todos,Concluído,
+13,2025-06-30 00:00:00,18:20 - 21:,"Palestra: ""Boas-Vindas"" e orientações sobre OI 02-20E, Regimento Interno e organograma do CIAA",Auditório ECAC,CIAA-34,Medidas antropométricas,30/06/2025 22:55,calaca,Todos,Concluído,"MIKE-1, MIKE-2, MIKE-3, MIKE-4, MIKE-5, QTPA"
+131,2025-07-09 00:00:00,19:00:00,Palestra: “Regulamento de Continência: - Da continência do militar (individual)”,Auditório ECAC,CIAA-34,"* Art: 14: inciso I (todo), II, III, X, XI, XII, XVI do Art: 15; Art: 16; 14; 17; 18 (todo); 19; 20 (todo); 22; 23; 24 e 25",,,Todos,A Realizar,
+132,2025-07-09 00:00:00,20:00:00,"Continuação – Dinâmica motivacional: ""Cartas de início de carreira""",Auditório ECAC,CIAA-34,X-X-X,12/07/2025 12:12,admin,Todos,Concluído,
+137,2025-07-10 00:00:00,07:30:00,PEFA (Prática de Exercícios Físicos),Campo 02,CIAA-35,VRF disponibilidade da DAF/Dep. Saúde,12/07/2025 12:12,admin,Todos,Concluído,
+138,2025-07-10 00:00:00,09:00:00,Palestra: Uso das Redes Sociais,Auditório ECAC,CIAA-3011,VRF pronto da Assessoria de Justiça e Disciplina do ComCA,12/07/2025 12:12,admin,Todos,Concluído,
+139,2025-07-10 00:00:00,10:30:00,Palestra: Primeiros Socorros,Auditório ECAC,CIAA-34,X-X-X,12/07/2025 12:12,admin,Todos,Concluído,
+141,2025-07-10 00:00:00,13:00:00,Palestra: NORSUEN,Auditório ECAC,CIAA-10,VRF pronto da Superintendência de Ensino,12/07/2025 12:13,admin,Todos,Concluído,
+142,2025-07-10 00:00:00,14:30:00,Palestra do NAS (Núcleo de Assistência Social): Planejamento Financeiro,Auditório ECAC,CIAA-023,X-X-X,12/07/2025 12:13,admin,Todos,Concluído,
+143,2025-07-10 00:00:00,16:00:00,Palestra: “Regulamento de Promoções de Praças da Marinha”,Em frente ao Prédio 112,CIAA-34,X-X-X,,,Todos,A Realizar,
+144,2025-07-10 00:00:00,17:20:00,Adestramento prático do Cerimonial à Bandeira,Em frente ao Prédio 21,CIAA-34,(alunos assumem as funções/posições para a simulação do evento),12/07/2025 12:15,admin,Todos,Concluído,
+146,2025-07-10 00:00:00,19:00:00,Prova Escrita – Hinos e Canções,Auditório ECAC,CIAA-34,X-X-X,,,Todos,A Realizar,
+147,2025-07-10 00:00:00,20:00:00,Palestra: Apresentação Pessoal,Auditório ECAC,CIAA-34,RUMB e Normas do omCA,,,Todos,A Realizar,
+152,2025-07-11 00:00:00,08:00:00,Cerimônia de Encerramento do Período de Adaptação,"Navio de Pedra ",CIAA-34,XXX,12/07/2025 12:14,admin,Todos,Concluído,
+154,2025-07-11 00:00:00,13:00:00,Apresentação da Escola de Formação,Auditório ECAC,CIAA-111,VRF pronto da Escola de Formação,12/07/2025 12:14,admin,Todos,Concluído,
+155,2025-07-11 00:00:00,14:30:00,Orientação para licenciado e regresso entrega de passes,Em frente ao Prédio 112,CIAA-34,X-X-X,12/07/2025 12:14,admin,Todos,Concluído,
+156,2025-07-11 00:00:00,15:30:00,Licenciado,Em frente ao Prédio 112,CIAA-34,X-X-X,12/07/2025 12:14,admin,Todos,Concluído,
+157,2025-07-11 00:00:00,17:20:00,Adestramento prático do Cerimonial à Bandeira para os militares de serviço,Em frente ao Prédio 21,CIAA-34,(alunos assumem as funções/posições para a simulação do evento),,,Todos,A Realizar,
+163,2025-07-12 00:00:00,07:30:00,Adestramento prático do Cerimonial à Bandeira para os militares de serviço,Em frente ao Prédio 21,"CIAA-34, AJOSCA",Alunos assumem as funções/posições para a simulação do evento,10/07/2025 00:30,calaca,Todos,Concluído,
+165,2025-07-12 00:00:00,17:00:00,Adestramento prático do Cerimonial à Bandeira para os militares de serviço,Em frente ao Prédio 21,"CIAA-34, AJOSCA",Alunos assumem as funções/posições para a simulação do evento,12/07/2025 12:14,admin,Todos,Concluído,
+171,2025-07-13 00:00:00,07:30:00,Adestramento prático do Cerimonial à Bandeira para os militares de serviço,Em frente ao Prédio 21,"CIAA-34, AJOSCA",Alunos assumem as funções/posições para a simulação do evento,12/07/2025 12:13,admin,Todos,Concluído,
+173,2025-07-13 00:00:00,17:00:00,Adestramento prático do Cerimonial à Bandeira para os militares de serviço,Em frente ao Prédio 21,"CIAA-34, AJOSCA",Alunos assumem as funções/posições para a simulação do evento,12/07/2025 12:13,admin,Todos,Concluído,
+175,2025-07-13 00:00:00,20:00:00,Limite de regresso,Em frente ao Prédio 112,"CIAA-34, AJOSCA",X-X-X,,,Todos,A Realizar,
+177,2025-07-14 00:00:00,06:30:00,Regresso Geral,Em frente ao Prédio 112,CIAA-34,Uniforme de TFM,,,Todos,A Realizar,
+179,2025-07-14 00:00:00,06:50:00,Verificação de presença,Campo de Formatura,CIAA-34,X-X-X,,,Todos,A Realizar,
+18,2025-07-01 00:00:00,07:30:00,PEFA (Prática de Exercícios Físicos),Campo 02,CIAA-35,"VRF, disponibilidade da DAF/Dep. Saúde",01/07/2025 13:10,calaca,Todos,Concluído,"MIKE-1, MIKE-2, MIKE-3, MIKE-4, MIKE-5, MIKE-6, QTPA"
+180,2025-07-14 00:00:00,07:00:00,Cerimônia de Passagem da Cana do Leme,Campo de Formatura,CIAA-30 / CIAA-10,X-X-X,,,Todos,A Realizar,
+19,2025-07-01 00:00:00,09:00:00,Apresentação do Comandante do Corpo de Alunos (ComCA),Auditório ECAC,CIAA-30,VRF pronto do auditório,01/07/2025 12:50,mattos,Todos,Concluído,"MIKE-1, MIKE-2, MIKE-3, MIKE-4, MIKE-5, MIKE-6, QTPA"
+2,2025-06-30 00:00:00,07:30,Guarnecimento dos postos pelos militares envolvidos,Portão Principal,"CIAA-34, CIAA-23",X-X-X,30/06/2025 15:48,calaca,Todos,Concluído,"MIKE-1, MIKE-2, MIKE-3, MIKE-4, MIKE-5, QTPA"
+20,2025-07-01 00:00:00,10:00:00,Continuação da entrega de documentação e verificação das medidas para andaina do uniforme,Auditório ECAC,"CIAA-15, CIAA-34",VRF pronto do auditório,03/07/2025 12:44,admin,Todos,Concluído,"MIKE-1, MIKE-2, MIKE-3, MIKE-4, MIKE-5, MIKE-6, QTPA"
+21,2025-07-01 00:00:00,11:00:00,Ratificação do BANIP,Sargenteança,-,-,03/07/2025 13:04,admin,Todos,Concluído,
+23,2025-07-01 00:00:00,13:00:00,Palestra: Conduta a bordo/Apresentação das faltas graves,Instalações do CIAA,CIAA-34,X-X-X,08/07/2025 00:27,calaca,Todos,Concluído,
+24,2025-07-01 00:00:00,14:30:00,Palestra: Detalhe de Serviço,Auditório ECAC,CIAA-303,VRF pronto do Detalhista do Corpo de Alunos,10/07/2025 01:15,calaca,Todos,Concluído,"MIKE-1, MIKE-2, MIKE-3, MIKE-4, MIKE-5, MIKE-6"
+25,2025-07-01 00:00:00,16:00:00,Espaço ComCia - conhecer as instalações e regras de deslocamento,Auditório ECAC,CIAA-34,VRF pronto do auditório,03/07/2025 13:04,admin,Todos,Concluído,
+26,2025-07-01 00:00:00,17:00:00,Ordem Unida e Formatura para o Cerimonial à Bandeira,Em frente ao Prédio 21,-,X-X-X,02/07/2025 14:36,luciana,Todos,Concluído,"MIKE-1, MIKE-2, MIKE-3, MIKE-4, MIKE-5, MIKE-6, QTPA"
+28,2025-07-01 00:00:00,18:20:00,"Palestra: ""Normas para a Conduta Ético-Militar e Atividades Sociais""",Auditório ECAC,-,DGPM-319 (Mod.2),08/07/2025 23:48,calaca,Todos,Concluído,
+29,2025-07-01 00:00:00,19:20:00,Palestra: Regulamento de Continências e Cerimonial da Marinha,Auditório ECAC,-,X-X-X,08/07/2025 23:48,calaca,Todos,Concluído,
+3,2025-06-30 00:00:00,08:30-11:30,"- Apresentação dos adaptandos;- Verificação de presença e conferência do documento oficial de identificação com foto;- Exame de Avaliação Médica;- Deslocamento para o alojamento, recebimento de armários e inspeção de bagagem;- Corte de cabelo (masculino)","Quadra Coberta, Alojamento","CIAA-24, CIAA-34, CIAA-56",VRF pronto da Saúde/Ginásio,30/06/2025 14:26,calaca,Todos,Concluído,"MIKE-1, MIKE-2, MIKE-3, MIKE-4, MIKE-5, QTPA"
+30,2025-07-01 00:00:00,20:20:00,"Dinâmica motivacional: ""Cartas de início de carreira""",Organização dos grupos,-,-,08/07/2025 23:49,calaca,Todos,Concluído,
+35,2025-07-02 00:00:00,07:30:00,PEFA (Prática de Exercícios Físicos),Campo 02,CIAA-35,VRF disponibilidade da DAF/Dep. Saúde,03/07/2025 12:59,admin,Todos,Concluído,"BAIXA, MIKE-1, MIKE-2, MIKE-3, MIKE-4, MIKE-5, QTPA"
+36,2025-07-02 00:00:00,09:00:00,Ordem unida,Campo de Formatura,CIAA-34,Formação de Pelotão e principais comandos a pé firme,03/07/2025 13:01,admin,Todos,Concluído,
+37,2025-07-02 00:00:00,10:30:00,Palestra: Sistema de Saúde da Marinha e Rabdomiólise,Auditório ECAC,CIAA-24,VRF pronto da Saúde,03/07/2025 12:59,admin,Todos,Concluído,
+39,2025-07-02 00:00:00,13:00:00,"Palestra: ""Estatuto dos Militares""",Auditório ECAC,CIAA-34,VRF pronto do auditório,,,Todos,A Realizar,
+4,2025-06-30 00:00:00,09:00,Limite de apresentação dos adaptandos,-,-,-,30/06/2025 15:49,calaca,Todos,Concluído,"MIKE-1, MIKE-2, MIKE-3, MIKE-4, MIKE-5, QTPA"
+40,2025-07-01 00:00:00,11:00:00,"Palestra: ""Herança Militar""",Auditório ECAC,CIAA-304,X-X-X,01/07/2025 16:20,calaca,Todos,Concluído,"MIKE-1, MIKE-2, MIKE-3, MIKE-4, MIKE-5, MIKE-6, QTPA"
+41,2025-07-02 00:00:00,16:00:00,Palestra: EMA-136 (Rev.3) - Tradições Navais,Auditório ECAC,CIAA-34,X-X-X,,,Todos,A Realizar,
+42,2025-07-02 00:00:00,17:00:00,Ordem Unida e Formatura para o Cerimonial à Bandeira,Em frente ao Prédio 21,-,Movimentos básicos,03/07/2025 13:03,admin,Todos,Concluído,
+44,2025-07-02 00:00:00,18:20:00,Leitura: Introdução as Orientações Gerais (Regras de Conduta e Guia do Aluno),Auditório ECAC,CIAA-34,VRF pronto do auditório,06/07/2025 22:19,admin,Todos,Concluído,
+45,2025-07-02 00:00:00,19:20:00,"Filme institucional: ""Marinha do Brasil e os Navios da Esperança""",Auditório ECAC,-,-,10/07/2025 00:57,calaca,Todos,Concluído,
+5,2025-06-30 00:00:00,11:30:00,Envio de orientação de contato aos familiares e entrega dos celulares,Auditório ECAC,-,VRF pronto do Auditório,30/06/2025 17:05,calaca,Todos,Concluído,"MIKE-1, MIKE-2, MIKE-3, MIKE-4, MIKE-5, QTPA"
+50,2025-07-03 00:00:00,07:30:00,PEFA (Prática de Exercícios Físicos),Campo 02,CIAA-35,VRF disponibilidade da DAF/Dep. Saúde,03/07/2025 16:17,admin,Todos,Concluído,
+51,2025-07-03 00:00:00,09:00:00,Procedimentos de segurança para Abandono do prédio,Em frente ao Prédio 112,CIAA-34,X-X-X,10/07/2025 01:26,calaca,Todos,Concluído,BAIXA
+52,2025-07-03 00:00:00,10:00:00,Ordem unida,Campo de Formatura,CIAA-34,Formação de Pelotão e principais comandos a pé firme,03/07/2025 16:17,admin,Todos,Concluído,
+53,2025-07-03 00:00:00,11:00:00,Apresentação do Sr. Comandante do CIAA,Auditório ECAC,CIAA-01,X-X-X,03/07/2025 16:18,admin,Todos,Concluído,
+55,2025-07-03 00:00:00,13:00:00,Palestra “RDM” e Parte de Ocorrência,Auditório ECAC,CIAA-014,X-X-X,08/07/2025 23:46,calaca,Todos,Concluído,
+56,2025-07-03 00:00:00,14:30:00,Palestra “Segurança Orgânica”,Auditório ECAC,CIAA-23,VRF pronto da segurança,08/07/2025 23:47,calaca,Todos,Concluído,
+57,2025-07-03 00:00:00,16:00:00,Ordem unida,Campo de Formatura,CIAA-34,X-X-X,03/07/2025 16:41,rmelhor,Todos,Concluído,
+58,2025-07-03 00:00:00,17:00:00,Ordem Unida e Formatura para o Cerimonial à Bandeira,Em frente ao Prédio 21,CIAA-34,Movimentos básicos,06/07/2025 22:14,admin,Todos,Concluído,
+60,2025-07-03 00:00:00,18:20:00,Hinos e Canções Militares,Auditório ECAC,CIAA-34,X-X-X,06/07/2025 22:14,admin,Todos,Concluído,
+61,2025-07-03 00:00:00,19:00:00,Leitura sobe as Rosas das Virtudes,Auditório ECAC,CIAA-34,VRF pronto do auditório,07/07/2025 15:06,calaca,Todos,Concluído,
+62,2025-07-03 00:00:00,20:00:00,Continuação – Dinâmica Motivacional “Cartas de início de carreira”,Auditório ECAC,CIAA-34,Os alunos compartilharão e trocarão ideias com os grupos,06/07/2025 22:15,admin,Todos,Concluído,
+67,2025-07-04 00:00:00,07:30:00,PEFA (Prática de Exercícios Físicos),Campo 02,CIAA-35,VRF disponibilidade da DAF/Dep. Saúde,04/07/2025 11:24,calaca,Todos,Concluído,
+68,2025-07-04 00:00:00,09:00:00,Ordem unida,Navios de Pedra,CIAA-34,"Instruções sobre comandos de ordinário marche, marcar passo e alto",04/07/2025 11:25,calaca,Todos,Concluído,
+7,2025-06-30 00:00:00,13:00:00,Início da verificação de medidas para andaina de uniformes,Alojamento,-,XX,01/07/2025 20:16,calaca,Todos,Concluído,"MIKE-1, MIKE-2, MIKE-3, MIKE-4, MIKE-5, MIKE-6, QTPA"
+70,2025-07-04 00:00:00,13:00:00,Palestra: “Regulamento de Continência: Seção I – Do Procedimento normal e Seção IV – Do procedimento da tropa em situações diversas”,Auditório ECAC,CIAA-34,* Art.: 26; 27; 28 e 69,08/07/2025 23:46,calaca,Todos,Concluído,
+71,2025-07-04 00:00:00,14:30:00,Entrega de identidade e passe e Orientação para licenciado e regresso,Auditório ECAC,CIAA-34,X-X-X,08/07/2025 23:46,calaca,Todos,Concluído,
+72,2025-07-04 00:00:00,16:00:00,Licenciado,Em frente ao Prédio 112,CIAA-34,Inspeção para o licenciado,06/07/2025 22:14,admin,Todos,Concluído,
+73,2025-07-04 00:00:00,17:20:00,Ordem Unida e Formatura para o Cerimonial à Bandeira – para os militares de serviço,Em frente ao Prédio 21,CIAA-34,Alunos assumem as funções/posições para a simulação do evento,06/07/2025 22:14,admin,Todos,Concluído,
+8,2025-06-30 00:00:00,13:40:00,Fotografia para identificação dos Crachás,Alojamento,"CIAA-372, CIAA-34",XX,01/07/2025 20:46,calaca,Todos,Concluído,"MIKE-1, MIKE-2, MIKE-3, MIKE-4, MIKE-5, MIKE-6, QTPA"
+80,2025-07-05 00:00:00,17:00:00,Cerimonial à Bandeira – par os militares de serviço,Em frente ao Prédio 21,"CIAA-34, AJOSCA",Alunos assumem as funções/posições para a simulação do evento,06/07/2025 22:13,admin,Todos,Concluído,
+87,2025-07-06 00:00:00,17:00:00,Cerimonial à Bandeira – par os militares de serviço,Em frente ao Prédio 21,"CIAA-34, AJOSCA",Alunos assumem as funções/posições para a simulação do evento,06/07/2025 22:13,admin,Todos,Concluído,
+89,2025-07-06 00:00:00,20:00:00,Limite de regresso,Em frente ao Prédio 112,"CIAA-34, AJOSCA",X-X-X,06/07/2025 22:13,admin,Todos,Concluído,
+9,2025-06-30 00:00:00,14:40:00,Apresentação da Sargenteança,Auditório ECAC,CIAA-34,VRF pronto da sargenteança,03/07/2025 01:52,admin,Todos,Concluído,"MIKE-1, MIKE-2, MIKE-3, MIKE-4, MIKE-5, MIKE-6, QTPA"
+93,2025-07-07 00:00:00,07:30:00,PEFA (Prática de Exercícios Físicos),Campo 02,CIAA-35,VRF disponibilidade da DAF/Dep. Saúde,07/07/2025 15:04,calaca,Todos,Concluído,
+94,2025-07-07 00:00:00,09:00:00,Ordem unida,Campo de Formatura,CIAA-34,X-X-X,07/07/2025 15:04,calaca,Todos,Concluído,
+96,2025-07-07 00:00:00,13:00:00,Leitura (continuação): Introdução as Orientações Gerais – Regras de Conduta (Cap 16 – Normas do ComCA) e Guia do Aluno (Capítulo 19 – Normas do ComCA),Auditório ECAC,CIAA-34,VRF pronto do auditório,07/07/2025 15:04,calaca,Todos,Concluído,
+97,2025-07-07 00:00:00,14:30:00,Palestra: “Regulamento de Continência: - Generalidades; e Cerimonial da Marinha; e – Dispensa de continência individual”,Auditório ECAC,CIAA-34,Rcont -Cap. I do Tpitulo II / Cerimonial da Marinha – Artigos 1-2-7 à 1-2-11,,,Todos,A Realizar,
+98,2025-07-07 00:00:00,16:00:00,Hinos e Canções Militares em deslocamento,Auditório ECAC,CIAA-34,X-X-X,08/07/2025 00:27,calaca,Todos,Concluído,
+99,2025-07-07 00:00:00,17:10:00,Adestramento prático do Cerimonial à Bandeira,Em frente ao Prédio 21,CIAA-34,Alunos assumem as funções/posições para a simulação do evento,08/07/2025 00:28,calaca,Todos,Concluído,

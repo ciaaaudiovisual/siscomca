@@ -1,0 +1,289 @@
+"""
+ALERT MANAGER — SisCOMCA
+Módulo dedicado a Alertas e Notificações em Tempo Real (WebSockets Broadcast).
+Permite registrar sessões ativas (como o Modo TV) e disparar avisos visuais/sonoros imediatos.
+Implementa o Scheduler em background para Sinos Navais e Alertas Customizados.
+"""
+
+import asyncio
+import os
+import json
+from datetime import datetime, date
+from typing import List, Callable, Dict, Any
+
+# Caminho do arquivo de configuração local de som e agendamento
+ALERTS_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config_alerts.json")
+
+DEFAULT_ALERTS_CONFIG = {
+    "bell_enabled": True,
+    "sound_mappings": {
+        "Registro de Ocorrência": "alert",
+        "Novo Aviso": "info",
+        "Aviso de Saúde": "warning",
+        "Dispensa Médica": "warning",
+        "Licença Médica": "warning",
+        "Alta Médica": "success",
+        "Escala de Serviço": "info",
+        "Escala de Serviço Atualizada": "info",
+        "Chamada Diária": "info",
+        "Atraso Registrado": "info"
+    },
+    "custom_alerts": []
+}
+
+def load_alerts_config() -> dict:
+    """Carrega as configurações de som e agendamento de alertas a partir do arquivo local."""
+    try:
+        if os.path.exists(ALERTS_CONFIG_PATH):
+            with open(ALERTS_CONFIG_PATH, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                merged = DEFAULT_ALERTS_CONFIG.copy()
+                merged.update(data)
+                if "sound_mappings" in data:
+                    merged["sound_mappings"] = {**DEFAULT_ALERTS_CONFIG["sound_mappings"], **data["sound_mappings"]}
+                return merged
+    except Exception as e:
+        print(f"[ALERTA] Erro ao carregar config_alerts.json: {e}")
+    return DEFAULT_ALERTS_CONFIG.copy()
+
+def save_alerts_config(config: dict):
+    """Salva as configurações de som e agendamento de alertas localmente."""
+    try:
+        with open(ALERTS_CONFIG_PATH, "w", encoding="utf-8") as f:
+            json.dump(config, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        print(f"[ALERTA] Erro ao salvar config_alerts.json: {e}")
+
+class AlertsManager:
+    # Dicionário de callbacks ativos das telas conectadas: client_id -> {'client': client_obj, 'callback': callback, 'voice': bool, 'sound': bool}
+    _tv_callbacks: Dict[str, Any] = {}
+    # Referência para o loop de eventos principal do NiceGUI
+    _main_loop: Any = None
+    
+    # Controladores internos do Scheduler
+    _last_triggered_bell_slot = None  # (hour, minute)
+    _triggered_custom_alerts_today = {}  # {alert_id: date_str}
+    _scheduler_started = False
+
+    @classmethod
+    def prune_dead_callbacks(cls):
+        """Remove callbacks de clientes que foram destruídos pelo NiceGUI."""
+        import nicegui
+        print(f"[ALERTA DEBUG] Callbacks registrados: {list(cls._tv_callbacks.keys())}")
+        print(f"[ALERTA DEBUG] Instâncias NiceGUI ativas: {list(nicegui.Client.instances.keys())}")
+        dead_ids = []
+        for cid, entry in list(cls._tv_callbacks.items()):
+            # Verifica se o ID do cliente ainda é gerenciado pelo NiceGUI
+            if cid not in nicegui.Client.instances:
+                dead_ids.append(cid)
+        
+        for cid in dead_ids:
+            try:
+                del cls._tv_callbacks[cid]
+                print(f"[ALERTA] Removido callback morto de TV desconectada ({cid})")
+            except KeyError:
+                pass
+        print(f"[ALERTA DEBUG] Callbacks restantes após prune: {list(cls._tv_callbacks.keys())}")
+
+    @classmethod
+    def register_tv_callback(cls, client: Any, callback: Callable[[str, str, str], Any]):
+        """Registra a tela de TV (associada ao seu client NiceGUI) para receber alertas."""
+        cls.prune_dead_callbacks()
+        cls._tv_callbacks[client.id] = {
+            'client': client,
+            'callback': callback,
+            'voice': True,
+            'sound': True
+        }
+        try:
+            cls._main_loop = asyncio.get_running_loop()
+            print(f"[ALERTA] Loop de eventos principal capturado ({cls._main_loop})")
+        except RuntimeError:
+            pass
+        print(f"[ALERTA] Nova TV registrada ({client.id}). Ativos: {len(cls._tv_callbacks)}")
+
+    @classmethod
+    def unregister_tv_callback(cls, client_id: str):
+        """Remove a tela de TV do canal de alertas ao desconectar ou recarregar."""
+        if client_id in cls._tv_callbacks:
+            del cls._tv_callbacks[client_id]
+            print(f"[ALERTA] TV desregistrada ({client_id}). Restantes: {len(cls._tv_callbacks)}")
+        cls.prune_dead_callbacks()
+
+    @classmethod
+    def update_tv_preferences(cls, client_id: str, voice: bool = None, sound: bool = None):
+        """Atualiza preferências de som e voz para um cliente de TV específico."""
+        if client_id in cls._tv_callbacks:
+            if voice is not None:
+                cls._tv_callbacks[client_id]['voice'] = voice
+            if sound is not None:
+                cls._tv_callbacks[client_id]['sound'] = sound
+            print(f"[ALERTA] Preferências da TV {client_id} atualizadas: voice={voice}, sound={sound}")
+
+    @classmethod
+    def calculate_naval_bell_strikes(cls, dt: datetime) -> int:
+        """Calcula a quantidade de baladas de sino baseada no quarto naval customizado do SisCOMCA."""
+        hour = dt.hour
+        minute = dt.minute
+        
+        # Regra explícita do usuário: às 8h00 são duas dobradas (4 badaladas)
+        if hour == 8 and minute == 0:
+            return 4
+            
+        if minute == 0:
+            cycle_hour = hour % 4
+            if cycle_hour == 0:
+                return 8
+            else:
+                return cycle_hour * 2
+        else:
+            # Meia hora (minuto >= 30)
+            cycle_hour = hour % 4
+            return cycle_hour * 2 + 1
+
+    @classmethod
+    def trigger_alert(cls, title: str, message: str, type_: str = 'info'):
+        """
+        Dispara um alerta em tempo real para todas as telas ativas registradas.
+        Mapeia os sons baseados no título e suporta toques de sino naval e mudo.
+        """
+        cls.prune_dead_callbacks()
+        if not cls._tv_callbacks:
+            print("[ALERTA BROADCAST] Nenhum cliente de TV conectado. Pulando geração de áudio e reescrita.")
+            return
+
+        # Carrega configuração de alertas para mapear o som correto
+        config = load_alerts_config()
+        mapped_sound = config.get("sound_mappings", {}).get(title, type_)
+
+        try:
+            print(f"[ALERTA BROADCAST] {title.upper()} - {message} (Sound: {mapped_sound})")
+        except UnicodeEncodeError:
+            safe_msg = message.encode('ascii', errors='replace').decode('ascii')
+            print(f"[ALERTA BROADCAST] {title.upper()} - {safe_msg} (Sound: {mapped_sound})")
+        
+        async def process_and_dispatch():
+            from ai_helper import rewrite_to_jarvis_alert, generate_elevenlabs_tts
+            
+            # Verifica se pelo menos um cliente ativo deseja voz
+            any_voice_active = any(entry.get('voice', True) for entry in cls._tv_callbacks.values())
+            
+            # Bypassa a geração de voz totalmente se for Toque de Sino ou se o som for silencioso
+            if any_voice_active and title != "Toque de Sino" and mapped_sound != "silent":
+                try:
+                    loop = asyncio.get_running_loop()
+                    jarvis_text = await loop.run_in_executor(None, rewrite_to_jarvis_alert, title)
+                except Exception as e:
+                    print(f"[ALERTA] Erro ao reescrever com Jarvis: {e}")
+                    jarvis_text = f"{title}."
+
+                try:
+                    loop = asyncio.get_running_loop()
+                    jarvis_audio = await loop.run_in_executor(None, generate_elevenlabs_tts, jarvis_text)
+                except Exception as e:
+                    print(f"[ALERTA] Erro ao gerar áudio com ElevenLabs: {e}")
+                    jarvis_audio = ""
+            else:
+                jarvis_text = f"{title}."
+                jarvis_audio = ""
+
+            # Faz cópia segura dos callbacks ativos e repassa o som mapeado
+            active_entries = list(cls._tv_callbacks.values())
+            for entry in active_entries:
+                client = entry['client']
+                cb = entry['callback']
+                try:
+                    if asyncio.iscoroutinefunction(cb):
+                        asyncio.create_task(cb(title, message, mapped_sound, jarvis_text, jarvis_audio))
+                    else:
+                        cb(title, message, mapped_sound, jarvis_text, jarvis_audio)
+                except Exception as e:
+                    print(f"[ALERTA] Falha ao notificar tela ({client.id}): {e}")
+
+        # Agenda a execução no loop de eventos do asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(process_and_dispatch())
+        except RuntimeError:
+            if cls._main_loop and cls._main_loop.is_running():
+                print(f"[ALERTA] Fora de loop ativo. Agendando thread-safe no loop principal ({cls._main_loop})")
+                asyncio.run_coroutine_threadsafe(process_and_dispatch(), cls._main_loop)
+            else:
+                print(f"[ALERTA] Fora de loop ativo e sem loop principal. Executando fallback síncrono.")
+                fallback_text = f"{title}."
+                active_entries = list(cls._tv_callbacks.values())
+                for entry in active_entries:
+                    client = entry['client']
+                    cb = entry['callback']
+                    try:
+                        if not asyncio.iscoroutinefunction(cb):
+                            cb(title, message, mapped_sound, fallback_text, "")
+                    except Exception:
+                        pass
+
+    @classmethod
+    def start_alerts_scheduler(cls):
+        """Inicia o loop assíncrono do scheduler de sinos e alertas em segundo plano."""
+        if cls._scheduler_started:
+            return
+        
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(cls._scheduler_loop())
+            cls._scheduler_started = True
+            print("[ALERTA] Scheduler de Sinos Navais e Alertas Horários ativo!")
+        except RuntimeError:
+            # Se for carregado em importação síncrona inicial, NiceGUI ainda não tem loop ativo.
+            # Registramos para o NiceGUI startup
+            from nicegui import app
+            app.on_startup(cls.start_alerts_scheduler)
+            print("[ALERTA] Scheduler registrado para app.on_startup.")
+
+    @classmethod
+    async def _scheduler_loop(cls):
+        """Loop infinito de verificação temporal executado em background."""
+        print("[ALERTA] Loop de background do Scheduler iniciado.")
+        while True:
+            try:
+                now = datetime.now()
+                today_str = str(date.today())
+                hour_min = now.strftime("%H:%M")
+                
+                # 1. Badaladas de Sino da Marinha automática (nas meias-horas)
+                if now.minute in [0, 30]:
+                    slot = (now.hour, now.minute)
+                    if cls._last_triggered_bell_slot != slot:
+                        config = load_alerts_config()
+                        if config.get("bell_enabled", True):
+                            strikes = cls.calculate_naval_bell_strikes(now)
+                            # Representação de batidas singelas e duplas (ex: '●● ●● ●' = 5 batidas)
+                            bell_str = "●● " * (strikes // 2) + "● " * (strikes % 2)
+                            print(f"[SCHEDULER] Acionando Sino da Marinha: {strikes} baladas ({bell_str.strip()})")
+                            
+                            # Dispara o alerta para a TV com áudio do sino
+                            cls.trigger_alert(
+                                "Toque de Sino",
+                                f"Quarto de Serviço: {strikes} baladas ({bell_str.strip()})",
+                                f"naval_bell_{strikes}"
+                            )
+                        cls._last_triggered_bell_slot = slot
+                
+                # 2. Alertas Agendados Personalizados
+                config = load_alerts_config()
+                custom_alerts = config.get("custom_alerts", [])
+                for alert in custom_alerts:
+                    if alert.get("enabled", True) and alert.get("time") == hour_min:
+                        alert_id = alert.get("id")
+                        if cls._triggered_custom_alerts_today.get(alert_id) != today_str:
+                            print(f"[SCHEDULER] Disparando alerta agendado [{alert_id}]: {alert['title']}")
+                            cls.trigger_alert(
+                                alert.get("title", "Aviso"),
+                                alert.get("message", ""),
+                                alert.get("sound", "info")
+                            )
+                            cls._triggered_custom_alerts_today[alert_id] = today_str
+            except Exception as e:
+                print(f"[SCHEDULER ERRO] Falha no loop principal: {e}")
+                
+            # Verifica a cada 20 segundos
+            await asyncio.sleep(20)

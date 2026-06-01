@@ -1,0 +1,7 @@
+streamlit
+pyTelegramBotAPI
+google-generativeai
+supabase
+schedule
+python-dotenv
+python-dateutil

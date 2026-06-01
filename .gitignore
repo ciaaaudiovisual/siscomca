@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+
+# Environment
+.env
+.env.local
+
+# Keys
+ssh-key-*.key
+*.pem
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+*.exe
+
+# NiceGUI
+*.db
+
+# Backups
+backups/
+*.backup
+*.bak
+
+# Docker
+.docker/

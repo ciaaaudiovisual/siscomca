@@ -1,0 +1,16 @@
+name: Desfibrilador Tático (Keep Alive)
+
+on:
+  schedule:
+    - cron: "*/30 * * * *" # Executa a cada 30 minutos
+  workflow_dispatch: # Permite rodar manualmente se precisar
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Acordar Aplicação
+        run: |
+          # O flag -L segue redirecionamentos, -s silencia erros
+          curl -L -s https://comsocboard.streamlit.app/ > /dev/null
+          echo "Ping tático enviado com sucesso."

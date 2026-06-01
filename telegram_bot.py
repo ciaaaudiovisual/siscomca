@@ -1,0 +1,2231 @@
+import os
+import asyncio
+from datetime import date, datetime, timedelta
+from telebot.async_telebot import AsyncTeleBot
+from telebot import types
+from database import get_bot_db_connection as get_db_connection, salvar_presenca_supabase
+from alerts_manager import AlertsManager
+
+# Estado global da conversação do bot por chat_id
+chat_states = {}
+
+TIPOS_DISPENSA = [
+    'Total (todas as atividades)',
+    'Para Esforço Físico',
+    'Para Atividades Externas',
+    'Para Armamento',
+    'Parcial — Especificar abaixo',
+]
+
+TIPOS_LICENCA = [
+    'Licença Para Tratamento de Saúde (LTS)',
+    'Licença Especial',
+    'Licença Nojo',
+    'Licença Gala',
+    'Afastamento Autorizado',
+]
+
+# Instância única do bot
+bot = None
+polling_task = None
+
+def get_main_menu_keyboard():
+    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+    markup.row(types.KeyboardButton("📊 Resumo Diário"), types.KeyboardButton("👮 Escala de Serviço"))
+    markup.row(types.KeyboardButton("🔍 Consulta de Aluno"), types.KeyboardButton("📋 Lançar Ocorrência"))
+    markup.row(types.KeyboardButton("📞 Chamada Diária"), types.KeyboardButton("🏥 Lançar Saúde"))
+    markup.row(types.KeyboardButton("📢 Aviso na TV"), types.KeyboardButton("❌ Cancelar"))
+    return markup
+
+def get_cancel_keyboard():
+    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+    markup.add(types.KeyboardButton("❌ Cancelar"))
+    return markup
+
+def get_duration_keyboard():
+    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+    markup.row(types.KeyboardButton("1"), types.KeyboardButton("2"), types.KeyboardButton("3"))
+    markup.row(types.KeyboardButton("5"), types.KeyboardButton("7"), types.KeyboardButton("10"))
+    markup.row(types.KeyboardButton("15"), types.KeyboardButton("30"), types.KeyboardButton("❌ Cancelar"))
+    return markup
+
+
+def get_bot_token() -> str:
+    """Busca o token do Telegram na tabela Config do banco ou no .env como fallback."""
+    token = ""
+    try:
+        conn = get_db_connection()
+        if conn:
+            res = conn.table('Config').select('*').eq('chave', 'telegram_bot_token').execute()
+            if res.data and res.data[0].get('valor'):
+                token = res.data[0]['valor'].strip()
+    except Exception as e:
+        print(f"[Bot] Erro ao ler token do banco de dados: {e}")
+    
+    if not token:
+        token = os.getenv("TELEGRAM_TOKEN", "").strip()
+    return token
+
+async def check_authorized_user(from_user_id: int):
+    """Verifica se o telegram_id está associado a um usuário autorizado no banco."""
+    conn = get_db_connection()
+    if not conn:
+        return None
+    try:
+        res = conn.table('Users').select('*').eq('telegram_id', str(from_user_id)).execute()
+        if res.data:
+            return res.data[0]
+    except Exception as e:
+        print(f"[Bot] Erro ao validar telegram_id {from_user_id}: {e}")
+    return None
+
+def clear_state(chat_id):
+    if chat_id in chat_states:
+        del chat_states[chat_id]
+
+def setup_handlers(bot_instance):
+    """Configura os ouvintes de mensagem no bot."""
+    
+    @bot_instance.message_handler(commands=['start', 'help', 'menu'])
+    async def send_welcome(message):
+        chat_id = message.chat.id
+        clear_state(chat_id)
+        
+        welcome_text = (
+            "⚓ Comando Tático SisCOMCA ⚓\n\n"
+            "Olá! Eu sou o assistente oficial do SisCOMCA para lançamento de avisos, ocorrências, presença e saúde por Telegram.\n\n"
+            "Comandos Disponíveis:\n"
+            "🔹 `/menu` : Exibe este menu de comandos.\n"
+            "🔹 `/resumo` (ou `/parada`) : Exibe o resumo do efetivo e saúde de hoje.\n"
+            "🔹 `/escala` (ou `/servico`) : Consulta e altera a escala de serviço.\n"
+            "🔹 `/consulta` (ou `/aluno`) : Exibe a ficha de contatos e ocorrências de um aluno.\n"
+            "🔹 `/anotacao` : Inicia o lançamento guiado de comportamento de alunos.\n"
+            "🔹 `/presenca` (ou `/chamada`) : Realiza a chamada coletiva de uma turma.\n"
+            "🔹 `/atrasado` (ou `/atraso`) : Registra atrasado (retira falta e lança ocorrência).\n"
+            "🔹 `/enfermaria` (ou `/saude`) : Inicia o lançamento guiado de registros de saúde/baixas.\n"
+            "🔹 `/aviso` : Adiciona um aviso corrido no letreiro da TV.\n"
+            "🔹 `/vincular <email>` : Vincula seu Telegram ID ao seu usuário cadastrado na Web.\n"
+            "🔹 `/cancelar` : Aborta qualquer operação em andamento.\n\n"
+            f"ℹ️ Seu Telegram ID atual é: `{message.from_user.id}`"
+        )
+        
+        await bot_instance.reply_to(message, welcome_text, reply_markup=get_main_menu_keyboard(), parse_mode='Markdown')
+
+    @bot_instance.message_handler(commands=['presenca', 'chamada'])
+    async def register_presenca_command(message):
+        chat_id = message.chat.id
+        clear_state(chat_id)
+        
+        profile = await check_authorized_user(message.from_user.id)
+        if not profile:
+            await bot_instance.reply_to(
+                message, 
+                "⚠️ Acesso não autorizado!\n"
+                f"Associe seu Telegram ID ({message.from_user.id}) usando `/vincular <email>` ou com o Administrador."
+            )
+            return
+            
+        conn = get_db_connection()
+        if not conn:
+            await bot_instance.reply_to(message, "❌ Sem conexão com o banco. Operação abortada.")
+            return
+
+        try:
+            res = conn.table('Alunos').select('pelotao').execute()
+            if res.data:
+                pelotoes = sorted(list(set([r['pelotao'] for r in res.data if r.get('pelotao')])))
+            else:
+                pelotoes = []
+        except Exception as e:
+            await bot_instance.reply_to(message, f"❌ Erro ao ler turmas: {e}")
+            return
+
+        if not pelotoes:
+            await bot_instance.reply_to(message, "❌ Nenhum pelotão encontrado no cadastro de alunos.")
+            return
+
+        chat_states[chat_id] = {
+            'action': 'presenca',
+            'step': 'choose_pelotao',
+            'user': profile,
+            'data': {'pelotoes': pelotoes}
+        }
+
+        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+        for idx, pel in enumerate(pelotoes):
+            markup.add(types.KeyboardButton(f"{idx + 1} — {pel}"))
+        markup.add(types.KeyboardButton("❌ Cancelar"))
+
+        prompt = "📋 Chamada Diária: Selecione a Turma (Pelotão) abaixo:\n\n"
+        for idx, pel in enumerate(pelotoes):
+            prompt += f"{idx + 1} — {pel}\n"
+        await bot_instance.reply_to(message, prompt, reply_markup=markup, parse_mode='Markdown')
+
+    @bot_instance.message_handler(commands=['atrasado', 'atraso'])
+    async def register_atrasado_command(message):
+        chat_id = message.chat.id
+        clear_state(chat_id)
+        
+        profile = await check_authorized_user(message.from_user.id)
+        if not profile:
+            await bot_instance.reply_to(
+                message, 
+                "⚠️ Acesso não autorizado!\n"
+                f"Associe seu Telegram ID ({message.from_user.id}) usando `/vincular <email>` ou com o Administrador."
+            )
+            return
+            
+        conn = get_db_connection()
+        absent_students = []
+        if conn:
+            try:
+                data_hoje = date.today().strftime('%Y-%m-%d')
+                res_ausentes = conn.table('presenca_ausencia').select('*').eq('data', data_hoje).eq('presente', False).execute()
+                absents = res_ausentes.data if res_ausentes.data else []
+                if absents:
+                    res_alunos = conn.table('Alunos').select('*').execute()
+                    alunos = res_alunos.data if res_alunos.data else []
+                    for ab in absents:
+                        num = str(ab.get('numero_interno', '')).lower()
+                        for al in alunos:
+                            if str(al.get('numero_interno', '')).lower() == num:
+                                absent_students.append(al)
+                                break
+            except Exception as e:
+                print(f"[Bot] Erro ao carregar ausentes para atraso: {e}", flush=True)
+
+        if absent_students:
+            chat_states[chat_id] = {
+                'action': 'atrasado',
+                'step': 'choose_absent_student',
+                'user': profile,
+                'data': {'absent_students_list': absent_students}
+            }
+            
+            markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+            for idx, al in enumerate(absent_students):
+                markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']}"))
+            markup.add(types.KeyboardButton(f"{len(absent_students) + 1} — 🔍 Buscar outro aluno"))
+            markup.add(types.KeyboardButton("❌ Cancelar"))
+            
+            prompt = "🕒 Lançamento de Atrasado: Selecione o aluno que chegou atrasado na lista abaixo (ou escolha buscar outro):"
+            await bot_instance.reply_to(message, prompt, reply_markup=markup)
+        else:
+            chat_states[chat_id] = {
+                'action': 'atrasado',
+                'step': 'search_student',
+                'user': profile,
+                'data': {}
+            }
+            await bot_instance.reply_to(
+                message, 
+                "🕒 Lançamento de Atrasado: Não há ausentes registrados hoje. Digite o nome de guerra ou número interno do aluno:",
+                reply_markup=get_cancel_keyboard()
+            )
+
+    @bot_instance.message_handler(commands=['enfermaria', 'saude'])
+    async def register_saude_command(message):
+        chat_id = message.chat.id
+        clear_state(chat_id)
+        
+        profile = await check_authorized_user(message.from_user.id)
+        if not profile:
+            await bot_instance.reply_to(
+                message, 
+                "⚠️ Acesso não autorizado!\n"
+                f"Associe seu Telegram ID ({message.from_user.id}) usando `/vincular <email>` ou com o Administrador."
+            )
+            return
+            
+        chat_states[chat_id] = {
+            'action': 'saude',
+            'step': 'choose_initial_option',
+            'user': profile,
+            'data': {}
+        }
+        
+        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+        markup.row(types.KeyboardButton("🆕 Novo Lançamento"), types.KeyboardButton("🏥 Listar Baixados"))
+        markup.add(types.KeyboardButton("❌ Cancelar"))
+        
+        await bot_instance.reply_to(message, "🏥 Gestão de Saúde / Enfermaria: Selecione uma opção abaixo:", reply_markup=markup)
+
+    @bot_instance.message_handler(commands=['cancelar'])
+    async def cancel_action(message):
+        chat_id = message.chat.id
+        clear_state(chat_id)
+        await bot_instance.reply_to(message, "❌ Operação cancelada com sucesso.", reply_markup=get_main_menu_keyboard())
+
+    @bot_instance.message_handler(commands=['vincular'])
+    async def link_user(message):
+        chat_id = message.chat.id
+        clear_state(chat_id)
+        
+        args = message.text.split()
+        if len(args) < 2:
+            await bot_instance.reply_to(
+                message, 
+                "⚠️ Uso correto: `/vincular <seu_email_ou_username>`\n"
+                "Ex: `/vincular joao.silva@marinha.mil.br` ou `/vincular joao.silva`"
+            )
+            return
+
+        user_input = args[1].strip()
+        username = user_input.split('@')[0] if '@' in user_input else user_input
+        
+        conn = get_db_connection()
+        if not conn:
+            await bot_instance.reply_to(message, "❌ Sem conexão com o banco de dados. Tente novamente mais tarde.")
+            return
+
+        try:
+            # Verifica se o usuário existe
+            res = conn.table('Users').select('*').eq('username', username).execute()
+            if not res.data:
+                await bot_instance.reply_to(
+                    message, 
+                    f"❌ Nenhum operador encontrado com o username/email '{username}'.\n"
+                    "Peça para o Administrador cadastrar você na Web primeiro."
+                )
+                return
+
+            user_profile = res.data[0]
+            # Faz a vinculação atualizando o telegram_id
+            conn.table('Users').update({'telegram_id': str(message.from_user.id)}).eq('id', user_profile['id']).execute()
+
+            await bot_instance.reply_to(
+                message, 
+                f"✅ Vinculação Concluída!\n"
+                f"Seu Telegram ID foi associado ao operador {user_profile['nome']}.\n"
+                "Agora você pode lançar avisos e anotações.",
+                reply_markup=get_main_menu_keyboard()
+            )
+        except Exception as e:
+            if 'column "telegram_id" of relation "Users" does not exist' in str(e):
+                await bot_instance.reply_to(message, "❌ Erro: Coluna 'telegram_id' não foi criada no banco de dados. Peça para o Administrador rodar a migração SQL.")
+            else:
+                await bot_instance.reply_to(message, f"❌ Erro ao vincular perfil: {e}")
+
+    @bot_instance.message_handler(commands=['aviso'])
+    async def register_aviso(message):
+        chat_id = message.chat.id
+        clear_state(chat_id)
+        
+        profile = await check_authorized_user(message.from_user.id)
+        if not profile:
+            await bot_instance.reply_to(
+                message, 
+                "⚠️ Acesso não autorizado!\n"
+                f"Associe seu Telegram ID ({message.from_user.id}) usando `/vincular <email>` ou com o Administrador."
+            )
+            return
+            
+        chat_states[chat_id] = {
+            'action': 'aviso',
+            'step': 'get_text',
+            'user': profile
+        }
+        await bot_instance.reply_to(message, "📢 Letreiro da TV: Digite o texto do aviso que deseja exibir:", reply_markup=get_cancel_keyboard())
+
+    @bot_instance.message_handler(commands=['anotacao'])
+    async def register_anotacao(message):
+        chat_id = message.chat.id
+        clear_state(chat_id)
+        
+        profile = await check_authorized_user(message.from_user.id)
+        if not profile:
+            await bot_instance.reply_to(
+                message, 
+                "⚠️ Acesso não autorizado!\n"
+                f"Associe seu Telegram ID ({message.from_user.id}) usando `/vincular <email>` ou com o Administrador."
+            )
+            return
+            
+        chat_states[chat_id] = {
+            'action': 'anotacao',
+            'step': 'search_student',
+            'user': profile,
+            'data': {}
+        }
+        await bot_instance.reply_to(message, "📋 Ocorrência: Digite o nome de guerra ou número interno do aluno:", reply_markup=get_cancel_keyboard())
+
+    @bot_instance.message_handler(commands=['resumo', 'parada'])
+    async def register_resumo_command(message):
+        chat_id = message.chat.id
+        clear_state(chat_id)
+        
+        profile = await check_authorized_user(message.from_user.id)
+        if not profile:
+            await bot_instance.reply_to(
+                message, 
+                "⚠️ **Acesso não autorizado!**\n"
+                f"Associe seu Telegram ID (`{message.from_user.id}`) usando `/vincular <email>` ou com o Administrador."
+            )
+            return
+            
+        conn = get_db_connection()
+        if not conn:
+            await bot_instance.reply_to(message, "❌ Sem conexão com o banco de dados.")
+            return
+
+        await bot_instance.send_chat_action(chat_id, 'typing')
+        
+        try:
+            hoje_str = datetime.now().strftime('%Y-%m-%d')
+            hoje_br = datetime.now().strftime('%d/%m/%Y')
+            
+            res_al = conn.table('Alunos').select('id, numero_interno, nome_guerra, pelotao').execute()
+            alunos = res_al.data if res_al.data else []
+            total_alunos = len(alunos)
+            
+            res_pr = conn.table('presenca_ausencia').select('*').eq('data', hoje_str).execute()
+            presencas = res_pr.data if res_pr.data else []
+            
+            pres_map = {p['numero_interno']: p for p in presencas}
+            
+            presentes = []
+            ausentes = []
+            pendentes = []
+            
+            for al in alunos:
+                ni = al['numero_interno']
+                p_rec = pres_map.get(ni)
+                if p_rec:
+                    if p_rec.get('presente'):
+                        presentes.append(al)
+                    else:
+                        ausentes.append((al, p_rec.get('motivo_ausencia') or 'Sem motivo'))
+                else:
+                    pendentes.append(al)
+            
+            total_pres = len(presentes)
+            total_aus = len(ausentes)
+            total_pend = len(pendentes)
+            
+            res_pn = conn.table('pernoite').select('*').eq('data', hoje_str).eq('presente', True).execute()
+            pernoites = res_pn.data if res_pn.data else []
+            total_pernoite = len(pernoites)
+            
+            res_enf = conn.table('enfermaria').select('*').neq('status', 'Alta').execute()
+            enfermaria_records = res_enf.data if res_enf.data else []
+            
+            baixados = []
+            hospitalizados = []
+            dispensados = []
+            licenciados = []
+            
+            for row in enfermaria_records:
+                cat = row.get('categoria') or 'enfermaria'
+                status = row.get('status') or 'Ativo'
+                data_ini = row.get('data_ini')
+                data_fim = row.get('data_fim')
+                
+                esta_valido = True
+                if data_ini and data_fim:
+                    try:
+                        esta_valido = (str(data_ini) <= hoje_str <= str(data_fim))
+                    except Exception:
+                        pass
+                if not esta_valido:
+                    continue
+                    
+                item = {
+                    'ni': row.get('numero_interno', ''),
+                    'nome': row.get('nome_guerra', '').upper(),
+                    'motivo': row.get('motivo', 'Sem motivo')
+                }
+                
+                if cat == 'licenca' or status == 'Licença' or status == 'Licenciado':
+                    licenciados.append(item)
+                elif status == 'Hospital' or status == 'Hospitalizado':
+                    hospitalizados.append(item)
+                elif cat == 'dispensa' or status == 'Dispensado':
+                    dispensados.append(item)
+                else:
+                    baixados.append(item)
+            
+            added_nis = {x['ni'] for x in licenciados + baixados + hospitalizados + dispensados}
+            for al, motivo in ausentes:
+                if any(k in motivo.lower() for k in ['licen', 'licença', 'licenca', 'licena']):
+                    ni = al['numero_interno']
+                    if ni not in added_nis:
+                        licenciados.append({
+                            'ni': ni,
+                            'nome': al['nome_guerra'].upper(),
+                            'motivo': motivo
+                        })
+                        added_nis.add(ni)
+            
+            def format_list(items):
+                if not items:
+                    return " (Nenhum)"
+                return "\n  ↳ _" + ", ".join([f"{x['ni']}—{x['nome']}" for x in items]) + "_"
+                
+            ausentes_names = [f"{a[0]['numero_interno']}—{a[0]['nome_guerra']}" for a in ausentes]
+            ausentes_str = format_list([{'ni': a[0]['numero_interno'], 'nome': a[0]['nome_guerra']} for a in ausentes]) if ausentes_names else " (Nenhum)"
+            
+            pernoite_names = []
+            for pn in pernoites:
+                aid = str(pn.get('aluno_id'))
+                al_match = next((a for a in alunos if str(a['id']) == aid), None)
+                if al_match:
+                    pernoite_names.append({'ni': al_match['numero_interno'], 'nome': al_match['nome_guerra']})
+            pernoite_str = format_list(pernoite_names) if pernoite_names else " (Nenhum)"
+            
+            resumo_text = (
+                f"📊 RESUMO DIÁRIO ({hoje_br})\n\n"
+                f"👥 Efetivo Geral:\n"
+                f"• Total de Alunos: `{total_alunos}`\n"
+                f"• Presentes: `{total_pres}`\n"
+                f"• Ausentes: `{total_aus}`{ausentes_str}\n"
+                f"• Sem Registro (Pendente): `{total_pend}`\n\n"
+                f"🛌 Pernoite:\n"
+                f"• Pernoite Autorizado: `{total_pernoite}`{pernoite_str}\n\n"
+                f"🏥 Situação de Saúde:\n"
+                f"• 🏥 Internado/Observação: `{len(baixados)}`{format_list(baixados)}\n"
+                f"• 🚑 Hospitalizado: `{len(hospitalizados)}`{format_list(hospitalizados)}\n"
+                f"• 📝 Dispensas Ativas: `{len(dispensados)}`{format_list(dispensados)}\n"
+                f"• ✈️ Licenças Ativas: `{len(licenciados)}`{format_list(licenciados)}"
+            )
+            
+            await bot_instance.reply_to(message, resumo_text, reply_markup=get_main_menu_keyboard(), parse_mode='Markdown')
+        except Exception as e:
+            await bot_instance.reply_to(message, f"❌ Erro ao gerar resumo: {e}")
+
+    @bot_instance.message_handler(commands=['escala', 'servico'])
+    async def register_escala_command(message):
+        chat_id = message.chat.id
+        clear_state(chat_id)
+        
+        profile = await check_authorized_user(message.from_user.id)
+        if not profile:
+            await bot_instance.reply_to(
+                message, 
+                "⚠️ Acesso não autorizado!\n"
+                f"Associe seu Telegram ID ({message.from_user.id}) usando `/vincular <email>` ou com o Administrador."
+            )
+            return
+            
+        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+        markup.row(types.KeyboardButton("📅 Hoje"), types.KeyboardButton("📅 Amanhã"))
+        markup.add(types.KeyboardButton("❌ Cancelar"))
+        
+        chat_states[chat_id] = {
+            'action': 'escala',
+            'step': 'choose_date',
+            'user': profile,
+            'data': {}
+        }
+        await bot_instance.reply_to(message, "📅 Escala de Serviço: Selecione o dia desejado:", reply_markup=markup)
+
+    @bot_instance.message_handler(commands=['consulta', 'aluno'])
+    async def register_consulta_command(message):
+        chat_id = message.chat.id
+        clear_state(chat_id)
+        
+        profile = await check_authorized_user(message.from_user.id)
+        if not profile:
+            await bot_instance.reply_to(
+                message, 
+                "⚠️ Acesso não autorizado!\n"
+                f"Associe seu Telegram ID ({message.from_user.id}) usando `/vincular <email>` ou com o Administrador."
+            )
+            return
+            
+        args = message.text.split(maxsplit=1)
+        if len(args) > 1:
+            term = args[1].strip()
+            await perform_consulta_search(bot_instance, message, profile, term)
+        else:
+            chat_states[chat_id] = {
+                'action': 'consulta',
+                'step': 'search_student',
+                'user': profile,
+                'data': {}
+            }
+            await bot_instance.reply_to(message, "🔍 Consulta de Aluno: Digite o nome de guerra ou número interno do aluno:", reply_markup=get_cancel_keyboard())
+
+    @bot_instance.message_handler(func=lambda msg: True)
+    async def handle_normal_message(message):
+        chat_id = message.chat.id
+        state = chat_states.get(chat_id)
+        text = message.text.strip() if message.text else ""
+        if not state:
+            clean_text = text.lower()
+            if "resumo" in clean_text or "parada" in clean_text:
+                await register_resumo_command(message)
+                return
+            elif "escala" in clean_text or "serviço" in clean_text or "servico" in clean_text:
+                await register_escala_command(message)
+                return
+            elif "consulta" in clean_text or "aluno" in clean_text:
+                await register_consulta_command(message)
+                return
+            elif "anotação" in clean_text or "anotacao" in clean_text or "ocorrência" in clean_text or "ocorrencia" in clean_text:
+                await register_anotacao(message)
+                return
+            elif "presenca" in clean_text or "chamada" in clean_text or "presença" in clean_text:
+                await register_presenca_command(message)
+                return
+            elif "atrasado" in clean_text or "atraso" in clean_text:
+                await register_atrasado_command(message)
+                return
+            elif "enfermaria" in clean_text or "saúde" in clean_text or "saude" in clean_text:
+                await register_saude_command(message)
+                return
+            elif "aviso" in clean_text:
+                await register_aviso(message)
+                return
+            elif "cancelar" in clean_text:
+                await cancel_action(message)
+                return
+
+            welcome_text = (
+                "⚠️ Comando ou opção não reconhecida.\n\n"
+                "Para iniciar uma conversa ou operação, use os botões abaixo ou um dos comandos:\n"
+                "🔹 `/resumo` (ou `/parada`) : Exibe o resumo do efetivo e saúde de hoje.\n"
+                "🔹 `/escala` (ou `/servico`) : Consulta e altera a escala de serviço.\n"
+                "🔹 `/consulta` (ou `/aluno`) : Exibe a ficha de contatos e ocorrências de um aluno.\n"
+                "🔹 `/anotacao` : Inicia o lançamento de comportamento de alunos.\n"
+                "🔹 `/enfermaria` (ou `/saude`) : Inicia o lançamento de registros de saúde.\n"
+                "🔹 `/aviso` : Adiciona um aviso no letreiro da TV.\n"
+                "🔹 `/menu` : Exibe o menu principal do SisCOMCA.\n"
+                "🔹 `/vincular <email>` : Vincula seu Telegram ID ao seu usuário.\n"
+                "🔹 `/cancelar` : Aborta qualquer operação em andamento."
+            )
+            
+            await bot_instance.reply_to(message, welcome_text, reply_markup=get_main_menu_keyboard(), parse_mode='Markdown')
+            return
+            
+        action = state['action']
+        step = state['step']
+        text = message.text.strip()
+        
+        conn = get_db_connection()
+        if not conn:
+            await bot_instance.reply_to(message, "❌ Sem conexão com o banco de dados. Operação abortada.")
+            clear_state(chat_id)
+            return
+
+        # ── PROCESSAMENTO DO AVISO ────────────────────────────────────
+        if action == 'aviso' and step == 'get_text':
+            try:
+                autor = state['user'].get('nome', 'TELEGRAM').upper()
+                conn.table('Ordens_Diarias').insert({
+                    'data': date.today().strftime('%Y-%m-%d'),
+                    'texto': text,
+                    'autor_id': autor,
+                    'status': 'Ativo'
+                }).execute()
+                
+                # Transmite à TV
+                AlertsManager.trigger_alert(
+                    "Novo Aviso",
+                    f"Aviso publicado por {autor}: {text}",
+                    "info"
+                )
+                
+                await bot_instance.reply_to(message, "✅ Aviso gravado com sucesso e transmitido para a TV!", reply_markup=get_main_menu_keyboard())
+            except Exception as e:
+                await bot_instance.reply_to(message, f"❌ Erro ao gravar aviso: {e}", reply_markup=get_main_menu_keyboard())
+            finally:
+                clear_state(chat_id)
+
+        # ── PROCESSAMENTO DA ANOTAÇÃO ─────────────────────────────────
+        elif action == 'anotacao':
+            # Passo 1: Busca de Alunos
+            if step == 'search_student':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                try:
+                    res = conn.table('Alunos').select('*').execute()
+                    alunos = res.data if res.data else []
+                except Exception as e:
+                    await bot_instance.reply_to(message, f"❌ Erro ao ler alunos: {e}")
+                    clear_state(chat_id)
+                    return
+                
+                matches = []
+                query = text.lower()
+                for al in alunos:
+                    num = str(al.get('numero_interno', '')).lower()
+                    nome = str(al.get('nome_guerra', '')).lower()
+                    if query in num or query in nome or num.endswith("-" + query) or num.endswith(query):
+                        matches.append(al)
+                
+                if not matches:
+                    await bot_instance.reply_to(message, f"⚠️ Nenhum aluno encontrado com '{text}'. Digite novamente ou selecione Cancelar:", reply_markup=get_cancel_keyboard())
+                    return
+                
+                if len(matches) > 1:
+                    state['step'] = 'choose_student'
+                    state['data']['matches'] = matches[:10] # Limita a 10 opções
+                    
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    for idx, al in enumerate(state['data']['matches']):
+                        markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']}"))
+                    markup.add(types.KeyboardButton("❌ Cancelar"))
+ 
+                    prompt = "🔍 Múltiplos alunos encontrados. Selecione o correspondente abaixo:\n\n"
+                    for idx, al in enumerate(state['data']['matches']):
+                        prompt += f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al['pelotao']})\n"
+                    await bot_instance.reply_to(message, prompt, reply_markup=markup)
+                else:
+                    await prompt_action_type(bot_instance, message, state, matches[0])
+            
+            # Passo 2: Seleção de Aluno em Lista
+            elif step == 'choose_student':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                matches = state['data'].get('matches', [])
+                try:
+                    clean_text = text.split('—')[0].strip()
+                    choice = int(clean_text)
+                    if 1 <= choice <= len(matches):
+                        selected = matches[choice - 1]
+                        await prompt_action_type(bot_instance, message, state, selected)
+                    else:
+                        await bot_instance.reply_to(message, f"⚠️ Opção inválida. Digite um número entre 1 e {len(matches)}:")
+                except ValueError:
+                    await bot_instance.reply_to(message, "⚠️ Digite apenas o número correspondente à sua escolha:")
+ 
+            # Passo 3: Escolha do Tipo de Ocorrência
+            elif step == 'choose_action_type':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                tipos = state['data'].get('tipos', [])
+                try:
+                    clean_text = text.split('—')[0].strip()
+                    choice = int(clean_text)
+                    if 1 <= choice <= len(tipos):
+                        selected_type = tipos[choice - 1]
+                        state['step'] = 'get_description'
+                        state['data']['tipo'] = selected_type
+                        
+                        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                        markup.row(types.KeyboardButton("⏭️ Pular"), types.KeyboardButton("❌ Cancelar"))
+                        
+                        await bot_instance.reply_to(
+                            message, 
+                            f"📝 Tipo selecionado: {selected_type['nome']}\n\n"
+                            "Digite a descrição/justificativa para esta ocorrência (ou escolha Pular):",
+                            reply_markup=markup
+                        )
+                    else:
+                        await bot_instance.reply_to(message, f"⚠️ Opção inválida. Digite um número entre 1 e {len(tipos)}:")
+                except ValueError:
+                    await bot_instance.reply_to(message, "⚠️ Digite apenas o número correspondente ao tipo de ação:")
+ 
+            # Passo 4: Justificativa/Descrição
+            elif step == 'get_description':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                desc = "" if text in ("/pular", "⏭️ Pular", "⏭️ pular", "pular") else text
+                state['step'] = 'confirm_submit'
+                state['data']['description'] = desc
+                
+                student = state['data']['student']
+                tipo = state['data']['tipo']
+                pts = float(tipo.get('pontuacao', 0.0) or 0.0)
+                
+                markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                markup.row(types.KeyboardButton("S — Confirmar"), types.KeyboardButton("N — Cancelar"))
+
+                confirm_prompt = (
+                    "⚠️ Confirmar Lançamento?\n\n"
+                    f"👤 Aluno: {student['nome_guerra']} ({student['numero_interno']})\n"
+                    f"🛡️ Tipo: {tipo['nome']} ({pts:+.1f} pts)\n"
+                    f"📝 Justificativa: {desc or 'Nenhuma'}\n\n"
+                    "Selecione uma das opções abaixo:"
+                )
+                await bot_instance.reply_to(message, confirm_prompt, reply_markup=markup)
+
+            # Passo 5: Confirmação Final
+            elif step == 'confirm_submit':
+                ans = text.strip().lower()
+                if ans in ['s', 'sim', 'y', 'yes', 's — confirmar']:
+                    try:
+                        student = state['data']['student']
+                        tipo = state['data']['tipo']
+                        desc = state['data']['description']
+                        usuario = state['user'].get('nome', 'TELEGRAM').upper()
+                        
+                        conn.table('Acoes').insert({
+                            'aluno_id': str(student['id']),
+                            'tipo_acao_id': str(tipo['id']),
+                            'tipo': tipo['nome'],
+                            'descricao': desc,
+                            'data': date.today().strftime('%Y-%m-%d'),
+                            'usuario': usuario,
+                            'status': 'Pendente'
+                        }).execute()
+                        
+                        aluno_lbl = f"{student.get('numero_interno', '')} — {str(student.get('nome_guerra', '')).upper()} ({str(student.get('pelotao', '')).upper()})"
+                        pts = float(tipo.get('pontuacao', 0.0) or 0.0)
+                        
+                        # Determina se é relacionado a saúde para ser laranja (warning)
+                        is_saude = False
+                        lbl_upper = tipo['nome'].upper()
+                        for h in ["ENFERMARIA", "HOSPITAL", "NAS", "DISPENSA MÉDICA", "SAÚDE"]:
+                            if h in lbl_upper:
+                                is_saude = True
+                                
+                        alert_type = "success" if pts > 0 else "alert" if pts < 0 else "info"
+                        if is_saude:
+                            alert_type = "warning"
+                            
+                        AlertsManager.trigger_alert(
+                            "Registro de Ocorrência",
+                            f"{aluno_lbl} recebeu {tipo['nome'].upper()} por {usuario}!",
+                            alert_type
+                        )
+                        
+                        await bot_instance.reply_to(message, "✅ Ocorrência registrada em status PENDENTE e transmitida para a TV!", reply_markup=get_main_menu_keyboard())
+                    except Exception as e:
+                        await bot_instance.reply_to(message, f"❌ Erro ao salvar ocorrência: {e}", reply_markup=get_main_menu_keyboard())
+                    finally:
+                        clear_state(chat_id)
+                elif ans in ['n', 'não', 'nao', 'no', 'n — cancelar', 'cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Lançamento abortado.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                else:
+                    await bot_instance.reply_to(message, "⚠️ Responda apenas com S (Sim) ou N (Não):")
+
+        # ── PROCESSAMENTO DO LANÇAMENTO DE PRESENÇA ─────────────────────
+        elif action == 'presenca':
+            # Passo 1: Escolha do Pelotão
+            if step == 'choose_pelotao':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                pelotoes = state['data']['pelotoes']
+                try:
+                    clean_text = text.split('—')[0].strip()
+                    choice = int(clean_text)
+                    if 1 <= choice <= len(pelotoes):
+                        pelotao = pelotoes[choice - 1]
+                        state['data']['pelotao'] = pelotao
+                        state['step'] = 'choose_presenca_mode'
+                        
+                        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                        markup.add(types.KeyboardButton("1 — Marcar TODOS como PRESENTES"))
+                        markup.add(types.KeyboardButton("2 — Marcar todos como PRESENTES, EXCETO ausentes"))
+                        markup.add(types.KeyboardButton("❌ Cancelar"))
+
+                        prompt = (
+                            f"Turma Selecionada: {pelotao}\n\n"
+                            "Selecione o tipo de lançamento de presença abaixo:"
+                        )
+                        await bot_instance.reply_to(message, prompt, reply_markup=markup)
+                    else:
+                        await bot_instance.reply_to(message, f"⚠️ Opção inválida. Digite um número de 1 a {len(pelotoes)}:")
+                except ValueError:
+                    await bot_instance.reply_to(message, "⚠️ Digite apenas o número correspondente à sua escolha:")
+
+            # Passo 2: Escolha do Modo de Presença
+            elif step == 'choose_presenca_mode':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                try:
+                    clean_text = text.split('—')[0].strip()
+                    choice = int(clean_text)
+                    pelotao = state['data']['pelotao']
+                    if choice == 1:
+                        state['data']['mode'] = 'todos_presentes'
+                        state['step'] = 'confirm_presenca_submit'
+                        
+                        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                        markup.row(types.KeyboardButton("S — Confirmar"), types.KeyboardButton("N — Cancelar"))
+
+                        confirm_prompt = (
+                            f"⚠️ Confirmar Lançamento de Presença Coletiva?\n\n"
+                            f"📋 Turma: {pelotao}\n"
+                            f"📊 Lançamento: TODOS PRESENTES\n\n"
+                            "Selecione uma das opções abaixo:"
+                        )
+                        await bot_instance.reply_to(message, confirm_prompt, reply_markup=markup)
+                    elif choice == 2:
+                        state['data']['mode'] = 'ausentes_excecao'
+                        state['step'] = 'get_absent_numbers'
+                        await bot_instance.reply_to(
+                            message,
+                            "🚫 Digite o Número Interno dos ausentes separados por vírgula (ex: 101, 105, 210):\n"
+                            "Ou envie `/cancelar` para abortar:",
+                            reply_markup=get_cancel_keyboard()
+                        )
+                    else:
+                        await bot_instance.reply_to(message, "⚠️ Opção inválida. Escolha '1' ou '2':")
+                except ValueError:
+                    await bot_instance.reply_to(message, "⚠️ Digite apenas o número correspondente à sua escolha:")
+            # Passo 3: Obter Números dos Ausentes
+            elif step == 'get_absent_numbers':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                pelotao = state['data']['pelotao']
+                
+                try:
+                    res = conn.table('Alunos').select('*').eq('pelotao', pelotao).execute()
+                    alunos_pelotao = res.data if res.data else []
+                except Exception as e:
+                    await bot_instance.reply_to(message, f"❌ Erro ao ler alunos do pelotão: {e}", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                
+                if not alunos_pelotao:
+                    await bot_instance.reply_to(message, f"❌ Nenhum aluno cadastrado no pelotão {pelotao}. Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+
+                raw_inputs = [x.strip() for x in text.split(',')]
+                absent_students = []
+                not_found = []
+                
+                for ri in raw_inputs:
+                    if not ri:
+                        continue
+                    found = False
+                    for al in alunos_pelotao:
+                        num_str = str(al.get('numero_interno', '')).strip().lower()
+                        term = ri.strip().lower()
+                        if term == num_str or num_str.endswith("-" + term) or num_str.endswith(term):
+                            absent_students.append(al)
+                            found = True
+                            break
+                    if not found:
+                        not_found.append(ri)
+                
+                if not absent_students:
+                    await bot_instance.reply_to(
+                        message, 
+                        "⚠️ Nenhum aluno do pelotão correspondente foi encontrado com os termos inseridos.\n"
+                        "Insira os números internos válidos novamente ou selecione Cancelar:",
+                        reply_markup=get_cancel_keyboard()
+                    )
+                    return
+
+                state['data']['absent_students'] = absent_students
+                state['step'] = 'choose_absent_reason'
+                
+                warning_lbl = ""
+                if not_found:
+                    warning_lbl = f"⚠️ Não encontrados: {', '.join(not_found)}\n\n"
+
+                markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                markup.add(types.KeyboardButton("1 — Falta Injustificada"))
+                markup.add(types.KeyboardButton("2 — Doença"))
+                markup.add(types.KeyboardButton("3 — Licença"))
+                markup.add(types.KeyboardButton("4 — Pernoite"))
+                markup.add(types.KeyboardButton("5 — Saída Autorizada"))
+                markup.add(types.KeyboardButton("6 — Outro"))
+                markup.add(types.KeyboardButton("❌ Cancelar"))
+
+                prompt = (
+                    f"{warning_lbl}"
+                    f"🚫 Ausentes Detectados:\n"
+                    f"{', '.join([a['nome_guerra'] for a in absent_students])}\n\n"
+                    "Selecione o motivo padrão de ausência abaixo:"
+                )
+                await bot_instance.reply_to(message, prompt, reply_markup=markup)
+
+            # Passo 4: Escolha do Motivo da Ausência
+            elif step == 'choose_absent_reason':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                reasons_map = {
+                    1: 'Falta Injustificada',
+                    2: 'Doença',
+                    3: 'Licença',
+                    4: 'Pernoite',
+                    5: 'Saída Autorizada',
+                    6: 'Outro'
+                }
+                try:
+                    clean_text = text.split('—')[0].strip()
+                    choice = int(clean_text)
+                    if choice in reasons_map:
+                        reason = reasons_map[choice]
+                        state['data']['absent_reason'] = reason
+                        state['step'] = 'confirm_presenca_submit'
+                        
+                        pelotao = state['data']['pelotao']
+                        absent_students = state['data']['absent_students']
+                        
+                        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                        markup.row(types.KeyboardButton("S — Confirmar"), types.KeyboardButton("N — Cancelar"))
+
+                        confirm_prompt = (
+                            f"⚠️ Confirmar Lançamento de Presença Coletiva?\n\n"
+                            f"📋 Turma: {pelotao}\n"
+                            f"📊 Lançamento: PRESENTES COM EXCEÇÕES\n"
+                            f"🚫 Ausentes ({reason}):\n"
+                            + '\n'.join([f"• {a['numero_interno']} — {a['nome_guerra']}" for a in absent_students])
+                            + "\n\nSelecione uma das opções abaixo:"
+                        )
+                        await bot_instance.reply_to(message, confirm_prompt, reply_markup=markup)
+                    else:
+                        await bot_instance.reply_to(message, "⚠️ Opção inválida. Digite um número de 1 a 6:")
+                except ValueError:
+                    await bot_instance.reply_to(message, "⚠️ Digite apenas o número correspondente ao motivo:")
+
+            # Passo 5: Confirmação e Inserção no Supabase
+            elif step == 'confirm_presenca_submit':
+                ans = text.strip().lower()
+                if ans in ['s', 'sim', 'y', 'yes', 's — confirmar']:
+                    try:
+                        pelotao = state['data']['pelotao']
+                        mode = state['data']['mode']
+                        
+                        res = conn.table('Alunos').select('*').eq('pelotao', pelotao).execute()
+                        alunos_pelotao = res.data if res.data else []
+                        
+                        if mode == 'todos_presentes':
+                            for al in alunos_pelotao:
+                                salvar_presenca_supabase(
+                                    numero_interno=al['numero_interno'],
+                                    nome_guerra=al['nome_guerra'],
+                                    turma=pelotao,
+                                    presente=True
+                                )
+                            msg_sucesso = f"✅ Presença de todos os alunos da turma {pelotao} gravada com sucesso!"
+                            msg_alerta = f"Chamada do pelotão {pelotao} realizada (Todos Presentes)!"
+                        else:
+                            absent_students = state['data']['absent_students']
+                            reason = state['data']['absent_reason']
+                            absent_ids = [a['id'] for a in absent_students]
+                            
+                            for al in alunos_pelotao:
+                                is_present = al['id'] not in absent_ids
+                                motivo = reason if not is_present else None
+                                salvar_presenca_supabase(
+                                    numero_interno=al['numero_interno'],
+                                    nome_guerra=al['nome_guerra'],
+                                    turma=pelotao,
+                                    presente=is_present,
+                                    motivo_ausencia=motivo
+                                )
+                            msg_sucesso = f"✅ Chamada da turma {pelotao} gravada com sucesso!"
+                            msg_alerta = f"Chamada do pelotão {pelotao} realizada (Ausentes: {', '.join([a['nome_guerra'] for a in absent_students])})!"
+                        
+                        AlertsManager.trigger_alert("Chamada Diária", msg_alerta, "info")
+                        await bot_instance.reply_to(message, msg_sucesso, reply_markup=get_main_menu_keyboard())
+                    except Exception as e:
+                        await bot_instance.reply_to(message, f"❌ Erro ao gravar chamada: {e}", reply_markup=get_main_menu_keyboard())
+                    finally:
+                        clear_state(chat_id)
+
+        elif action == 'atrasado':
+            # Passo 1: Seleção de Aluno Ausente da Lista (ou Buscar outro)
+            if step == 'choose_absent_student':
+                absent_students = state['data']['absent_students_list']
+                try:
+                    clean_text = text.split('—')[0].strip()
+                    choice = int(clean_text)
+                    if 1 <= choice <= len(absent_students):
+                        selected = absent_students[choice - 1]
+                        await prompt_atrasado_confirm(bot_instance, message, state, conn, selected)
+                    elif choice == len(absent_students) + 1:
+                        state['step'] = 'search_student'
+                        await bot_instance.reply_to(message, "🔍 Digite o Nome de Guerra ou Número Interno do aluno:", reply_markup=get_cancel_keyboard())
+                    else:
+                        await bot_instance.reply_to(message, f"⚠️ Opção inválida. Digite um número de 1 a {len(absent_students) + 1}:")
+                except ValueError:
+                    # Se não for número, assume busca direta
+                    if text.lower() in ['cancelar', '❌ cancelar']:
+                        await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                        clear_state(chat_id)
+                        return
+                    state['step'] = 'search_student'
+                    try:
+                        res = conn.table('Alunos').select('*').execute()
+                        alunos = res.data if res.data else []
+                    except Exception as e:
+                        await bot_instance.reply_to(message, f"❌ Erro ao ler alunos: {e}", reply_markup=get_main_menu_keyboard())
+                        clear_state(chat_id)
+                        return
+                    matches = []
+                    query = text.lower()
+                    for al in alunos:
+                        num = str(al.get('numero_interno', '')).lower()
+                        nome = str(al.get('nome_guerra', '')).lower()
+                        if query in num or query in nome:
+                            matches.append(al)
+                    if not matches:
+                        await bot_instance.reply_to(message, f"⚠️ Nenhum aluno encontrado com '{text}'. Digite novamente ou selecione Cancelar:", reply_markup=get_cancel_keyboard())
+                        return
+                    if len(matches) > 1:
+                        state['step'] = 'choose_student'
+                        state['data']['matches'] = matches[:10]
+                        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                        for idx, al in enumerate(state['data']['matches']):
+                            markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']}"))
+                        markup.add(types.KeyboardButton("❌ Cancelar"))
+                        
+                        prompt = "🔍 Múltiplos alunos encontrados. Selecione o correspondente abaixo:\n\n"
+                        for idx, al in enumerate(state['data']['matches']):
+                            prompt += f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al['pelotao']})\n"
+                        await bot_instance.reply_to(message, prompt, reply_markup=markup)
+                    else:
+                        await prompt_atrasado_confirm(bot_instance, message, state, conn, matches[0])
+
+            # Passo 2: Busca de Alunos
+            elif step == 'search_student':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                try:
+                    res = conn.table('Alunos').select('*').execute()
+                    alunos = res.data if res.data else []
+                except Exception as e:
+                    await bot_instance.reply_to(message, f"❌ Erro ao ler alunos: {e}", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                
+                matches = []
+                query = text.lower()
+                for al in alunos:
+                    num = str(al.get('numero_interno', '')).lower()
+                    nome = str(al.get('nome_guerra', '')).lower()
+                    if query in num or query in nome:
+                        matches.append(al)
+                
+                if not matches:
+                    await bot_instance.reply_to(message, f"⚠️ Nenhum aluno encontrado com '{text}'. Digite novamente ou selecione Cancelar:", reply_markup=get_cancel_keyboard())
+                    return
+                
+                if len(matches) > 1:
+                    state['step'] = 'choose_student'
+                    state['data']['matches'] = matches[:10]
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    for idx, al in enumerate(state['data']['matches']):
+                        markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']}"))
+                    markup.add(types.KeyboardButton("❌ Cancelar"))
+                    
+                    prompt = "🔍 Múltiplos alunos encontrados. Selecione o correspondente abaixo:\n\n"
+                    for idx, al in enumerate(state['data']['matches']):
+                        prompt += f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al['pelotao']})\n"
+                    await bot_instance.reply_to(message, prompt, reply_markup=markup)
+                else:
+                    await prompt_atrasado_confirm(bot_instance, message, state, conn, matches[0])
+
+            # Passo 3: Escolha do Aluno na lista de homônimos
+            elif step == 'choose_student':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                matches = state['data'].get('matches', [])
+                try:
+                    clean_text = text.split('—')[0].strip()
+                    choice = int(clean_text)
+                    if 1 <= choice <= len(matches):
+                        selected = matches[choice - 1]
+                        await prompt_atrasado_confirm(bot_instance, message, state, conn, selected)
+                    else:
+                        await bot_instance.reply_to(message, f"⚠️ Opção inválida. Digite um número entre 1 e {len(matches)}:")
+                except ValueError:
+                    await bot_instance.reply_to(message, "⚠️ Digite apenas o número correspondente à sua escolha:")
+
+            # Passo 4: Confirmação Final do Atraso
+            elif step == 'confirm_atraso_submit':
+                ans = text.strip().lower()
+                if ans in ['s', 'sim', 'y', 'yes', 's — confirmar']:
+                    try:
+                        student = state['data']['student']
+                        tipo_atraso = state['data']['tipo_atraso']
+                        usuario = state['user'].get('nome', 'TELEGRAM').upper()
+                        
+                        # 1. Altera a presença de hoje para PRESENTE
+                        hoje_str = date.today().strftime('%Y-%m-%d')
+                        salvar_presenca_supabase(
+                            numero_interno=student['numero_interno'],
+                            nome_guerra=student['nome_guerra'],
+                            turma=student['pelotao'],
+                            presente=True,
+                            motivo_ausencia=None
+                        )
+                        
+                        # 2. Lança ocorrência de atraso
+                        conn.table('Acoes').insert({
+                            'aluno_id': str(student['id']),
+                            'tipo_acao_id': str(tipo_atraso['id']),
+                            'tipo': tipo_atraso['nome'],
+                            'descricao': 'Atraso registrado via Telegram',
+                            'data': hoje_str,
+                            'usuario': usuario,
+                            'status': 'Pendente'
+                        }).execute()
+                        
+                        # Alerta na TV
+                        aluno_lbl = f"{student.get('numero_interno', '')} — {str(student.get('nome_guerra', '')).upper()} ({str(student.get('pelotao', '')).upper()})"
+                        AlertsManager.trigger_alert(
+                            "Atraso Registrado",
+                            f"{aluno_lbl} chegou atrasado e presença foi atualizada por {usuario}!",
+                            "info"
+                        )
+                        await bot_instance.reply_to(
+                            message, 
+                            f"✅ Atraso Lançado com Sucesso!\n"
+                            f"• Presença de {student['nome_guerra']} alterada para PRESENTE.\n"
+                            f"• Ocorrência de ATRASO gravada em status PENDENTE.",
+                            reply_markup=get_main_menu_keyboard()
+                        )
+                    except Exception as e:
+                        await bot_instance.reply_to(message, f"❌ Erro ao salvar lançamento: {e}", reply_markup=get_main_menu_keyboard())
+                    finally:
+                        clear_state(chat_id)
+                elif ans in ['n', 'não', 'nao', 'no', 'n — cancelar', 'cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Lançamento abortado.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                else:
+                    await bot_instance.reply_to(message, "⚠️ Responda apenas com S (Sim) ou N (Não):")
+        elif action == 'saude':
+            # Passo 0: Escolha da Opção Inicial (Novo Lançamento / Listar Baixados)
+            if step == 'choose_initial_option':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                
+                if "novo" in text.lower() or "lançamento" in text.lower() or "lancamento" in text.lower() or "🆕" in text:
+                    state['step'] = 'search_student'
+                    await bot_instance.reply_to(message, "🔍 Digite o Nome de Guerra ou Número Interno do aluno para registrar saúde:", reply_markup=get_cancel_keyboard())
+                elif "baixados" in text.lower() or "listar" in text.lower() or "🏥" in text:
+                    await bot_instance.send_chat_action(chat_id, 'typing')
+                    try:
+                        hoje_str = datetime.now().strftime('%Y-%m-%d')
+                        res_enf = conn.table('enfermaria').select('*').neq('status', 'Alta').execute()
+                        active_records = res_enf.data if res_enf.data else []
+                        
+                        valid_records = []
+                        for row in active_records:
+                            data_ini = row.get('data_ini')
+                            data_fim = row.get('data_fim')
+                            esta_valido = True
+                            if data_ini and data_fim:
+                                try:
+                                    esta_valido = (str(data_ini) <= hoje_str <= str(data_fim))
+                                except Exception:
+                                    pass
+                            if esta_valido:
+                                valid_records.append(row)
+                                
+                        if not valid_records:
+                            await bot_instance.reply_to(message, "🟢 Não há alunos baixados ou com dispensas/licenças ativas no momento.", reply_markup=get_main_menu_keyboard())
+                            clear_state(chat_id)
+                            return
+                            
+                        state['step'] = 'choose_baixado'
+                        state['data']['active_cases'] = valid_records[:10]
+                        
+                        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                        for idx, row in enumerate(state['data']['active_cases']):
+                            markup.add(types.KeyboardButton(f"{idx + 1} — {row['numero_interno']} : {row['nome_guerra']} ({row['status']})"))
+                        markup.add(types.KeyboardButton("❌ Cancelar"))
+                        
+                        prompt = "🏥 Militares Ativos na Enfermaria/Saúde:\nSelecione um para ver detalhes ou dar alta:\n\n"
+                        for idx, row in enumerate(state['data']['active_cases']):
+                            prompt += f"{idx + 1} — {row['numero_interno']} : {row['nome_guerra']} ({row['status']})\n"
+                        await bot_instance.reply_to(message, prompt, reply_markup=markup)
+                    except Exception as e:
+                        await bot_instance.reply_to(message, f"❌ Erro ao listar baixados: {e}", reply_markup=get_main_menu_keyboard())
+                        clear_state(chat_id)
+                else:
+                    await bot_instance.reply_to(message, "⚠️ Escolha uma das opções: '🆕 Novo Lançamento' ou '🏥 Listar Baixados':")
+            
+            # Passo 1: Busca de Alunos
+            elif step == 'search_student':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                try:
+                    res = conn.table('Alunos').select('*').execute()
+                    alunos = res.data if res.data else []
+                except Exception as e:
+                    await bot_instance.reply_to(message, f"❌ Erro ao ler alunos: {e}", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                
+                matches = []
+                query = text.lower()
+                for al in alunos:
+                    num = str(al.get('numero_interno', '')).lower()
+                    nome = str(al.get('nome_guerra', '')).lower()
+                    if query in num or query in nome:
+                        matches.append(al)
+                
+                if not matches:
+                    await bot_instance.reply_to(message, f"⚠️ Nenhum aluno encontrado com '{text}'. Digite novamente ou selecione Cancelar:", reply_markup=get_cancel_keyboard())
+                    return
+                
+                if len(matches) > 1:
+                    state['step'] = 'choose_student'
+                    state['data']['matches'] = matches[:10] # Limita a 10 opções
+                    
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    for idx, al in enumerate(state['data']['matches']):
+                        markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']}"))
+                    markup.add(types.KeyboardButton("❌ Cancelar"))
+
+                    prompt = "🔍 Múltiplos alunos encontrados. Selecione o correspondente abaixo:\n\n"
+                    for idx, al in enumerate(state['data']['matches']):
+                        prompt += f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al['pelotao']})\n"
+                    await bot_instance.reply_to(message, prompt, reply_markup=markup)
+                else:
+                    await prompt_health_status(bot_instance, message, state, matches[0])
+            
+            # Passo 2: Seleção de Aluno em Lista
+            elif step == 'choose_student':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                matches = state['data'].get('matches', [])
+                try:
+                    clean_text = text.split('—')[0].strip()
+                    choice = int(clean_text)
+                    if 1 <= choice <= len(matches):
+                        selected = matches[choice - 1]
+                        await prompt_health_status(bot_instance, message, state, selected)
+                    else:
+                        await bot_instance.reply_to(message, f"⚠️ Opção inválida. Digite um número entre 1 e {len(matches)}:")
+                except ValueError:
+                    await bot_instance.reply_to(message, "⚠️ Digite apenas o número correspondente à sua escolha:")
+
+            # Passo 3: Escolha do Status de Saúde
+            elif step == 'choose_health_status':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                status_map = {
+                    1: ('Internado', 'enfermaria'),
+                    2: ('Em Observação', 'enfermaria'),
+                    3: ('Hospital', 'enfermaria'),
+                    4: ('Dispensado', 'dispensa'),
+                    5: ('Licença', 'licenca'),
+                    6: ('Alta', 'alta')
+                }
+                try:
+                    clean_text = text.split('—')[0].strip()
+                    choice = int(clean_text)
+                    if choice in status_map:
+                        status, category = status_map[choice]
+                        state['data']['status'] = status
+                        state['data']['categoria'] = category
+                        
+                        if status == 'Dispensado':
+                            state['step'] = 'choose_dispensa_type'
+                            markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                            for idx, val in enumerate(TIPOS_DISPENSA):
+                                markup.add(types.KeyboardButton(f"{idx + 1} — {val}"))
+                            markup.add(types.KeyboardButton("❌ Cancelar"))
+                            prompt = "📋 Selecione o Tipo de Dispensa:"
+                            await bot_instance.reply_to(message, prompt, reply_markup=markup)
+                        elif status == 'Licença':
+                            state['step'] = 'choose_licenca_type'
+                            markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                            for idx, val in enumerate(TIPOS_LICENCA):
+                                markup.add(types.KeyboardButton(f"{idx + 1} — {val}"))
+                            markup.add(types.KeyboardButton("❌ Cancelar"))
+                            prompt = "✈️ Selecione o Tipo de Licença:"
+                            await bot_instance.reply_to(message, prompt, reply_markup=markup)
+                        else:
+                            state['data']['detalhe'] = ''
+                            state['step'] = 'get_health_motive'
+                            await bot_instance.reply_to(message, "🩺 Digite o Motivo/Diagnóstico (ex: Cefaleia, Entorse, Cirurgia):", reply_markup=get_cancel_keyboard())
+                    else:
+                        await bot_instance.reply_to(message, "⚠️ Opção inválida. Digite um número de 1 a 6:")
+                except ValueError:
+                    await bot_instance.reply_to(message, "⚠️ Digite apenas o número correspondente à sua escolha:")
+
+            # Passo 4a: Tipo de Dispensa
+            elif step == 'choose_dispensa_type':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                try:
+                    clean_text = text.split('—')[0].strip()
+                    choice = int(clean_text)
+                    if 1 <= choice <= len(TIPOS_DISPENSA):
+                        state['data']['detalhe'] = TIPOS_DISPENSA[choice - 1]
+                        state['step'] = 'get_health_motive'
+                        await bot_instance.reply_to(message, "🩺 Digite o Motivo/Diagnóstico (ex: Cefaleia, Entorse, Cirurgia):", reply_markup=get_cancel_keyboard())
+                    else:
+                        await bot_instance.reply_to(message, f"⚠️ Opção inválida. Digite um número de 1 a {len(TIPOS_DISPENSA)}:")
+                except ValueError:
+                    await bot_instance.reply_to(message, "⚠️ Digite apenas o número correspondente à sua escolha:")
+
+            # Passo 4b: Tipo de Licença
+            elif step == 'choose_licenca_type':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                try:
+                    clean_text = text.split('—')[0].strip()
+                    choice = int(clean_text)
+                    if 1 <= choice <= len(TIPOS_LICENCA):
+                        state['data']['detalhe'] = TIPOS_LICENCA[choice - 1]
+                        state['step'] = 'get_health_motive'
+                        await bot_instance.reply_to(message, "🩺 Digite o Motivo/Diagnóstico (ex: Cefaleia, Entorse, Cirurgia):", reply_markup=get_cancel_keyboard())
+                    else:
+                        await bot_instance.reply_to(message, f"⚠️ Opção inválida. Digite um número de 1 a {len(TIPOS_LICENCA)}:")
+                except ValueError:
+                    await bot_instance.reply_to(message, "⚠️ Digite apenas o número correspondente à sua escolha:")
+
+            # Passo 5: Motivo/Diagnóstico
+            elif step == 'get_health_motive':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                state['data']['motivo'] = text
+                status = state['data']['status']
+                
+                if status in ('Dispensado', 'Licença'):
+                    state['step'] = 'get_health_duration'
+                    await bot_instance.reply_to(message, "🕒 Selecione ou digite a duração em dias (ex: 5):", reply_markup=get_duration_keyboard())
+                else:
+                    state['step'] = 'get_health_obs'
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    markup.row(types.KeyboardButton("⏭️ Pular"), types.KeyboardButton("❌ Cancelar"))
+                    await bot_instance.reply_to(message, "📝 Digite alguma observação adicional (ou escolha Pular/Cancelar):", reply_markup=markup)
+
+            # Passo 6: Duração em dias
+            elif step == 'get_health_duration':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                try:
+                    dias = int(text)
+                    if dias > 0:
+                        state['data']['dias'] = dias
+                        state['step'] = 'get_health_obs'
+                        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                        markup.row(types.KeyboardButton("⏭️ Pular"), types.KeyboardButton("❌ Cancelar"))
+                        await bot_instance.reply_to(message, "📝 Digite alguma observação adicional (ou escolha Pular/Cancelar):", reply_markup=markup)
+                    else:
+                        await bot_instance.reply_to(message, "⚠️ A duração em dias deve ser um número maior que 0:")
+                except ValueError:
+                    await bot_instance.reply_to(message, "⚠️ Digite apenas um número inteiro para a quantidade de dias:")
+
+            # Passo 7: Observação adicional e Confirmação
+            elif step == 'get_health_obs':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                obs = "" if text in ("/pular", "⏭️ Pular", "⏭️ pular", "pular") else text
+                state['data']['observacao'] = obs
+                
+                student = state['data']['student']
+                status = state['data']['status']
+                detalhe = state['data'].get('detalhe', '')
+                motivo = state['data']['motivo']
+                dias = state['data'].get('dias', None)
+                
+                markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                markup.row(types.KeyboardButton("S — Confirmar"), types.KeyboardButton("N — Cancelar"))
+
+                confirm_prompt = (
+                    "⚠️ Confirmar Lançamento de Saúde?\n\n"
+                    f"👤 Aluno: {student['nome_guerra']} ({student['numero_interno']})\n"
+                    f"🩺 Situação: {status}\n"
+                )
+                if detalhe:
+                    confirm_prompt += f"📋 Tipo/Detalhe: {detalhe}\n"
+                confirm_prompt += f"🔬 Motivo: {motivo}\n"
+                if dias:
+                    confirm_prompt += f"🕒 Prazo: {dias} dia(s)\n"
+                if obs:
+                    confirm_prompt += f"📝 Observação: {obs}\n"
+                    
+                confirm_prompt += "\nSelecione uma das opções abaixo:"
+                state['step'] = 'confirm_health_submit'
+                await bot_instance.reply_to(message, confirm_prompt, reply_markup=markup)
+
+            # Passo 8: Confirmação e inserção
+            elif step == 'confirm_health_submit':
+                ans = text.strip().lower()
+                if ans in ['s', 'sim', 'y', 'yes', 's — confirmar']:
+                    try:
+                        student = state['data']['student']
+                        status = state['data']['status']
+                        category = state['data']['categoria']
+                        detalhe = state['data'].get('detalhe', '')
+                        motivo = state['data']['motivo']
+                        dias = state['data'].get('dias', None)
+                        obs = state['data']['observacao']
+                        usuario = state['user'].get('nome', 'TELEGRAM').upper()
+                        
+                        data_ini = date.today().strftime('%Y-%m-%d') if status in ('Dispensado', 'Licença') else None
+                        data_fim = (date.today() + timedelta(days=dias)).strftime('%Y-%m-%d') if (status in ('Dispensado', 'Licença') and dias) else None
+                        
+                        conn.table('enfermaria').insert({
+                            'numero_interno': str(student['numero_interno']),
+                            'nome_guerra': student['nome_guerra'],
+                            'turma': student.get('pelotao', ''),
+                            'status': status,
+                            'categoria': category,
+                            'motivo': motivo,
+                            'observacao': obs,
+                            'detalhe': detalhe,
+                            'data_ini': data_ini,
+                            'data_fim': data_fim,
+                            'data': date.today().strftime('%Y-%m-%d'),
+                            'hora': datetime.now().strftime('%H:%M')
+                        }).execute()
+                        
+                        # Alerta em tempo real na TV
+                        health_title = "Alta Médica" if status == "Alta" else "Aviso de Saúde"
+                        AlertsManager.trigger_alert(
+                            health_title,
+                            f"{student['numero_interno']} — {student['nome_guerra'].upper()} ({student.get('pelotao', '').upper()}) classificado como {status.upper()} por {usuario}!",
+                            "success" if status == "Alta" else "warning"
+                        )
+                        
+                        await bot_instance.reply_to(message, f"✅ Registro de saúde para {student['nome_guerra']} gravado com sucesso!", reply_markup=get_main_menu_keyboard())
+                    except Exception as e:
+                        await bot_instance.reply_to(message, f"❌ Erro ao gravar registro de saúde: {e}", reply_markup=get_main_menu_keyboard())
+                    finally:
+                        clear_state(chat_id)
+                elif ans in ['n', 'não', 'nao', 'no', 'n — cancelar', 'cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Lançamento abortado.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                else:
+                    await bot_instance.reply_to(message, "⚠️ Responda apenas com S (Sim) ou N (Não):")
+
+            # Passo 9: Seleção de Baixado para dar Alta
+            elif step == 'choose_baixado':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                
+                active_cases = state['data'].get('active_cases', [])
+                try:
+                    clean_text = text.split('—')[0].strip()
+                    choice = int(clean_text)
+                    if 1 <= choice <= len(active_cases):
+                        selected = active_cases[choice - 1]
+                        state['data']['selected_case'] = selected
+                        state['step'] = 'confirm_alta'
+                        
+                        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                        markup.row(types.KeyboardButton("🟢 Dar Alta"), types.KeyboardButton("❌ Cancelar"))
+                        
+                        detalhe_str = f"\n📋 Detalhe: {selected['detalhe']}" if selected.get('detalhe') else ""
+                        periodo_str = f"\n🕒 Período: {selected['data_ini']} a {selected['data_fim']}" if selected.get('data_ini') else ""
+                        
+                        prompt = (
+                            f"⚠️ Detalhes do Registro de Saúde:\n\n"
+                            f"👤 Aluno: {selected['nome_guerra']} ({selected['numero_interno']})\n"
+                            f"🩺 Situação: {selected['status']}\n"
+                            f"🔬 Motivo: {selected['motivo'] or 'Sem motivo informado'}"
+                            f"{detalhe_str}"
+                            f"{periodo_str}\n\n"
+                            f"Deseja dar ALTA para este militar?"
+                        )
+                        await bot_instance.reply_to(message, prompt, reply_markup=markup)
+                    else:
+                        await bot_instance.reply_to(message, f"⚠️ Opção inválida. Digite um número de 1 a {len(active_cases)}:")
+                except ValueError:
+                    await bot_instance.reply_to(message, "⚠️ Digite apenas o número correspondente à sua escolha:")
+
+            # Passo 10: Confirmação de Alta
+            elif step == 'confirm_alta':
+                ans = text.strip().lower()
+                if ans in ['s', 'sim', 'y', 'yes', '🟢 dar alta', 'dar alta', 's — dar alta']:
+                    try:
+                        selected = state['data']['selected_case']
+                        usuario = state['user'].get('nome', 'TELEGRAM').upper()
+                        
+                        conn.table('enfermaria').update({
+                            'status': 'Alta',
+                            'categoria': 'alta',
+                            'atualizado_em': datetime.now().isoformat()
+                        }).eq('id', selected['id']).execute()
+                        
+                        # Alerta em tempo real na TV
+                        AlertsManager.trigger_alert(
+                            "Alta Médica",
+                            f"{selected['numero_interno']} — {selected['nome_guerra'].upper()} ({selected.get('turma', '').upper()}) obteve alta médica por {usuario}!",
+                            "success"
+                        )
+                        
+                        await bot_instance.reply_to(message, f"✅ Alta para {selected['nome_guerra']} registrada com sucesso!", reply_markup=get_main_menu_keyboard())
+                    except Exception as e:
+                        await bot_instance.reply_to(message, f"❌ Erro ao registrar alta: {e}", reply_markup=get_main_menu_keyboard())
+                    finally:
+                        clear_state(chat_id)
+                elif ans in ['n', 'não', 'nao', 'no', 'cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                else:
+                    await bot_instance.reply_to(message, "⚠️ Escolha uma das opções: '🟢 Dar Alta' ou '❌ Cancelar':")
+
+        # ── PROCESSAMENTO DO LANÇAMENTO DE ESCALA ─────────────────────
+        elif action == 'escala':
+            # Passo 1: Escolha do Dia (Hoje/Amanhã)
+            if step == 'choose_date':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                
+                target_date = None
+                date_lbl = ""
+                
+                if "hoje" in text.lower():
+                    target_date = date.today()
+                    date_lbl = "Hoje"
+                elif "amanhã" in text.lower() or "amanha" in text.lower():
+                    target_date = date.today() + timedelta(days=1)
+                    date_lbl = "Amanhã"
+                else:
+                    await bot_instance.reply_to(message, "⚠️ Opção inválida. Escolha '📅 Hoje' ou '📅 Amanhã':")
+                    return
+                
+                date_str = target_date.strftime('%Y-%m-%d')
+                date_br = target_date.strftime('%d/%m/%Y')
+                
+                state['data']['date_str'] = date_str
+                state['data']['date_lbl'] = date_lbl
+                state['data']['date_br'] = date_br
+                
+                await bot_instance.send_chat_action(chat_id, 'typing')
+                
+                try:
+                    res_es = conn.table('escala_diaria').select('*').eq('data', date_str).execute()
+                    escala_records = res_es.data if res_es.data else []
+                    
+                    from database import get_cargos_escala
+                    cargos_config = get_cargos_escala()
+                    
+                    escala_map = {row['cargo'].upper(): row for row in escala_records}
+                    
+                    roster_lines = []
+                    for cargo in cargos_config:
+                        cargo_upper = cargo.upper()
+                        rec = escala_map.get(cargo_upper)
+                        if rec:
+                            nome_escalado = rec['nome'].upper()
+                            obs = f" ({rec['observacao']})" if rec.get('observacao') else ""
+                            roster_lines.append(f"• {cargo}: `{nome_escalado}`{obs}")
+                        else:
+                            roster_lines.append(f"• {cargo}: `NÃO ESCALADO`")
+                    
+                    if not escala_records:
+                        roster_text = f"👮 ESCALA DE SERVIÇO ({date_lbl} — {date_br}) 👮\n\n⚠️ Nenhuma escala cadastrada para esta data."
+                    else:
+                        roster_text = (
+                            f"👮 ESCALA DE SERVIÇO ({date_lbl} — {date_br}) 👮\n\n"
+                            + "\n".join(roster_lines)
+                        )
+                    
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    markup.row(types.KeyboardButton("✏️ Alterar Escala"), types.KeyboardButton("❌ Sair"))
+                    
+                    await bot_instance.reply_to(message, roster_text, reply_markup=markup, parse_mode='Markdown')
+                    state['step'] = 'choose_action'
+                except Exception as e:
+                    await bot_instance.reply_to(message, f"❌ Erro ao consultar escala: {e}", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+            
+            # Passo 2: Escolha de Ação (Alterar ou Sair)
+            elif step == 'choose_action':
+                if text.lower() in ['sair', '❌ sair', 'cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "👋 Fim da consulta de escala.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                
+                if "alterar" in text.lower() or "✏️" in text:
+                    from database import get_cargos_escala
+                    cargos_config = get_cargos_escala()
+                    
+                    state['step'] = 'choose_cargo'
+                    state['data']['cargos_list'] = cargos_config
+                    
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    for c in cargos_config:
+                        markup.add(types.KeyboardButton(c))
+                    markup.add(types.KeyboardButton("❌ Cancelar"))
+                    
+                    await bot_instance.reply_to(message, "✏️ Selecione o Cargo que deseja alterar/adicionar na escala:", reply_markup=markup)
+                else:
+                    await bot_instance.reply_to(message, "⚠️ Escolha uma das opções: '✏️ Alterar Escala' ou '❌ Sair':")
+            
+            # Passo 3: Escolha do Cargo
+            elif step == 'choose_cargo':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Alteração de escala cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                
+                cargos_list = state['data'].get('cargos_list', [])
+                cargo_match = next((c for c in cargos_list if c.upper() == text.upper()), None)
+                if not cargo_match:
+                    await bot_instance.reply_to(message, "⚠️ Cargo inválido. Selecione uma das opções do teclado:")
+                    return
+                
+                state['data']['cargo'] = cargo_match
+                state['step'] = 'get_name'
+                await bot_instance.reply_to(message, f"👤 Digite o Nome (completo ou de guerra) da pessoa a ser escalada para {cargo_match}:", reply_markup=get_cancel_keyboard())
+            
+            # Passo 4: Digitar Nome e buscar correspondências
+            elif step == 'get_name':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Alteração de escala cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                
+                query = text.strip()
+                await bot_instance.send_chat_action(chat_id, 'typing')
+                
+                try:
+                    res_us = conn.table('Users').select('*').execute()
+                    users = res_us.data if res_us.data else []
+                except Exception as e:
+                    await bot_instance.reply_to(message, f"❌ Erro ao ler usuários: {e}", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                
+                matches = [u for u in users if query.lower() in str(u.get('nome', '')).lower() or query.lower() in str(u.get('username', '')).lower()]
+                
+                if not matches:
+                    state['step'] = 'confirm_external'
+                    state['data']['nome_escalado'] = query
+                    
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    markup.row(types.KeyboardButton("S — Confirmar"), types.KeyboardButton("N — Cancelar"))
+                    
+                    prompt = (
+                        f"⚠️ Operador não cadastrado.\n"
+                        f"Deseja escalar '{query}' mesmo assim?"
+                    )
+                    await bot_instance.reply_to(message, prompt, reply_markup=markup)
+                elif len(matches) > 1:
+                    state['step'] = 'choose_user'
+                    state['data']['user_matches'] = matches[:10]
+                    
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    for idx, u in enumerate(state['data']['user_matches']):
+                        markup.add(types.KeyboardButton(f"{idx + 1} — {u['nome']}"))
+                    markup.add(types.KeyboardButton("❌ Cancelar"))
+                    
+                    prompt = "🔍 Múltiplas correspondências encontradas. Selecione a correta abaixo:\n\n"
+                    for idx, u in enumerate(state['data']['user_matches']):
+                        prompt += f"{idx + 1} — {u['nome']} ({u.get('username', '')})\n"
+                    await bot_instance.reply_to(message, prompt, reply_markup=markup)
+                else:
+                    state['data']['nome_escalado'] = matches[0]['nome']
+                    state['step'] = 'get_obs'
+                    
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    markup.row(types.KeyboardButton("Sem observação"), types.KeyboardButton("❌ Cancelar"))
+                    
+                    await bot_instance.reply_to(message, f"📝 Selecionado: {matches[0]['nome']}\n\nDigite uma observação (ou clique em 'Sem observação'):", reply_markup=markup)
+            
+            # Passo 5a: Escolher Usuário em Homônimos
+            elif step == 'choose_user':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Alteração de escala cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                
+                matches = state['data'].get('user_matches', [])
+                try:
+                    clean_text = text.split('—')[0].strip()
+                    choice = int(clean_text)
+                    if 1 <= choice <= len(matches):
+                        selected = matches[choice - 1]
+                        state['data']['nome_escalado'] = selected['nome']
+                        state['step'] = 'get_obs'
+                        
+                        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                        markup.row(types.KeyboardButton("Sem observação"), types.KeyboardButton("❌ Cancelar"))
+                        
+                        await bot_instance.reply_to(message, f"Selecionei: {selected['nome']}\n\nDigite uma observação (ou clique em 'Sem observação'):", reply_markup=markup)
+                    else:
+                        await bot_instance.reply_to(message, f"⚠️ Opção inválida. Digite um número de 1 a {len(matches)}:")
+                except ValueError:
+                    # Treat as new name search
+                    state['step'] = 'get_name'
+                    # Re-run search
+                    await handle_normal_message(message)
+            
+            # Passo 5b: Confirmar Escalar Nome Externo
+            elif step == 'confirm_external':
+                ans = text.strip().lower()
+                if ans in ['s', 'sim', 'y', 'yes', 's — confirmar']:
+                    state['step'] = 'get_obs'
+                    
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    markup.row(types.KeyboardButton("Sem observação"), types.KeyboardButton("❌ Cancelar"))
+                    
+                    await bot_instance.reply_to(message, "Digite uma observação para a escala (ou clique em 'Sem observação'):", reply_markup=markup)
+                else:
+                    await bot_instance.reply_to(message, "❌ Alteração de escala cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+            
+            # Passo 6: Obter Observação
+            elif step == 'get_obs':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Alteração de escala cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                
+                obs = "" if text.lower() in ["sem observação", "sem observacao", "/pular"] else text
+                state['data']['observacao'] = obs
+                state['step'] = 'confirm_escala_submit'
+                
+                date_lbl = state['data']['date_lbl']
+                date_br = state['data']['date_br']
+                cargo = state['data']['cargo']
+                nome_escalado = state['data']['nome_escalado']
+                
+                markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                markup.row(types.KeyboardButton("S — Salvar alteração"), types.KeyboardButton("N — Cancelar"))
+                
+                prompt = (
+                    f"⚠️ Confirmar Alteração de Escala?\n\n"
+                    f"📅 Data: {date_lbl} ({date_br})\n"
+                    f"👮 Cargo: {cargo}\n"
+                    f"👤 Escalado: {nome_escalado.upper()}\n"
+                    f"📝 Observação: {obs or 'Nenhuma'}\n\n"
+                    f"Selecione uma opção:"
+                )
+                await bot_instance.reply_to(message, prompt, reply_markup=markup)
+            
+            # Passo 7: Confirmação e Gravação da Escala
+            elif step == 'confirm_escala_submit':
+                ans = text.strip().lower()
+                if ans in ['s', 'sim', 'y', 'yes', 's — salvar alteração']:
+                    try:
+                        date_str = state['data']['date_str']
+                        date_lbl = state['data']['date_lbl']
+                        date_br = state['data']['date_br']
+                        cargo = state['data']['cargo']
+                        nome_escalado = state['data']['nome_escalado']
+                        obs = state['data']['observacao']
+                        
+                        salvar_escala_diaria_data(conn, date_str, cargo, nome_escalado, obs)
+                        
+                        # Dispara alerta sonoro e popup na TV
+                        AlertsManager.trigger_alert(
+                            "Escala de Serviço",
+                            f"Escala de {date_lbl} atualizada: {cargo} alterado para {nome_escalado.upper()}!",
+                            "info"
+                        )
+                        
+                        await bot_instance.reply_to(message, f"✅ Escala de {cargo} atualizada para {nome_escalado} com sucesso!", reply_markup=get_main_menu_keyboard())
+                    except Exception as e:
+                        await bot_instance.reply_to(message, f"❌ Erro ao salvar escala: {e}", reply_markup=get_main_menu_keyboard())
+                    finally:
+                        clear_state(chat_id)
+                else:
+                    await bot_instance.reply_to(message, "❌ Alteração de escala abortada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+        
+        # ── PROCESSAMENTO DA CONSULTA DE ALUNO ────────────────────────
+        elif action == 'consulta':
+            if step == 'search_student':
+                await perform_consulta_search(bot_instance, message, state['user'], text)
+            elif step == 'choose_student':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Consulta cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                matches = state['data'].get('matches', [])
+                try:
+                    clean_text = text.split('—')[0].strip()
+                    choice = int(clean_text)
+                    if 1 <= choice <= len(matches):
+                        selected = matches[choice - 1]
+                        await display_student_dossier(bot_instance, message, conn, selected)
+                    else:
+                        await bot_instance.reply_to(message, f"⚠️ Opção inválida. Digite um número de 1 a {len(matches)}:")
+                except ValueError:
+                    # Treat as new name search
+                    await perform_consulta_search(bot_instance, message, state['user'], text)
+
+async def prompt_health_status(bot_instance, message, state, student):
+    """Apresenta as opções de status de saúde para seleção."""
+    state['step'] = 'choose_health_status'
+    state['data']['student'] = student
+    
+    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+    markup.add(types.KeyboardButton("1 — 🏥 Internado (Enfermaria)"))
+    markup.add(types.KeyboardButton("2 — 👁️ Em Observação (Enfermaria)"))
+    markup.add(types.KeyboardButton("3 — 🚑 Hospital (Hospitalizado)"))
+    markup.add(types.KeyboardButton("4 — 📝 Dispensado (Dispensa Médica)"))
+    markup.add(types.KeyboardButton("5 — ✈️ Licença (Afastado da Unidade)"))
+    markup.add(types.KeyboardButton("6 — 🟢 Alta (Retorno ao Serviço/Atividades)"))
+    markup.add(types.KeyboardButton("❌ Cancelar"))
+
+    prompt = (
+        f"👤 Aluno Selecionado: **{student['nome_guerra']}** ({student['numero_interno']})\n\n"
+        "Selecione o **Status de Saúde** abaixo:"
+    )
+    await bot_instance.reply_to(message, prompt, reply_markup=markup, parse_mode='Markdown')
+
+async def prompt_atrasado_confirm(bot_instance, message, state, conn, student):
+    """Busca o tipo de ocorrência de atraso e pede confirmação para retirar falta e aplicar atraso."""
+    try:
+        res = conn.table('Tipos_Acao').select('*').execute()
+        tipos = res.data if res.data else []
+        tipo_atraso = next((t for t in tipos if t['id'] == 9 or 'atraso' in t['nome'].lower()), None)
+    except Exception as e:
+        await bot_instance.reply_to(message, f"❌ Erro ao buscar tipo de ação Atraso: {e}")
+        clear_state(message.chat.id)
+        return
+
+    if not tipo_atraso:
+        await bot_instance.reply_to(message, "❌ Tipo de ocorrência 'ATRASO' não encontrado no banco de dados. Operação cancelada.")
+        clear_state(message.chat.id)
+        return
+
+    state['step'] = 'confirm_atraso_submit'
+    state['data']['student'] = student
+    state['data']['tipo_atraso'] = tipo_atraso
+
+    presenca_status = "Ausente ou Sem Registro"
+    try:
+        data_hoje = date.today().strftime('%Y-%m-%d')
+        res_p = conn.table('presenca_ausencia').select('*').eq('numero_interno', student['numero_interno']).eq('data', data_hoje).execute()
+        if res_p.data:
+            pres = res_p.data[0]
+            presenca_status = "PRESENTE" if pres.get('presente') else f"AUSENTE ({pres.get('motivo_ausencia') or 'Sem motivo'})"
+    except Exception:
+        pass
+
+    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+    markup.row(types.KeyboardButton("S — Confirmar"), types.KeyboardButton("N — Cancelar"))
+
+    prompt = (
+        "⚠️ **Confirmar Lançamento de Atrasado?**\n\n"
+        f"👤 **Aluno**: {student['nome_guerra']} ({student['numero_interno']})\n"
+        f"📊 **Presença Hoje**: {presenca_status}\n\n"
+        f"🔄 **Ações a Executar**:\n"
+        f"1. Alterar presença do dia de hoje para **PRESENTE**.\n"
+        f"2. Registrar ocorrência de **{tipo_atraso['nome']}** ({float(tipo_atraso.get('pontuacao', 0.0) or 0.0):+.1f} pts) em status PENDENTE.\n\n"
+        "Selecione uma das opções abaixo:"
+    )
+    await bot_instance.reply_to(message, prompt, reply_markup=markup)
+
+async def prompt_action_type(bot_instance, message, state, student):
+    """Busca os tipos de ações cadastrados e exibe as opções para o operador, agrupadas por categoria, com botões."""
+    conn = get_db_connection()
+    if not conn:
+        await bot_instance.reply_to(message, "❌ Sem conexão com o banco. Operação abortada.", reply_markup=get_main_menu_keyboard())
+        clear_state(message.chat.id)
+        return
+
+    try:
+        res = conn.table('Tipos_Acao').select('*').execute()
+        raw_tipos = res.data if res.data else []
+    except Exception as e:
+        await bot_instance.reply_to(message, f"❌ Erro ao ler tipos de ações: {e}", reply_markup=get_main_menu_keyboard())
+        clear_state(message.chat.id)
+        return
+
+    if not raw_tipos:
+        await bot_instance.reply_to(message, "❌ Nenhum Tipo de Ocorrência cadastrado no banco. Operação abortada.", reply_markup=get_main_menu_keyboard())
+        clear_state(message.chat.id)
+        return
+
+    # Agrupa e ordena alfabeticamente dentro de cada categoria
+    positivas = sorted([t for t in raw_tipos if float(t.get('pontuacao', 0.0) or 0.0) > 0], key=lambda t: t.get('nome', '').lower())
+    neutras = sorted([t for t in raw_tipos if float(t.get('pontuacao', 0.0) or 0.0) == 0], key=lambda t: t.get('nome', '').lower())
+    negativas = sorted([t for t in raw_tipos if float(t.get('pontuacao', 0.0) or 0.0) < 0], key=lambda t: t.get('nome', '').lower())
+
+    tipos = positivas + neutras + negativas
+
+    state['step'] = 'choose_action_type'
+    state['data']['student'] = student
+    state['data']['tipos'] = tipos
+
+    prompt = (
+        f"👤 Aluno Selecionado: {student['nome_guerra']} ({student['numero_interno']})\n\n"
+        "Selecione o Tipo de Ocorrência usando os botões abaixo:\n\n"
+    )
+    
+    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+    idx = 0
+    if positivas:
+        prompt += "➕ POSITIVAS:\n"
+        for tp in positivas:
+            pts = float(tp.get('pontuacao', 0.0) or 0.0)
+            prompt += f"{idx + 1} — {tp['nome']} ({pts:+.1f} pts)\n"
+            markup.add(types.KeyboardButton(f"{idx + 1} — {tp['nome']}"))
+            idx += 1
+        prompt += "\n"
+        
+    if neutras:
+        prompt += "⚪ NEUTRAS:\n"
+        for tp in neutras:
+            prompt += f"{idx + 1} — {tp['nome']} (0.0 pts)\n"
+            markup.add(types.KeyboardButton(f"{idx + 1} — {tp['nome']}"))
+            idx += 1
+        prompt += "\n"
+        
+    if negativas:
+        prompt += "➖ NEGATIVAS:\n"
+        for tp in negativas:
+            pts = float(tp.get('pontuacao', 0.0) or 0.0)
+            prompt += f"{idx + 1} — {tp['nome']} ({pts:+.1f} pts)\n"
+            markup.add(types.KeyboardButton(f"{idx + 1} — {tp['nome']}"))
+            idx += 1
+
+    markup.add(types.KeyboardButton("❌ Cancelar"))
+    await bot_instance.reply_to(message, prompt, reply_markup=markup)
+
+def salvar_escala_diaria_data(conn, data_str, cargo, nome, observacao=''):
+    """Salva registro de escala de serviço para uma data específica"""
+    registro = {
+        'data': data_str,
+        'cargo': cargo,
+        'nome': nome,
+        'observacao': observacao or '',
+        'criado_em': datetime.now().isoformat(),
+    }
+    try:
+        resp = conn.table('escala_diaria').select('id').eq('data', data_str).eq('cargo', cargo).execute()
+        if resp.data:
+            conn.table('escala_diaria').update(registro).eq('id', resp.data[0]['id']).execute()
+        else:
+            conn.table('escala_diaria').insert(registro).execute()
+        return True
+    except Exception as e:
+        print(f"[Bot] Erro ao salvar escala: {e}", flush=True)
+        return False
+
+async def perform_consulta_search(bot_instance, message, profile, term):
+    chat_id = message.chat.id
+    conn = get_db_connection()
+    if not conn:
+        await bot_instance.reply_to(message, "❌ Sem conexão com o banco de dados.")
+        clear_state(chat_id)
+        return
+        
+    try:
+        res = conn.table('Alunos').select('*').execute()
+        alunos = res.data if res.data else []
+    except Exception as e:
+        await bot_instance.reply_to(message, f"❌ Erro ao ler alunos: {e}")
+        clear_state(chat_id)
+        return
+        
+    matches = []
+    query = term.strip().lower()
+    for al in alunos:
+        num = str(al.get('numero_interno', '')).lower()
+        nome = str(al.get('nome_guerra', '')).lower()
+        if query in num or query in nome or num.endswith("-" + query) or num.endswith(query):
+            matches.append(al)
+            
+    if not matches:
+        await bot_instance.reply_to(message, f"⚠️ Nenhum aluno encontrado com '{term}'. Consulta abortada.", reply_markup=get_main_menu_keyboard())
+        clear_state(chat_id)
+        return
+        
+    if len(matches) > 1:
+        chat_states[chat_id] = {
+            'action': 'consulta',
+            'step': 'choose_student',
+            'user': profile,
+            'data': {'matches': matches[:10]}
+        }
+        
+        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+        for idx, al in enumerate(chat_states[chat_id]['data']['matches']):
+            markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']}"))
+        markup.add(types.KeyboardButton("❌ Cancelar"))
+        
+        prompt = "🔍 Múltiplos alunos encontrados. Selecione o correspondente abaixo:\n\n"
+        for idx, al in enumerate(chat_states[chat_id]['data']['matches']):
+            prompt += f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al['pelotao']})\n"
+        await bot_instance.reply_to(message, prompt, reply_markup=markup)
+    else:
+        await display_student_dossier(bot_instance, message, conn, matches[0])
+
+async def display_student_dossier(bot_instance, message, conn, student):
+    chat_id = message.chat.id
+    await bot_instance.send_chat_action(chat_id, 'typing')
+    
+    try:
+        hoje_str = date.today().strftime('%Y-%m-%d')
+        
+        # 1. Presence Today
+        pres_lbl = "⏳ SEM REGISTRO (Pendente)"
+        try:
+            res_p = conn.table('presenca_ausencia').select('*').eq('numero_interno', student['numero_interno']).eq('data', hoje_str).execute()
+            if res_p.data:
+                pres = res_p.data[0]
+                if pres.get('presente'):
+                    pres_lbl = "✅ PRESENTE"
+                else:
+                    motivo = pres.get('motivo_ausencia') or 'Sem motivo informado'
+                    pres_lbl = f"❌ AUSENTE ({motivo})"
+        except Exception:
+            pass
+            
+        # 2. Health Status
+        health_lbl = "🟢 Sem restrições ativas"
+        try:
+            res_h = conn.table('enfermaria').select('*').eq('numero_interno', student['numero_interno']).neq('status', 'Alta').execute()
+            if res_h.data:
+                for row in res_h.data:
+                    data_ini = row.get('data_ini')
+                    data_fim = row.get('data_fim')
+                    esta_valido = True
+                    if data_ini and data_fim:
+                        try:
+                            esta_valido = (str(data_ini) <= hoje_str <= str(data_fim))
+                        except Exception:
+                            pass
+                    if esta_valido:
+                        status = row.get('status')
+                        motivo = row.get('motivo') or 'Sem motivo'
+                        detalhe = row.get('detalhe')
+                        detalhe_str = f" - {detalhe}" if detalhe else ""
+                        periodo_str = f" [de {data_ini} a {data_fim}]" if data_ini and data_fim else ""
+                        health_lbl = f"⚠️ SITUAÇÃO: {status} ({motivo}{detalhe_str}){periodo_str}"
+                        break
+        except Exception:
+            pass
+            
+        # 3. Contacts
+        tel_aluno = student.get('telefone_contato') or 'Não informado'
+        emerg_nome = student.get('contato_emergencia_nome') or 'Não informado'
+        emerg_num = student.get('contato_emergencia_numero') or 'Não informado'
+        
+        # 4. Last 5 Occurrences (Acoes)
+        res_ac = conn.table('Acoes').select('*').eq('aluno_id', str(student['id'])).execute()
+        acoes_list = res_ac.data if res_ac.data else []
+        
+        res_ta = conn.table('Tipos_Acao').select('*').execute()
+        tipos_map = {str(t['id']): t for t in res_ta.data} if res_ta.data else {}
+        
+        acoes_sorted = sorted(acoes_list, key=lambda x: x.get('data', ''), reverse=True)[:5]
+        ocurrences_lines = []
+        for ac in acoes_sorted:
+            tipo_id = str(ac.get('tipo_acao_id', ''))
+            tipo_info = tipos_map.get(tipo_id)
+            pts = float(tipo_info.get('pontuacao', 0.0) or 0.0) if tipo_info else 0.0
+            data_part = ac.get('data', '').split()[0]
+            try:
+                dt_obj = datetime.strptime(data_part, '%Y-%m-%d')
+                dt_lbl = dt_obj.strftime('%d/%m')
+            except Exception:
+                dt_lbl = data_part
+                
+            status_lbl = " [Pend.]" if ac.get('status') == 'Pendente' else ""
+            desc = ac.get('descricao')
+            desc_lbl = f" — {desc}" if desc else ""
+            ocurrences_lines.append(f"• `{dt_lbl}`: {ac.get('tipo') or 'Ação'} ({pts:+.1f} pts){status_lbl}{desc_lbl}")
+            
+        ocurrences_str = "\n".join(ocurrences_lines) if ocurrences_lines else "• Nenhuma ocorrência registrada."
+        
+        dossier = (
+            f"👤 DOSSIÊ DO ALUNO 👤\n\n"
+            f"• Nome Completo: {student.get('nome_completo') or student.get('nome_guerra')}\n"
+            f"• Nome de Guerra: {student.get('nome_guerra')}\n"
+            f"• Número Interno: `{student.get('numero_interno')}`\n"
+            f"• Pelotão (Turma): {student.get('pelotao')}\n"
+            f"• Situação Cadastral: {student.get('status') or 'Ativo'}\n\n"
+            f"📊 Presença Hoje: {pres_lbl}\n"
+            f"🩺 Situação de Saúde: {health_lbl}\n\n"
+            f"📞 Contatos de Emergência:\n"
+            f"• Telefone do Aluno: `{tel_aluno}`\n"
+            f"• Contato de Emergência: {emerg_nome} (`{emerg_num}`)\n\n"
+            f"📋 Últimas 5 Ocorrências:\n"
+            f"{ocurrences_str}"
+        )
+        
+        await bot_instance.reply_to(message, dossier, reply_markup=get_main_menu_keyboard(), parse_mode='Markdown')
+    except Exception as e:
+        await bot_instance.reply_to(message, f"❌ Erro ao gerar dossiê: {e}", reply_markup=get_main_menu_keyboard())
+    finally:
+        clear_state(chat_id)
+
+async def init_bot():
+    """Tarefa assíncrona inicializada no startup do NiceGUI para rodar o Telegram bot."""
+    global bot, polling_task
+    
+    # Se DISABLE_TELEGRAM_BOT estiver ativo, pula a inicialização do bot
+    if os.getenv("DISABLE_TELEGRAM_BOT") == "True":
+        print("[TELEGRAM BOT] Desabilitado via variável de ambiente DISABLE_TELEGRAM_BOT=True.", flush=True)
+        return
+        
+    # Se já existir uma instância ou tarefa rodando, garante o encerramento limpo antes de iniciar outra
+    if polling_task or bot:
+        print("[TELEGRAM BOT] Detectada instância ativa anterior. Parando-a primeiro...", flush=True)
+        await stop_bot()
+        
+    token = get_bot_token()
+    
+    if not token:
+        print("[TELEGRAM BOT] Erro: TELEGRAM_TOKEN não configurado no banco e nem no .env. Bot desabilitado.", flush=True)
+        return
+        
+    try:
+        print("[TELEGRAM BOT] Conectando ao Telegram...", flush=True)
+        bot = AsyncTeleBot(token)
+        setup_handlers(bot)
+        
+        # Limpa qualquer webhook pendente e atualizações acumuladas para evitar erros de 409 Conflict no polling
+        try:
+            print("[TELEGRAM BOT] Limpando webhooks e atualizações pendentes...", flush=True)
+            await bot.delete_webhook(drop_pending_updates=True)
+        except Exception as wh_err:
+            print(f"[TELEGRAM BOT] Aviso ao deletar webhook: {wh_err}", flush=True)
+            
+        # Inicia polling infinito em segundo plano
+        polling_task = asyncio.create_task(bot.polling(non_stop=True))
+        print("[TELEGRAM BOT] Bot de Telegram ativo em segundo plano e escutando!", flush=True)
+    except Exception as e:
+        print(f"[TELEGRAM BOT] Erro crítico ao iniciar o Bot: {e}", flush=True)
+
+async def stop_bot():
+    """Para o bot de Telegram cancelando a tarefa de polling e fechando a sessão."""
+    global bot, polling_task
+    if polling_task:
+        polling_task.cancel()
+        try:
+            await polling_task
+        except asyncio.CancelledError:
+            pass
+        polling_task = None
+    if bot:
+        try:
+            await bot.close_session()
+        except Exception as e:
+            print(f"[TELEGRAM BOT] Erro ao fechar sessão: {e}", flush=True)
+        bot = None
+    print("[TELEGRAM BOT] Bot parado com sucesso.", flush=True)
+
+async def restart_bot():
+    """Para e reinicia o bot do Telegram com as novas configurações."""
+    print("[TELEGRAM BOT] Reiniciando bot...", flush=True)
+    await stop_bot()
+    await init_bot()
