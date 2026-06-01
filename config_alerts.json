@@ -1,0 +1,25 @@
+{
+  "bell_enabled": true,
+  "sound_mappings": {
+    "Registro de Ocorrência": "naval_bell_singela",
+    "Novo Aviso": "info",
+    "Aviso de Saúde": "warning",
+    "Dispensa Médica": "warning",
+    "Licença Médica": "warning",
+    "Alta Médica": "success",
+    "Escala de Serviço": "info",
+    "Escala de Serviço Atualizada": "info",
+    "Chamada Diária": "info",
+    "Atraso Registrado": "info"
+  },
+  "custom_alerts": [
+    {
+      "id": "4c71b249",
+      "time": "21:14",
+      "title": "SINO",
+      "message": "MEMSG",
+      "sound": "naval_bell_8",
+      "enabled": true
+    }
+  ]
+}
