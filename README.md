@@ -1,3 +1,13 @@
+---
+title: Siscomca
+emoji: 🛡️
+colorFrom: yellow
+colorTo: blue
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # Guia de Implantação SisCOMCA (Hugging Face Spaces)
 
 Este documento descreve os passos para implantar o aplicativo **SisCOMCA (NiceGUI)** nos **Hugging Face Spaces** utilizando **Docker**, aproveitando a infraestrutura gratuita de **16GB de RAM**.
