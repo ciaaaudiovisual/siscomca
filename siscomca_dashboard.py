@@ -230,6 +230,24 @@ def _carregar_dados_gerais():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def render_page():
+    client = ui.context.client
+    
+    async def handle_refresh():
+        # Limpa o cache de dados e atualiza a tela
+        data_service.clear_cache()
+        render_dashboard_content.refresh()
+        
+    def setup_realtime():
+        from alerts_manager import AlertsManager
+        AlertsManager.register_refresh_callback(handle_refresh)
+        
+    def cleanup_realtime():
+        from alerts_manager import AlertsManager
+        AlertsManager.unregister_refresh_callback(handle_refresh)
+        
+    client.on_connect(setup_realtime)
+    client.on_disconnect(cleanup_realtime)
+
     render_dashboard_content()
 
 
@@ -344,8 +362,53 @@ def render_dashboard_content():
                             else:
                                 ui.label('— não definido —').classes('text-grey-7 text-xs italic')
 
-                with ui.row().classes('w-full q-pa-sm justify-center border-t border-gray-800'):
+                with ui.row().classes('w-full q-pa-sm justify-center gap-2 border-t border-gray-800 flex-wrap'):
                     _build_escala_dialog()
+                    _build_escala_semanal_dialog()
+                    
+                    def notificar_escala_manual():
+                        try:
+                            from database import get_db_connection
+                            from database import carregar_escala_diaria
+                            db_c = get_db_connection()
+                            if not db_c:
+                                ui.notify('Sem conexão com banco de dados', color='warning')
+                                return
+                            data_hoje = datetime.now().strftime('%Y-%m-%d')
+                            df = carregar_escala_diaria(data_hoje)
+                            if df.empty:
+                                ui.notify('Nenhum militar escalado hoje.', color='warning')
+                                return
+                                
+                            total_notified = 0
+                            from notifications_manager import send_notification_to_user
+                            import asyncio
+                            
+                            for _, r in df.iterrows():
+                                cargo = r['cargo']
+                                nome_mil = r['nome'].strip()
+                                if nome_mil:
+                                    res_u = db_c.table('Users').select('telegram_id').eq('nome', nome_mil).execute()
+                                    if res_u.data and res_u.data[0].get('telegram_id'):
+                                        tg_id = res_u.data[0]['telegram_id']
+                                        msg = (
+                                            f"👮 **Aviso de Serviço — SisCOMCA**\n\n"
+                                            f"Olá! Você está de serviço **HOJE** na função de **{cargo}**."
+                                        )
+                                        asyncio.create_task(send_notification_to_user(tg_id, msg))
+                                        total_notified += 1
+                                        
+                            if total_notified > 0:
+                                ui.notify(f'{total_notified} militares notificados no Telegram!', color='positive')
+                            else:
+                                ui.notify('Nenhum militar com Telegram vinculado encontrado na escala de hoje.', color='warning')
+                        except Exception as ex:
+                            ui.notify(f'Erro ao notificar: {ex}', color='negative')
+                            
+                    ui.button(
+                        '🔔 Notificar',
+                        on_click=notificar_escala_manual
+                    ).props('flat dense no-caps').classes('text-xs text-cyan-5 font-bold')
 
             # 2. Aniversariantes da Semana
             with ui.card().classes('w-full no-shadow').style(
@@ -572,12 +635,17 @@ def _build_escala_dialog():
                     for idx, item in enumerate(state['rows']):
                         with ui.row().classes('w-full items-center gap-2 no-wrap').style('border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 4px;'):
                             # Input editável do Cargo
-                            cargo_inp = ui.input(value=item['cargo']).props('dark dense outlined').classes('w-[160px] text-xs font-bold')
-                            cargo_inp.on('change', lambda e, idx=idx: update_state_cargo(idx, e.value))
+                            cargo_inp = ui.input(
+                                value=item['cargo'],
+                                on_change=lambda e, idx=idx: update_state_cargo(idx, e.value)
+                            ).props('dark dense outlined').classes('w-[160px] text-xs font-bold')
                             
                             # Input editável do Militar de serviço
-                            nome_inp = ui.input(placeholder='Nome completo / posto', value=item['nome']).props('dark dense outlined').classes('col-grow text-xs')
-                            nome_inp.on('change', lambda e, idx=idx: update_state_nome(idx, e.value))
+                            nome_inp = ui.input(
+                                placeholder='Nome completo / posto',
+                                value=item['nome'],
+                                on_change=lambda e, idx=idx: update_state_nome(idx, e.value)
+                            ).props('dark dense outlined').classes('col-grow text-xs')
                             
                             # Botão de exclusão do posto
                             ui.button(on_click=lambda idx=idx: delete_row(idx), icon='delete').props('flat dense color=red-5 round')
@@ -623,6 +691,28 @@ def _build_escala_dialog():
                         f"A escala para o dia {d_formatted} foi atualizada na Dashboard!",
                         "info"
                     )
+                    
+                    # Notifica os militares via Telegram automaticamente
+                    try:
+                        db_c = get_db_connection()
+                        if db_c:
+                            from notifications_manager import send_notification_to_user
+                            import asyncio
+                            for item in state['rows']:
+                                cargo = item['cargo'].strip()
+                                nome_mil = item['nome'].strip()
+                                if cargo and nome_mil:
+                                    res_u = db_c.table('Users').select('telegram_id').eq('nome', nome_mil).execute()
+                                    if res_u.data and res_u.data[0].get('telegram_id'):
+                                        tg_id = res_u.data[0]['telegram_id']
+                                        d_lbl = datetime.strptime(state['active_date'], '%Y-%m-%d').strftime('%d/%m')
+                                        msg = (
+                                            f"👮 **Aviso de Serviço — SisCOMCA**\n\n"
+                                            f"Olá! Você foi escalado para o serviço no dia **{d_lbl}** na função de **{cargo}**."
+                                        )
+                                        asyncio.create_task(send_notification_to_user(tg_id, msg))
+                    except Exception as e_alert:
+                        print(f"[ESCALA DIARIA NOTIFY ERROR] {e_alert}")
                 else:
                     err_lbl.text = 'Preencha ao menos um posto de serviço antes de salvar.'
 
@@ -642,6 +732,167 @@ def _build_escala_dialog():
     ui.button(
         '✏️ Definir / Editar Escala do Dia',
         on_click=open_dialog
+    ).props('flat dense no-caps').classes('text-xs text-amber-5 font-bold')
+
+def _build_escala_semanal_dialog():
+    """Diálogo interativo para preenchimento em lote do Inspetor para a semana inteira."""
+    from database import get_db_connection
+    from datetime import datetime, timedelta
+    import asyncio
+    
+    # Busca operadores ativos
+    db_conn = get_db_connection()
+    operadores_opcoes = {}
+    if db_conn:
+        try:
+            u_res = db_conn.table('Users').select('*').execute()
+            if u_res.data:
+                operadores_opcoes = {u['nome'].upper(): u['nome'].upper() for u in u_res.data if u.get('nome')}
+        except Exception:
+            pass
+            
+    if not operadores_opcoes:
+        operadores_opcoes = {"ADMIN": "ADMIN", "CALAÇA": "CALAÇA", "AMANDA": "AMANDA", "BASTOS": "BASTOS", "ALANDESA": "ALANDESA"}
+        
+    state = {
+        'rows': []
+    }
+    
+    def carregar_escala_semanal():
+        hoje = datetime.now().date()
+        start = hoje - timedelta(days=hoje.weekday())
+        
+        rows = []
+        dias_semana_pt = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado", "Domingo"]
+        
+        db_c = get_db_connection()
+        escala_existente = {}
+        if db_c:
+            try:
+                d_inicio = start.strftime('%Y-%m-%d')
+                d_fim = (start + timedelta(days=6)).strftime('%Y-%m-%d')
+                res = db_c.table('escala_diaria').select('*').eq('cargo', 'Inspetor').gte('data', d_inicio).lte('data', d_fim).execute()
+                if res.data:
+                    escala_existente = {r['data']: r['nome'] for r in res.data}
+            except Exception:
+                pass
+                
+        for i in range(7):
+            d = start + timedelta(days=i)
+            d_str = d.strftime('%Y-%m-%d')
+            rows.append({
+                'date_str': d_str,
+                'date_display': d.strftime('%d/%m'),
+                'weekday': dias_semana_pt[i],
+                'nome': escala_existente.get(d_str, '')
+            })
+        state['rows'] = rows
+
+    with ui.dialog() as dialog, ui.card().classes('q-pa-lg').style(
+        f'background:{THEME["bg_panel"]}; border:{THEME["border"]}; min-width:480px; max-width:90vw;'
+    ):
+        with ui.column().classes('w-full gap-3'):
+            with ui.row().classes('items-center gap-2 w-full justify-between'):
+                with ui.row().classes('items-center gap-2'):
+                    ui.icon('date_range', color='amber-9').classes('text-xl')
+                    ui.label('ESCALA SEMANAL DE INSPETORES').style(
+                        f'color:{THEME["primary"]}; font-weight:900; letter-spacing:2px;'
+                    )
+                ui.button(icon='close', on_click=dialog.close).props('flat round dense color=grey')
+
+            ui.separator().props('dark')
+            
+            ui.label('Preencha os inspetores para a semana atual (Segunda a Domingo):').classes('text-grey-4 text-xs font-bold')
+
+            @ui.refreshable
+            def render_semana_rows():
+                with ui.column().classes('w-full gap-2 max-h-[350px] overflow-y-auto q-pr-xs'):
+                    for idx, row in enumerate(state['rows']):
+                        with ui.row().classes('w-full items-center gap-3 no-wrap py-1 border-b border-white/5'):
+                            with ui.column().classes('gap-0 w-[140px]'):
+                                ui.label(row['weekday']).classes('text-white text-xs font-bold')
+                                ui.label(row['date_display']).classes('text-grey text-[10px]')
+                            
+                            ui.select(
+                                operadores_opcoes,
+                                label='Inspetor',
+                                value=row['nome'],
+                                on_change=lambda e, idx=idx: state['rows'][idx].__setitem__('nome', e.value or '')
+                            ).props('dark dense outlined clearable').classes('col-grow text-xs')
+
+            render_semana_rows()
+
+            def salvar_semana():
+                db_c = get_db_connection()
+                salvou_algum = False
+                
+                for row in state['rows']:
+                    d_str = row['date_str']
+                    nome = row['nome'].strip()
+                    
+                    if db_c:
+                        try:
+                            db_c.table('escala_diaria').delete().eq('data', d_str).eq('cargo', 'Inspetor').execute()
+                            if nome:
+                                db_c.table('escala_diaria').insert({
+                                    'data': d_str,
+                                    'cargo': 'Inspetor',
+                                    'nome': nome,
+                                    'observacao': 'Lançado via escala semanal'
+                                }).execute()
+                            salvou_algum = True
+                        except Exception as e:
+                            print(f"[ESCALA SEMANAL] Erro ao salvar data {d_str}: {e}")
+                    else:
+                        salvou_algum = True
+                        
+                if salvou_algum:
+                    ui.notify('Escala semanal de Inspetores salva com sucesso!', color='positive')
+                    dialog.close()
+                    data_service.clear_cache()
+                    render_dashboard_content.refresh()
+                    
+                    from alerts_manager import AlertsManager
+                    AlertsManager.trigger_alert(
+                        "Escala Semanal Atualizada",
+                        "A escala de Inspetores para toda a semana foi atualizada!",
+                        "info"
+                    )
+                    
+                    try:
+                        from notifications_manager import send_notification_to_user
+                        if db_c:
+                            for row in state['rows']:
+                                nome_mil = row['nome'].strip()
+                                if nome_mil:
+                                    res_u = db_c.table('Users').select('telegram_id').eq('nome', nome_mil).execute()
+                                    if res_u.data and res_u.data[0].get('telegram_id'):
+                                        tg_id = res_u.data[0]['telegram_id']
+                                        d_fmt = datetime.strptime(row['date_str'], '%Y-%m-%d').strftime('%d/%m')
+                                        msg = (
+                                            f"👮 **Aviso de Serviço — SisCOMCA**\n\n"
+                                            f"Olá! Você foi escalado para o serviço no dia **{d_fmt}** ({row['weekday']}) como **INSPETOR DO DIA**."
+                                        )
+                                        asyncio.create_task(send_notification_to_user(tg_id, msg))
+                    except Exception as e_alert:
+                        print(f"[ESCALA SEMANAL NOTIFY ERROR] {e_alert}")
+                else:
+                    ui.notify('Ocorreu um erro ao salvar a escala semanal.', color='negative')
+
+            with ui.row().classes('w-full justify-end gap-2 q-mt-md border-t border-gray-900 q-pt-sm'):
+                ui.button('Cancelar', on_click=dialog.close).props('flat color=grey no-caps')
+                ui.button('💾 SALVAR SEMANA', on_click=salvar_semana).props(
+                    'unelevated no-caps'
+                ).style(f'background:{THEME["primary"]}; color:#000; font-weight:700;')
+
+    def open_semanal():
+        carregar_escala_semanal()
+        dialog.open()
+        render_semana_rows.refresh()
+
+    ui.button(
+        '📅 Escala Semanal',
+        on_click=open_semanal
     ).props('flat dense no-caps').classes('text-xs text-amber-5 font-bold')
 
 
@@ -776,6 +1027,17 @@ def _build_aviso_rapido_card():
                             f"Aviso publicado por {autor}: {val}",
                             "info"
                         )
+                        
+                        try:
+                            from notifications_manager import notify_telegram
+                            alert_txt = (
+                                f"📢 **NOVO AVISO CRÍTICO PUBLICADO**\n"
+                                f"👤 Autor: {autor}\n\n"
+                                f"\"{val}\""
+                            )
+                            notify_telegram(alert_txt, "aviso")
+                        except Exception as e_notif:
+                            print(f"[DASHBOARD AVISO NOTIFY ERROR] {e_notif}")
                     except Exception as e:
                         ui.notify(f'Erro ao salvar aviso: {e}', color='negative')
                 else:

@@ -49,6 +49,14 @@ MARQUEE_CSS = """
 .health-marquee-container:hover {
     animation-play-state: paused;
 }
+.notes-marquee-container {
+    display: flex;
+    flex-direction: column;
+    animation: marquee-vertical 45s linear infinite;
+}
+.notes-marquee-container:hover {
+    animation-play-state: paused;
+}
 .activities-marquee-container {
     display: flex;
     flex-direction: column;
@@ -84,13 +92,13 @@ MARQUEE_CSS = """
     font-weight: 900;
     font-family: monospace;
     line-height: 1;
-    font-size: clamp(1.5rem, 3vw, 3.5rem);
+    font-size: clamp(1.8rem, 3.2vw, 3.6rem);
 }
 .kpi-label {
     font-weight: bold;
     letter-spacing: 0.5px;
     text-transform: uppercase;
-    font-size: clamp(0.4rem, 0.7vw, 0.7rem);
+    font-size: clamp(0.55rem, 0.8vw, 0.85rem);
     color: #666;
 }
 /* Layout flex auto-adjust */
@@ -191,10 +199,13 @@ def sanitize_text(val) -> str:
     return s.strip()
 
 
-def _carregar_dados_tv():
+def _carregar_dados_tv(prog_date: datetime = None):
     """Carrega dados consolidados do Supabase para o Modo TV com fallbacks offline robustos."""
     db_conn = get_db_connection()
     hoje_str = datetime.now().strftime('%Y-%m-%d')
+    if prog_date is None:
+        prog_date = datetime.now()
+    prog_date_str = prog_date.strftime('%Y-%m-%d')
     is_offline = not db_conn
 
     # 0. Configurações gerais
@@ -435,7 +446,7 @@ def _carregar_dados_tv():
                     texto = o['texto']
                     autor = o.get('autor_id')
                     if autor:
-                        texto += f" (Inserido por: {autor})"
+                        texto += f' <span style="font-size: 0.85rem; font-weight: normal; opacity: 0.75; margin-left: 4px;">({autor})</span>'
                     avisos_list.append(texto)
         except Exception as e:
             print(f"[TV] Erro Ordens Diárias: {e}")
@@ -447,7 +458,7 @@ def _carregar_dados_tv():
                 texto = o['texto']
                 autor = o.get('autor_id')
                 if autor:
-                    texto += f" (Inserido por: {autor})"
+                    texto += f' <span style="font-size: 0.85rem; font-weight: normal; opacity: 0.75; margin-left: 4px;">({autor})</span>'
                 avisos_list.append(texto)
 
     if not avisos_list:
@@ -495,18 +506,17 @@ def _carregar_dados_tv():
         for ac in acoes_list:
             aid = str(ac.get('aluno_id'))
             aluno = align_map.get(aid)
-            ni_prefix = f"{aluno['ni']} — " if aluno and aluno['ni'] else ""
-            nome_aluno = aluno['nome'] if aluno else 'MILITAR'
-            pelotao_aluno = f" ({aluno['pelotao']})" if aluno and aluno['pelotao'] else ""
             tipo = str(ac.get('tipo', 'Anotação')).upper()
-            desc = ac.get('descricao', '')
-            desc_str = f" — {desc}" if desc else ""
-            
+            desc = ac.get('descricao', 'Sem descrição')
             tipo_acao_id = str(ac.get('tipo_acao_id', ''))
             pts = tipos_map.get(tipo_acao_id, 0.0)
             
             anotacoes_dia_list.append({
-                'texto': f"{ni_prefix}{nome_aluno}{pelotao_aluno}: {tipo}{desc_str}",
+                'ni': str(aluno['ni']).upper() if aluno and aluno.get('ni') else '',
+                'nome': str(aluno['nome']).upper() if aluno else 'MILITAR',
+                'pelotao': str(aluno['pelotao']).upper() if aluno and aluno.get('pelotao') else '',
+                'tipo': tipo,
+                'motivo': desc,
                 'status': ac.get('status', 'Lançado'),
                 'pts': pts
             })
@@ -514,11 +524,35 @@ def _carregar_dados_tv():
     if not anotacoes_dia_list:
         if is_offline:
             anotacoes_dia_list = [
-                {'texto': 'SILVA (MIKE-1): ANOTAÇÃO — Destacou-se na instrução prática de hoje.', 'status': 'Lançado', 'pts': 0.5},
-                {'texto': 'MARTINS (MIKE-2): OBSERVAÇÃO — Dispensado das atividades físicas por recomendação médica.', 'status': 'Pendente', 'pts': -0.3}
+                {
+                    'ni': 'M-1-102',
+                    'nome': 'SILVA',
+                    'pelotao': 'MIKE-1',
+                    'tipo': 'ANOTAÇÃO',
+                    'motivo': 'Destacou-se na instrução prática de hoje.',
+                    'status': 'Lançado',
+                    'pts': 0.5
+                },
+                {
+                    'ni': 'M-2-207',
+                    'nome': 'MARTINS',
+                    'pelotao': 'MIKE-2',
+                    'tipo': 'OBSERVAÇÃO',
+                    'motivo': 'Dispensado das atividades físicas por recomendação médica.',
+                    'status': 'Pendente',
+                    'pts': -0.3
+                }
             ]
         else:
-            anotacoes_dia_list = [{'texto': 'NÃO HÁ ANOTAÇÕES DE ALUNOS REGISTRADAS HOJE.', 'status': 'Lançado', 'pts': 0.0}]
+            anotacoes_dia_list = [{
+                'ni': '',
+                'nome': 'NENHUM REGISTRO',
+                'pelotao': '',
+                'tipo': 'INFO',
+                'motivo': 'NÃO HÁ ANOTAÇÕES DE ALUNOS REGISTRADAS HOJE.',
+                'status': 'Lançado',
+                'pts': 0.0
+            }]
     dados['anotacoes_dia'] = anotacoes_dia_list
 
     # 7. Programação / Atividades do Dia
@@ -632,6 +666,64 @@ def render_page():
         """
     )
 
+    def estimate_sunset_time() -> str:
+        """Calcula dinamicamente uma estimativa realista do pôr do sol para a latitude de Brasília (-15.79) baseada no dia do ano."""
+        import math
+        try:
+            # Pega a configuração do banco se existir
+            from services import data_service
+            cfg_val = data_service.get_config_value('cabecalho_tv_sunset_time', '')
+            if cfg_val and len(cfg_val.strip()) == 5 and ":" in cfg_val:
+                return cfg_val.strip()
+        except Exception:
+            pass
+
+        try:
+            from datetime import datetime
+            now = datetime.now()
+            day_of_year = now.timetuple().tm_yday
+            angle = 2 * math.pi * (day_of_year - 355) / 365
+            minutes = 1095 + 27 * math.cos(angle)
+            hour = int(minutes // 60)
+            minute = int(minutes % 60)
+            return f"{hour:02d}:{minute:02d}"
+        except Exception:
+            return "17:48"
+
+    def get_pt_date_string(dt) -> str:
+        """Retorna a data formatada em português de forma manual e imune a locales do OS."""
+        dias_semana = {
+            0: 'Segunda-feira',
+            1: 'Terça-feira',
+            2: 'Quarta-feira',
+            3: 'Quinta-feira',
+            4: 'Sexta-feira',
+            5: 'Sábado',
+            6: 'Domingo'
+        }
+        meses = {
+            1: 'Janeiro',
+            2: 'Fevereiro',
+            3: 'Março',
+            4: 'Abril',
+            5: 'Maio',
+            6: 'Junho',
+            7: 'Julho',
+            8: 'Agosto',
+            9: 'Setembro',
+            10: 'Outubro',
+            11: 'Novembro',
+            12: 'Dezembro'
+        }
+        try:
+            dia_sem = dias_semana[dt.weekday()]
+            dia = dt.day
+            mes = meses[dt.month]
+            ano = dt.year
+            return f"{dia_sem}, {dia:02d} de {mes} de {ano}".upper()
+        except Exception:
+            return dt.strftime('%A, %d de %B de %Y').upper()
+
     client = ui.context.client
 
     # Container da Notificação Tática Flutuante
@@ -674,6 +766,7 @@ def render_page():
                 # Remove blur do card
                 anotacoes_card.style(f'background: {THEME["bg_panel"]}; width: 100%; flex: 1; min-height: 0; filter: none; transition: filter 0.3s ease;')
                 eye_btn.props(replace='icon=visibility')
+                eye_btn.set_text('OCULTAR DADOS')
                 unlock_dialog.close()
                 ui.notify('Área desbloqueada com sucesso!', color='positive')
                 unlock_input.value = ''
@@ -694,81 +787,90 @@ def render_page():
             tv_state['blurred'] = True
             anotacoes_card.style(f'background: {THEME["bg_panel"]}; width: 100%; flex: 1; min-height: 0; filter: blur(15px); pointer-events: none; transition: filter 0.3s ease;')
             eye_btn.props(replace='icon=visibility_off')
+            eye_btn.set_text('REVELAR DADOS')
             ui.notify('Anotações ocultadas com sucesso!', color='warning')
-
-
 
     # Container Principal
     with ui.column().classes('w-full q-pa-sm gap-2').style('background:#000; height:100vh; overflow:hidden; display:flex; flex-direction:column;'):
         
         # ── CABEÇALHO TÁTICO ─────────────────────────────────────────────────────────
-        with ui.row().classes('w-full items-center justify-between border-b-2 border-gray-900 q-pb-none'):
-            # Esquerda: Relógio Grande + data
-            with ui.column().classes('items-start gap-0'):
+        with ui.row().classes('w-full items-center justify-between border-b-2 border-gray-900 q-pb-xs'):
+            # Esquerda: Relógio Grande + data + Pôr do sol
+            with ui.column().classes('items-start gap-0.5'):
                 clock_lbl = ui.label('--:--:--').style(
                     'color:#fff; font-size:2.4rem; font-weight:900; letter-spacing:4px; font-family:monospace; line-height:1;'
                 )
-                date_lbl = ui.label('').classes('text-amber-5 text-xs font-bold tracking-wider')
+                with ui.row().classes('items-center gap-2'):
+                    date_lbl = ui.label('').classes('text-amber-5 text-xs font-bold tracking-wider')
+                    ui.label('|').classes('text-gray-700 text-xs')
+                    sunset_icon = ui.icon('wb_twilight', color='orange-5').classes('text-sm')
+                    sunset_lbl = ui.label('PÔR DO SOL: --:--').classes('text-orange-4 text-xs font-bold tracking-wider')
 
             # Centro: Título do Setor
-            with ui.column().classes('items-center'):
+            with ui.column().classes('items-center gap-1.5'):
                 from services import data_service
                 system_title = str(data_service.get_config_value('cabecalho_tv_title', 'SISTEMA C2') or 'SISTEMA C2').upper()
+                system_subtitle = str(data_service.get_config_value('cabecalho_tv_subtitle', 'CORPO DE ALUNOS • COMANDO TÁTICO') or 'CORPO DE ALUNOS • COMANDO TÁTICO').upper()
                 title_lbl = ui.label(system_title).style(
-                    f'color:{THEME["primary"]}; font-size:1.4rem; font-weight:900; letter-spacing:4px; line-height:1;'
+                    f'color:{THEME["primary"]}; font-size:2.2rem; font-weight:900; letter-spacing:4px; line-height:1.0;'
                 )
-                ui.label('CORPO DE ALUNOS • COMANDO TÁTICO').classes(
-                    'text-gray-500 text-xs font-bold tracking-widest'
+                ui.label(system_subtitle).classes(
+                    'text-gray-500 text-xs font-bold tracking-widest q-mt-xs'
                 )
 
-            # Direita: Status de Conectividade + Botão
-            with ui.column().classes('items-end gap-1'):
-                with ui.row().classes('items-center gap-2'):
+            # Direita: Status de Conectividade + Botões Descritivos Grandes
+            with ui.column().classes('items-end gap-1.5 justify-center'):
+                # Sublinha 1: Conectividade + Sinalizadores
+                with ui.row().classes('items-center gap-2.5 no-wrap'):
                     status_dot = ui.icon('sensors', color='green').classes('text-2xl animate-pulse')
                     status_lbl = ui.label('ONLINE').classes('text-green-500 font-bold text-sm tracking-widest mr-2')
                     
-                    # Criação dos botões primeiro para evitar referências futuras
-                    sound_btn = ui.button().props('outline round dense icon=volume_up').style(f'color: {THEME["primary"]}; border: 1px solid {THEME["primary"]} !important;').classes('text-xs')
-                    with sound_btn:
-                        ui.tooltip('Ativar/Desativar som do sinal de alerta')
-                        
-                    voice_btn = ui.button().props('outline round dense icon=record_voice_over').style(f'color: {THEME["primary"]}; border: 1px solid {THEME["primary"]} !important;').classes('text-xs')
-                    with voice_btn:
-                        ui.tooltip('Ativar/Desativar leitura de voz do Jarvis')
-
-                    # Definição das funções de callback
-                    def toggle_sound():
-                        audio_config['sound'] = not audio_config['sound']
-                        icon = "volume_up" if audio_config["sound"] else "volume_off"
-                        color = THEME["primary"] if audio_config["sound"] else "#64748b"
-                        sound_btn.props(f'icon={icon}')
-                        sound_btn.style(f'color: {color} !important; border-color: {color} !important;')
-                        ui.notify(f'Som de chime {"ativado" if audio_config["sound"] else "desativado"}', color='info')
-                        from alerts_manager import AlertsManager
-                        AlertsManager.update_tv_preferences(client.id, sound=audio_config['sound'])
+                    sound_btn = ui.button(
+                        'SINAL: LIGADO', icon='volume_up'
+                    ).props('outline color=amber dense no-caps').classes('text-xs font-bold px-2.5 py-1')
                     
-                    def toggle_voice():
-                        audio_config['voice'] = not audio_config['voice']
-                        icon = "record_voice_over" if audio_config["voice"] else "voice_over_off"
-                        color = THEME["primary"] if audio_config["voice"] else "#64748b"
-                        voice_btn.props(f'icon={icon}')
-                        voice_btn.style(f'color: {color} !important; border-color: {color} !important;')
-                        ui.notify(f'Leitura de voz (Jarvis) {"ativada" if audio_config["voice"] else "desativada"}', color='info')
-                        from alerts_manager import AlertsManager
-                        AlertsManager.update_tv_preferences(client.id, voice=audio_config['voice'])
-
-                    # Associa os callbacks aos botões
-                    sound_btn.on_click(toggle_sound)
-                    voice_btn.on_click(toggle_voice)
-
-                with ui.row().classes('items-center gap-2'):
+                    voice_btn = ui.button(
+                        'JARVIS: LIGADO', icon='record_voice_over'
+                    ).props('outline color=amber dense no-caps').classes('text-xs font-bold px-2.5 py-1')
+                    
+                # Sublinha 2: Ações Extras (Privacidade / Retorno)
+                with ui.row().classes('items-center gap-2.5 no-wrap'):
                     eye_btn = ui.button(
-                        on_click=toggle_blur
-                    ).props('flat round dense color=amber icon=visibility').classes('text-md')
+                        'OCULTAR DADOS', icon='visibility'
+                    ).props('outline color=amber dense no-caps').classes('text-xs font-bold px-2.5 py-1')
+                    
                     ui.button(
-                        'Retornar ao Dashboard', icon='arrow_back',
+                        'DASHBOARD', icon='arrow_back',
                         on_click=lambda: ui.navigate.to('/siscomca_dashboard')
-                    ).props('outline color=grey dense no-caps').classes('text-xs text-grey-4')
+                    ).props('outline color=grey dense no-caps').classes('text-xs font-bold text-grey-4 px-2.5 py-1')
+
+                # Definição das funções de callback de áudio
+                def toggle_sound():
+                    audio_config['sound'] = not audio_config['sound']
+                    label = "SINAL: LIGADO" if audio_config["sound"] else "SINAL: MUTADO"
+                    icon = "volume_up" if audio_config["sound"] else "volume_off"
+                    color = 'amber' if audio_config["sound"] else 'grey-5'
+                    sound_btn.props(f'icon={icon} color={color}')
+                    sound_btn.set_text(label)
+                    ui.notify(f'Som de chime {"ativado" if audio_config["sound"] else "desativado"}', color='info')
+                    from alerts_manager import AlertsManager
+                    AlertsManager.update_tv_preferences(client.id, sound=audio_config['sound'])
+                
+                def toggle_voice():
+                    audio_config['voice'] = not audio_config['voice']
+                    label = "JARVIS: LIGADO" if audio_config["voice"] else "JARVIS: MUTADO"
+                    icon = "record_voice_over" if audio_config["voice"] else "voice_over_off"
+                    color = 'amber' if audio_config["voice"] else 'grey-5'
+                    voice_btn.props(f'icon={icon} color={color}')
+                    voice_btn.set_text(label)
+                    ui.notify(f'Leitura de voz (Jarvis) {"ativada" if audio_config["voice"] else "desativada"}', color='info')
+                    from alerts_manager import AlertsManager
+                    AlertsManager.update_tv_preferences(client.id, voice=audio_config['voice'])
+
+                # Associa os callbacks aos botões
+                sound_btn.on_click(toggle_sound)
+                voice_btn.on_click(toggle_voice)
+                eye_btn.on_click(toggle_blur)
 
         # ── CORPO PRINCIPAL DO PAINEL (GRID DUPLO) ─────────────────────────────
         with ui.element('div').classes('tv-main-row'):
@@ -779,21 +881,20 @@ def render_page():
                 with ui.element('div').classes('tv-panel border border-gray-800').style(
                     f'background: {THEME["bg_panel"]}; width: 100%; height: 42%; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; gap: 4px; padding: 6px;'
                 ):
-                    # 1. Bloco de Cima (Inspetor do Dia em Destaque) - 38% de altura
-                    with ui.card().classes('w-full q-pa-xs border border-amber-900/40').style(
-                        f'background: rgba(212, 175, 55, 0.03); height: 38%; display: flex; flex-direction: column; justify-content: center; align-items: center; border-radius: 6px;'
+                    # 1. Bloco de Cima (Inspetor do Dia em Destaque) - 45% de altura (Layout Vertical e Centralizado de Alto Destaque)
+                    with ui.card().classes('w-full q-pa-xs border').style(
+                        f'background: rgba(212, 175, 55, 0.08) !important; border: 2px solid #D4AF37 !important; box-shadow: 0 0 25px rgba(212, 175, 55, 0.45) !important; height: 45%; display: flex; flex-direction: column; justify-content: center; align-items: center; border-radius: 8px; gap: 6px;'
                     ):
-                        with ui.row().classes('w-full items-center justify-between px-2 no-wrap gap-2'):
-                            # Esquerda: Avatar com brilho dourado
-                            insp_avatar = ui.avatar(size='46px').style('border: 2px solid #D4AF37; box-shadow: 0 0 10px rgba(212, 175, 55, 0.4); shrink: 0;')
-                            # Direita: Nome e Cargo
-                            with ui.column().classes('gap-0.5 col-grow justify-center'):
-                                ui.label('INSPETOR DO DIA').style(f'color: {THEME["primary"]}; font-size: 11px; font-weight: 900; letter-spacing: 2px; line-height: 1;')
-                                insp_nome = ui.label('CARREGANDO...').classes('text-white text-[15px] font-black tracking-wider leading-none')
-                            # Badge de status dinâmico
-                            insp_badge = ui.label('DE SERVIÇO').classes('text-green-500 text-[10px] font-black tracking-widest animate-pulse border border-green-500/30 px-1 py-0.5 rounded')
+                        # Organização em coluna centralizada
+                        with ui.column().classes('w-full items-center justify-center gap-1.5 no-wrap'):
+                            # Avatar com brilho dourado e formato mais quadrado centralizado
+                            insp_avatar = ui.avatar(size='72px').style('border: 2px solid #D4AF37; box-shadow: 0 0 16px rgba(212, 175, 55, 0.6); shrink: 0; border-radius: 8px !important;')
+                            
+                            # Cargo e Nome centralizados com tamanho significativamente ampliado
+                            ui.label('INSPETOR DO DIA').style(f'color: {THEME["primary"]}; font-size: 18px; font-weight: 900; letter-spacing: 3px; line-height: 1; text-align: center;')
+                            insp_nome = ui.label('CARREGANDO...').classes('text-white text-[30px] font-black tracking-wider leading-none text-center')
 
-                    # 2. Bloco de Baixo (Demais Serviços) - 62% de altura restante
+                    # 2. Bloco de Baixo (Demais Serviços) - 55% de altura restante
                     with ui.card().classes('w-full q-pa-xs border border-gray-900/60').style(
                         'background: rgba(0,0,0,0.3); flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 6px;'
                     ):
@@ -809,12 +910,12 @@ def render_page():
                     with ui.column().classes('w-full gap-2 h-full'):
                         ui.label('📋 ANOTAÇÕES DO DIA').classes('text-amber-5 text-[18px] font-bold tracking-widest text-center w-full')
                         ui.separator().props('dark')
-                        anotacoes_container = ui.column().classes('w-full gap-1 overflow-y-auto text-grey-3 text-[18px]').style('flex: 1; min-height: 0;')
+                        anotacoes_container = ui.column().classes('w-full gap-1 overflow-y-auto text-grey-3 text-[16px]').style('flex: 1; min-height: 0;')
 
             # === COLUNA CENTRAL (3/5 - KPIs + Licenças/Dispensas + Enfermaria) ===
             with ui.element('div').classes('tv-center-col'):
                 # KPIs 4x2 (Top, height: 42% - to align perfectly with Servicio Diario height!)
-                quant_container = ui.column().classes('gap-2 justify-center').style('width: 100%; height: 42%; min-height: 0;')
+                quant_container = ui.column().style('width: 100%; height: 42%; min-height: 0; display: flex; flex-direction: column; gap: 6px;')
 
                 # Bottom Row inside Column 2 (Licenças/Dispensas + Enfermaria, flex: 1 to fill remainder)
                 with ui.row().classes('w-full gap-2').style('flex: 1; min-height: 0;'):
@@ -830,7 +931,7 @@ def render_page():
                     with ui.card().classes('q-pa-sm border border-gray-800 tv-panel').style(f'background: {THEME["bg_panel"]}; flex: 1; height: 100%;'):
                         with ui.column().classes('w-full gap-2 h-full'):
                             with ui.row().classes('w-full items-center justify-center gap-2'):
-                                ui.label('🏥 CONTROLE DE ENFERMARIA').classes('text-amber-5 text-[18px] font-bold tracking-widest text-center')
+                                ui.label('🏥 SITUAÇÃO DE SAÚDE').classes('text-amber-5 text-[18px] font-bold tracking-widest text-center')
                                 enfermaria_total_lbl = ui.label('TOTAL: --').classes('text-white text-[18px] font-bold font-mono px-1.5 bg-red-9/30 border border-red-500 rounded')
                             ui.separator().props('dark')
                             
@@ -855,9 +956,12 @@ def render_page():
                 ticker_container = ui.element('div').classes('ticker-wrapper').style('flex: 1;')
     def _update_clock():
         """Atualiza o relógio a cada segundo."""
-        now = datetime.now()
-        clock_lbl.set_text(now.strftime('%H:%M:%S'))
-        date_lbl.set_text(now.strftime('%A, %d de %B de %Y').upper())
+        from datetime import timezone, timedelta
+        tz_gmt3 = timezone(timedelta(hours=-3))
+        now_gmt3 = datetime.now(tz_gmt3)
+        clock_lbl.set_text(now_gmt3.strftime('%H:%M:%S'))
+        date_lbl.set_text(get_pt_date_string(now_gmt3))
+        sunset_lbl.set_text(f"PÔR DO SOL: {estimate_sunset_time()}")
 
     # Fila de notificações em tempo real (evita colisão de modais e sons)
     toast_queue = asyncio.Queue()
@@ -939,6 +1043,239 @@ def render_page():
                             window.globalAudioContext = ctx;
                         }}
                     }}
+
+                    function playDefaultSynthesized(type) {{
+                        if (!ctx) return;
+                        if (type === 'submarine_sonar') {{
+                            let now = ctx.currentTime;
+                            let osc = ctx.createOscillator();
+                            let gain = ctx.createGain();
+                            osc.connect(gain);
+                            gain.connect(ctx.destination);
+                            
+                            osc.type = 'sine';
+                            osc.frequency.setValueAtTime(800, now);
+                            osc.frequency.exponentialRampToValueAtTime(850, now + 0.15);
+                            
+                            gain.gain.setValueAtTime(0, now);
+                            gain.gain.linearRampToValueAtTime(0.4, now + 0.005);
+                            gain.gain.exponentialRampToValueAtTime(0.001, now + 1.8);
+                            
+                            osc.start(now);
+                            osc.stop(now + 2.0);
+                            
+                            let echoOsc = ctx.createOscillator();
+                            let echoGain = ctx.createGain();
+                            echoOsc.connect(echoGain);
+                            echoGain.connect(ctx.destination);
+                            
+                            echoOsc.type = 'sine';
+                            echoOsc.frequency.setValueAtTime(810, now + 0.8);
+                            echoOsc.frequency.exponentialRampToValueAtTime(830, now + 0.95);
+                            
+                            echoGain.gain.setValueAtTime(0, now + 0.8);
+                            echoGain.gain.linearRampToValueAtTime(0.08, now + 0.805);
+                            echoGain.gain.exponentialRampToValueAtTime(0.0001, now + 2.0);
+                            
+                            echoOsc.start(now + 0.8);
+                            echoOsc.stop(now + 2.2);
+                        }} else if (type === 'morse_sos') {{
+                            let now = ctx.currentTime;
+                            const toneFreq = 800;
+                            const dot = 0.08;
+                            const dash = 0.24;
+                            
+                            let osc = ctx.createOscillator();
+                            let gain = ctx.createGain();
+                            osc.connect(gain);
+                            gain.connect(ctx.destination);
+                            
+                            osc.type = 'sine';
+                            osc.frequency.setValueAtTime(toneFreq, now);
+                            gain.gain.setValueAtTime(0, now);
+                            
+                            function scheduleTone(start, duration) {{
+                                gain.gain.setValueAtTime(0, now + start);
+                                gain.gain.linearRampToValueAtTime(0.2, now + start + 0.005);
+                                gain.gain.setValueAtTime(0.2, now + start + duration - 0.005);
+                                gain.gain.linearRampToValueAtTime(0, now + start + duration);
+                            }}
+                            
+                            scheduleTone(0.0, dot);
+                            scheduleTone(0.16, dot);
+                            scheduleTone(0.32, dot);
+                            
+                            scheduleTone(0.56, dash);
+                            scheduleTone(0.88, dash);
+                            scheduleTone(1.20, dash);
+                            
+                            scheduleTone(1.52, dot);
+                            scheduleTone(1.68, dot);
+                            scheduleTone(1.84, dot);
+                            
+                            osc.start(now);
+                            osc.stop(now + 2.1);
+                        }} else if (type === 'naval_horn') {{
+                            let now = ctx.currentTime;
+                            const fundamental = 72;
+                            const oscillators = [fundamental, fundamental * 1.5, fundamental * 2.0, fundamental * 2.5];
+                            const gains = [0.4, 0.25, 0.15, 0.08];
+                            const detunes = [0, 1.2, -0.8, 0.5];
+                            
+                            let mainGain = ctx.createGain();
+                            let filter = ctx.createBiquadFilter();
+                            
+                            filter.type = 'lowpass';
+                            filter.frequency.setValueAtTime(250, now);
+                            filter.Q.setValueAtTime(2, now);
+                            
+                            mainGain.connect(filter);
+                            filter.connect(ctx.destination);
+                            
+                            mainGain.gain.setValueAtTime(0, now);
+                            mainGain.gain.linearRampToValueAtTime(0.5, now + 0.25);
+                            mainGain.gain.setValueAtTime(0.5, now + 1.6);
+                            mainGain.gain.exponentialRampToValueAtTime(0.001, now + 2.4);
+                            
+                            oscillators.forEach((freq, idx) => {{
+                                let osc = ctx.createOscillator();
+                                osc.type = 'sawtooth';
+                                osc.frequency.setValueAtTime(freq + detunes[idx], now);
+                                
+                                let oscGain = ctx.createGain();
+                                oscGain.gain.setValueAtTime(gains[idx], now);
+                                
+                                osc.connect(oscGain);
+                                oscGain.connect(mainGain);
+                                
+                                osc.start(now);
+                                osc.stop(now + 2.5);
+                            }});
+                        }} else if (type === 'success') {{
+                            let osc = ctx.createOscillator();
+                            let gain = ctx.createGain();
+                            osc.connect(gain);
+                            gain.connect(ctx.destination);
+                            osc.type = 'sine';
+                            osc.frequency.setValueAtTime(523.25, ctx.currentTime);
+                            gain.gain.setValueAtTime(0.3, ctx.currentTime);
+                            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+                            osc.start(ctx.currentTime);
+                            
+                            let osc2 = ctx.createOscillator();
+                            let gain2 = ctx.createGain();
+                            osc2.connect(gain2);
+                            gain2.connect(ctx.destination);
+                            osc2.type = 'sine';
+                            osc2.frequency.setValueAtTime(659.25, ctx.currentTime + 0.1);
+                            gain2.gain.setValueAtTime(0.3, ctx.currentTime + 0.1);
+                            gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+                            osc2.start(ctx.currentTime + 0.1);
+                            
+                            osc.stop(ctx.currentTime + 0.2);
+                            osc2.stop(ctx.currentTime + 0.4);
+                        }} else if (type === 'warning') {{
+                            let osc1 = ctx.createOscillator();
+                            let gain1 = ctx.createGain();
+                            osc1.connect(gain1);
+                            gain1.connect(ctx.destination);
+                            osc1.type = 'sine';
+                            osc1.frequency.setValueAtTime(440, ctx.currentTime);
+                            gain1.gain.setValueAtTime(0.2, ctx.currentTime);
+                            gain1.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+                            osc1.start(ctx.currentTime);
+                            osc1.stop(ctx.currentTime + 0.2);
+  
+                            let osc2 = ctx.createOscillator();
+                            let gain2 = ctx.createGain();
+                            osc2.connect(gain2);
+                            gain2.connect(ctx.destination);
+                            osc2.type = 'sine';
+                            osc2.frequency.setValueAtTime(440, ctx.currentTime + 0.15);
+                            gain2.gain.setValueAtTime(0.2, ctx.currentTime + 0.15);
+                            gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+                            osc2.start(ctx.currentTime + 0.15);
+                            osc2.stop(ctx.currentTime + 0.35);
+                        }} else if (type === 'alert') {{
+                            let osc = ctx.createOscillator();
+                            let gain = ctx.createGain();
+                            osc.connect(gain);
+                            gain.connect(ctx.destination);
+                            osc.type = 'triangle';
+                            osc.frequency.setValueAtTime(150, ctx.currentTime);
+                            
+                            gain.gain.setValueAtTime(0.4, ctx.currentTime);
+                            gain.gain.setValueAtTime(0, ctx.currentTime + 0.15);
+                            gain.gain.setValueAtTime(0.4, ctx.currentTime + 0.25);
+                            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.45);
+                            
+                            osc.start(ctx.currentTime);
+                            osc.stop(ctx.currentTime + 0.5);
+                        }} else if (type === 'chime_simple') {{
+                            let now = ctx.currentTime;
+                            let osc1 = ctx.createOscillator();
+                            let gain1 = ctx.createGain();
+                            osc1.connect(gain1);
+                            gain1.connect(ctx.destination);
+                            osc1.type = 'sine';
+                            osc1.frequency.setValueAtTime(523.25, now);
+                            gain1.gain.setValueAtTime(0.3, now);
+                            gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
+                            osc1.start(now);
+                            osc1.stop(now + 0.7);
+                        }} else if (type === 'bell_ring') {{
+                            let now = ctx.currentTime;
+                            let osc1 = ctx.createOscillator();
+                            let gain1 = ctx.createGain();
+                            osc1.connect(gain1);
+                            gain1.connect(ctx.destination);
+                            osc1.type = 'sine';
+                            osc1.frequency.setValueAtTime(987.77, now);
+                            gain1.gain.setValueAtTime(0.25, now);
+                            gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.8);
+                            osc1.start(now);
+                            osc1.stop(now + 0.9);
+                        }} else if (type === 'digital_warning') {{
+                            let now = ctx.currentTime;
+                            let osc = ctx.createOscillator();
+                            let gain = ctx.createGain();
+                            osc.connect(gain);
+                            gain.connect(ctx.destination);
+                            osc.type = 'triangle';
+                            osc.frequency.setValueAtTime(150, now);
+                            
+                            gain.gain.setValueAtTime(0.4, now);
+                            gain.gain.setValueAtTime(0, now + 0.15);
+                            gain.gain.setValueAtTime(0.4, now + 0.25);
+                            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.45);
+                            
+                            osc.start(now);
+                            osc.stop(now + 0.5);
+                        }} else if (type === 'info') {{
+                            let osc1 = ctx.createOscillator();
+                            let gain1 = ctx.createGain();
+                            osc1.connect(gain1);
+                            gain1.connect(ctx.destination);
+                            osc1.type = 'sine';
+                            osc1.frequency.setValueAtTime(600, ctx.currentTime);
+                            gain1.gain.setValueAtTime(0.2, ctx.currentTime);
+                            gain1.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.25);
+                            osc1.start(ctx.currentTime);
+                            osc1.stop(ctx.currentTime + 0.3);
+  
+                            let osc2 = ctx.createOscillator();
+                            let gain2 = ctx.createGain();
+                            osc2.connect(gain2);
+                            gain2.connect(ctx.destination);
+                            osc2.type = 'sine';
+                            osc2.frequency.setValueAtTime(800, ctx.currentTime + 0.08);
+                            gain2.gain.setValueAtTime(0.2, ctx.currentTime + 0.08);
+                            gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.33);
+                            osc2.start(ctx.currentTime + 0.08);
+                            osc2.stop(ctx.currentTime + 0.38);
+                        }}
+                    }}
+
                     if (ctx && playSound) {{
                         if (ctx.state === 'suspended') {{
                             ctx.resume();
@@ -992,7 +1329,7 @@ def render_page():
                                 }}
                             }}
 
-                            fetch(singleMp3Url, {{ method: 'HEAD' }})
+                            fetch(singleMp3Url)
                                 .then(res => {{
                                     if (res.ok) {{
                                         let pairs = Math.floor(count / 2);
@@ -1023,7 +1360,7 @@ def render_page():
                         }} else if (type === 'silent') {{
                             // Silencioso
                         }} else {{
-                            fetch(customMp3Url, {{ method: 'HEAD' }})
+                            fetch(customMp3Url)
                                 .then(res => {{
                                     if (res.ok) {{
                                         let audio = new Audio(customMp3Url);
@@ -1036,204 +1373,6 @@ def render_page():
                                 .catch(() => {{
                                     playDefaultSynthesized(type);
                                 }});
-                                
-                            function playDefaultSynthesized(type) {{
-                                if (type === 'submarine_sonar') {{
-                                    let now = ctx.currentTime;
-                                    let osc = ctx.createOscillator();
-                                    let gain = ctx.createGain();
-                                    osc.connect(gain);
-                                    gain.connect(ctx.destination);
-                                    
-                                    osc.type = 'sine';
-                                    osc.frequency.setValueAtTime(800, now);
-                                    osc.frequency.exponentialRampToValueAtTime(850, now + 0.15);
-                                    
-                                    gain.gain.setValueAtTime(0, now);
-                                    gain.gain.linearRampToValueAtTime(0.4, now + 0.005);
-                                    gain.gain.exponentialRampToValueAtTime(0.001, now + 1.8);
-                                    
-                                    osc.start(now);
-                                    osc.stop(now + 2.0);
-                                    
-                                    let echoOsc = ctx.createOscillator();
-                                    let echoGain = ctx.createGain();
-                                    echoOsc.connect(echoGain);
-                                    echoGain.connect(ctx.destination);
-                                    
-                                    echoOsc.type = 'sine';
-                                    echoOsc.frequency.setValueAtTime(810, now + 0.8);
-                                    echoOsc.frequency.exponentialRampToValueAtTime(830, now + 0.95);
-                                    
-                                    echoGain.gain.setValueAtTime(0, now + 0.8);
-                                    echoGain.gain.linearRampToValueAtTime(0.08, now + 0.805);
-                                    echoGain.gain.exponentialRampToValueAtTime(0.0001, now + 2.0);
-                                    
-                                    echoOsc.start(now + 0.8);
-                                    echoOsc.stop(now + 2.2);
-                                }} else if (type === 'morse_sos') {{
-                                    let now = ctx.currentTime;
-                                    const toneFreq = 800;
-                                    const dot = 0.08;
-                                    const dash = 0.24;
-                                    
-                                    let osc = ctx.createOscillator();
-                                    let gain = ctx.createGain();
-                                    osc.connect(gain);
-                                    gain.connect(ctx.destination);
-                                    
-                                    osc.type = 'sine';
-                                    osc.frequency.setValueAtTime(toneFreq, now);
-                                    gain.gain.setValueAtTime(0, now);
-                                    
-                                    function scheduleTone(start, duration) {{
-                                        gain.gain.setValueAtTime(0, now + start);
-                                        gain.gain.linearRampToValueAtTime(0.2, now + start + 0.005);
-                                        gain.gain.setValueAtTime(0.2, now + start + duration - 0.005);
-                                        gain.gain.linearRampToValueAtTime(0, now + start + duration);
-                                    }}
-                                    
-                                    scheduleTone(0.0, dot);
-                                    scheduleTone(0.16, dot);
-                                    scheduleTone(0.32, dot);
-                                    
-                                    scheduleTone(0.56, dash);
-                                    scheduleTone(0.88, dash);
-                                    scheduleTone(1.20, dash);
-                                    
-                                    scheduleTone(1.52, dot);
-                                    scheduleTone(1.68, dot);
-                                    scheduleTone(1.84, dot);
-                                    
-                                    osc.start(now);
-                                    osc.stop(now + 2.1);
-                                }} else if (type === 'naval_horn') {{
-                                    let now = ctx.currentTime;
-                                    const fundamental = 72;
-                                    const oscillators = [fundamental, fundamental * 1.5, fundamental * 2.0, fundamental * 2.5];
-                                    const gains = [0.4, 0.25, 0.15, 0.08];
-                                    const detunes = [0, 1.2, -0.8, 0.5];
-                                    
-                                    let mainGain = ctx.createGain();
-                                    let filter = ctx.createBiquadFilter();
-                                    
-                                    filter.type = 'lowpass';
-                                    filter.frequency.setValueAtTime(250, now);
-                                    filter.Q.setValueAtTime(2, now);
-                                    
-                                    mainGain.connect(filter);
-                                    filter.connect(ctx.destination);
-                                    
-                                    mainGain.gain.setValueAtTime(0, now);
-                                    mainGain.gain.linearRampToValueAtTime(0.5, now + 0.25);
-                                    mainGain.gain.setValueAtTime(0.5, now + 1.6);
-                                    mainGain.gain.exponentialRampToValueAtTime(0.001, now + 2.4);
-                                    
-                                    oscillators.forEach((freq, idx) => {{
-                                        let osc = ctx.createOscillator();
-                                        osc.type = 'sawtooth';
-                                        osc.frequency.setValueAtTime(freq + detunes[idx], now);
-                                        
-                                        let oscGain = ctx.createGain();
-                                        oscGain.gain.setValueAtTime(gains[idx], now);
-                                        
-                                        osc.connect(oscGain);
-                                        oscGain.connect(mainGain);
-                                        
-                                        osc.start(now);
-                                        osc.stop(now + 2.5);
-                                    }});
-                                }} else if (type === 'success') {{
-                                    let osc = ctx.createOscillator();
-                                    let gain = ctx.createGain();
-                                    osc.connect(gain);
-                                    gain.connect(ctx.destination);
-                                    osc.type = 'sine';
-                                    osc.frequency.setValueAtTime(523.25, ctx.currentTime);
-                                    gain.gain.setValueAtTime(0.3, ctx.currentTime);
-                                    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
-                                    osc.start(ctx.currentTime);
-                                    
-                                    let osc2 = ctx.createOscillator();
-                                    let gain2 = ctx.createGain();
-                                    osc2.connect(gain2);
-                                    gain2.connect(ctx.destination);
-                                    osc2.type = 'sine';
-                                    osc2.frequency.setValueAtTime(659.25, ctx.currentTime + 0.1);
-                                    gain2.gain.setValueAtTime(0.3, ctx.currentTime + 0.1);
-                                    gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
-                                    osc2.start(ctx.currentTime + 0.1);
-                                    
-                                    osc.stop(ctx.currentTime + 0.2);
-                                    osc2.stop(ctx.currentTime + 0.4);
-                                }} else if (type === 'warning') {{
-                                    let osc1 = ctx.createOscillator();
-                                    let gain1 = ctx.createGain();
-                                    osc1.connect(gain1);
-                                    gain1.connect(ctx.destination);
-                                    osc1.type = 'sine';
-                                    osc1.frequency.setValueAtTime(440, ctx.currentTime);
-                                    gain1.gain.setValueAtTime(0.2, ctx.currentTime);
-                                    gain1.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
-                                    osc1.start(ctx.currentTime);
-                                    osc1.stop(ctx.currentTime + 0.2);
-         
-                                    let osc2 = ctx.createOscillator();
-                                    let gain2 = ctx.createGain();
-                                    osc2.connect(gain2);
-                                    gain2.connect(ctx.destination);
-                                    osc2.type = 'sine';
-                                    osc2.frequency.setValueAtTime(440, ctx.currentTime + 0.15);
-                                    gain2.gain.setValueAtTime(0.2, ctx.currentTime + 0.15);
-                                    gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
-                                    osc2.start(ctx.currentTime + 0.15);
-                                    osc2.stop(ctx.currentTime + 0.35);
-                                }} else if (type === 'alert') {{
-                                    let osc = ctx.createOscillator();
-                                    let gain = ctx.createGain();
-                                    osc.connect(gain);
-                                    gain.connect(ctx.destination);
-                                    osc.type = 'triangle';
-                                    osc.frequency.setValueAtTime(150, ctx.currentTime);
-                                    
-                                    gain.gain.setValueAtTime(0.4, ctx.currentTime);
-                                    gain.gain.setValueAtTime(0, ctx.currentTime + 0.15);
-                                    gain.gain.setValueAtTime(0.4, ctx.currentTime + 0.25);
-                                    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.45);
-                                    
-                                    osc.start(ctx.currentTime);
-                                    osc.stop(ctx.currentTime + 0.5);
-                                }} else if (type === 'info') {{
-                                    let osc1 = ctx.createOscillator();
-                                    let gain1 = ctx.createGain();
-                                    osc1.connect(gain1);
-                                    gain1.connect(ctx.destination);
-                                    osc1.type = 'sine';
-                                    osc1.frequency.setValueAtTime(600, ctx.currentTime);
-                                    gain1.gain.setValueAtTime(0.2, ctx.currentTime);
-                                    gain1.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.25);
-                                    osc1.start(ctx.currentTime);
-                                    osc1.stop(ctx.currentTime + 0.3);
-         
-                                    let osc2 = ctx.createOscillator();
-                                    let gain2 = ctx.createGain();
-                                    osc2.connect(gain2);
-                                    gain2.connect(ctx.destination);
-                                    osc2.type = 'sine';
-                                    osc2.frequency.setValueAtTime(800, ctx.currentTime + 0.08);
-                                    gain2.gain.setValueAtTime(0.2, ctx.currentTime + 0.08);
-                                    gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.33);
-                                    osc2.start(ctx.currentTime + 0.08);
-                                    osc2.stop(ctx.currentTime + 0.38);
-                                }}
-                            }}
-                        }}.connect(ctx.destination);
-                            osc2.type = 'sine';
-                            osc2.frequency.setValueAtTime(800, ctx.currentTime + 0.08);
-                            gain2.gain.setValueAtTime(0.2, ctx.currentTime + 0.08);
-                            gain2.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.33);
-                            osc2.start(ctx.currentTime + 0.08);
-                            osc2.stop(ctx.currentTime + 0.38);
                         }}
                     }}
                     
@@ -1369,15 +1508,11 @@ def render_page():
                 if is_insp_defined:
                     insp_nome.set_text(insp_name_raw.upper())
                     insp_nome.classes('text-white', remove='text-amber-5/70 italic')
-                    insp_badge.set_text('DE SERVIÇO')
-                    insp_badge.classes('text-green-500 border-green-500/30', remove='text-amber-500 border-amber-500/30')
-                    insp_avatar.style(f"background-image: url('{d['inspetor_dia']['photo_url']}'); background-size: cover; background-position: center; border-color: #D4AF37;")
+                    insp_avatar.style(f"background-image: url('{d['inspetor_dia']['photo_url']}'); background-size: cover; background-position: center; border: 2px solid #D4AF37; box-shadow: 0 0 16px rgba(212, 175, 55, 0.6); shrink: 0; border-radius: 8px !important;")
                 else:
-                    insp_nome.set_text('A DEFINIR')
-                    insp_nome.classes('text-amber-5/70 italic', remove='text-white')
-                    insp_badge.set_text('AGUARDANDO')
-                    insp_badge.classes('text-amber-500 border-amber-500/30', remove='text-green-500 border-green-500/30')
-                    insp_avatar.style("background-image: url('https://cdn.quasar.dev/img/boy-avatar.png'); background-size: cover; background-position: center; border-color: #ff9100;")
+                    insp_nome.set_text('AGUARDANDO')
+                    insp_nome.classes('text-amber-5/70 italic animate-pulse', remove='text-white')
+                    insp_avatar.style("background-image: url('https://cdn.quasar.dev/img/boy-avatar.png'); background-size: cover; background-position: center; border: 2px solid #ff9100; box-shadow: 0 0 12px rgba(255, 145, 0, 0.4); shrink: 0; border-radius: 8px !important;")
 
                 # 1.1 Demais Serviços - Bloco de Baixo
                 escala_marquee_div.clear()
@@ -1412,19 +1547,19 @@ def render_page():
                                         ui.label(item['nome'].upper()).classes('text-white font-black text-[14px]')
                                         ui.badge('PRONTO', color='green-9').classes('text-[10px] font-bold')
                                     else:
-                                        ui.label('A DEFINIR').classes('text-amber-5/70 italic text-[14px]')
-                                        ui.badge('AGUARDANDO', color='amber-9').classes('text-[10px] font-bold text-black animate-pulse')
+                                        ui.label('AGUARDANDO').classes('text-amber-5 font-bold text-[14px] animate-pulse')
 
                 # 2. Painel de Quantitativos (KPIs 4x2)
                 quant_container.clear()
                 with quant_container:
                     def build_mini_kpi(val, label, color, icon):
-                        with ui.card().classes('q-pa-xs items-center text-center border border-gray-900').style(
-                            f'background:#050505; border-top: 3px solid {color}; flex: 1 1 0; min-width: 60px; margin: 0;'
+                        with ui.card().classes('items-center text-center border border-gray-900').style(
+                            f'background:#050505; border-top: 3px solid {color}; flex: 1 1 0; min-width: 60px; margin: 0; padding: 4px !important; display: flex; flex-direction: column; justify-content: center; min-height: 0; height: 100%;'
                         ):
-                            ui.icon(icon, color='grey-7', size='1.2rem').classes('q-mb-0')
-                            ui.label(str(val)).classes('kpi-value').style(f'color: {color};')
-                            ui.label(label).classes('kpi-label')
+                            with ui.row().classes('items-center justify-center gap-1 no-wrap w-full'):
+                                ui.icon(icon, color='grey-6', size='0.9rem')
+                                ui.label(label).classes('kpi-label')
+                            ui.label(str(val)).classes('kpi-value').style(f'color: {color}; margin-top: 2px;')
                 
                     baixados_count = len([x for x in d['saude_ativos'] if x['categoria'] == 'enfermaria'])
                     dispensados_count = len([x for x in d['saude_ativos'] if x['categoria'] == 'dispensa'])
@@ -1438,14 +1573,14 @@ def render_page():
                     pernoite_count = d.get('pernoite_count', 0)
 
                     # Linha 1: Efetivo, Presentes, Ausentes, Licenciados
-                    with ui.row().classes('w-full gap-1 justify-between no-wrap'):
+                    with ui.row().classes('w-full gap-1 justify-between no-wrap').style('flex: 1; min-height: 0;'):
                         build_mini_kpi(d['total_alunos'], 'Efetivo', '#D4AF37', 'groups')
                         build_mini_kpi(d['presentes_hoje'], 'Presentes', '#4CAF50', 'how_to_reg')
                         build_mini_kpi(ausentes_count, 'Ausentes', '#F44336', 'person_off')
                         build_mini_kpi(licenciados_count, 'Licenciados', '#2196F3', 'flight_takeoff')
                 
                     # Linha 2: Baixados, Dispensados, Hospital, Pernoite
-                    with ui.row().classes('w-full gap-1 justify-between no-wrap'):
+                    with ui.row().classes('w-full gap-1 justify-between no-wrap').style('flex: 1; min-height: 0;'):
                         build_mini_kpi(baixados_count, 'Baixados', '#E91E63', 'local_hospital')
                         build_mini_kpi(dispensados_count, 'Dispensados', '#FF9800', 'event_busy')
                         build_mini_kpi(hospital_count, 'Hospital', '#9C27B0', 'apartment')
@@ -1454,33 +1589,74 @@ def render_page():
                 # 3. Anotações do Dia (Ações dos Alunos com cores positivo/negativo/neutro)
                 anotacoes_container.clear()
                 with anotacoes_container:
-                    for anot in d['anotacoes_dia']:
-                        texto = anot['texto']
-                        status = anot['status']
-                        pts = anot.get('pts', 0.0)
-                        is_pendente = status == 'Pendente'
-                    
-                        # Determina cores baseadas no tipo de pontuação (Positivo, Negativo ou Neutro)
-                        if pts > 0:
-                            icon_color = '#00e676'
-                            text_color_class = 'text-green-400'
-                        elif pts < 0:
-                            icon_color = '#ff1744'
-                            text_color_class = 'text-red-400'
-                        else:
-                            icon_color = 'amber-9' if not is_pendente else 'amber-5'
-                            text_color_class = 'text-grey-3'
-                    
-                        with ui.row().classes('w-full items-start gap-1 q-py-0.5 border-b border-gray-900/60 no-wrap'):
-                            if is_pendente:
-                                ui.icon('watch_later', color='amber-5', size='1.2rem')
-                                with ui.row().classes('items-center gap-1.5 col-grow flex-wrap'):
-                                    # Mantém o texto da anotação com a cor do tipo (+/-) e sinaliza com o badge PENDENTE âmbar
-                                    ui.label(texto).classes(f'{text_color_class} font-semibold').style('font-size: 18px; line-height: 1.3;')
-                                    ui.badge('PENDENTE', color='amber-9').classes('text-[12px] font-bold text-black')
-                            else:
-                                ui.icon('chevron_right', color=icon_color, size='1.2rem')
-                                ui.label(texto).classes(f'{text_color_class} font-semibold col-grow').style('font-size: 18px; line-height: 1.3;')
+                    anotacoes_list = d.get('anotacoes_dia', [])
+                    if not anotacoes_list:
+                        with ui.card().classes('w-full q-pa-sm items-center justify-center bg-gray-900/30 border border-gray-800/50'):
+                            ui.label('NENHUM REGISTRO DE ANOTAÇÃO HOJE.').classes('text-grey-5 font-bold text-[16px]')
+                    else:
+                        use_marquee = len(anotacoes_list) > 3
+                        classes_inner = 'notes-marquee-container w-full gap-1' if use_marquee else 'w-full gap-1'
+                        items_marquee = anotacoes_list * 2 if use_marquee else anotacoes_list
+                        
+                        with ui.column().classes(classes_inner):
+                            for anot in items_marquee:
+                                status = anot.get('status', 'Lançado')
+                                pts = anot.get('pts', 0.0)
+                                is_pendente = status == 'Pendente'
+                            
+                                # Determina cores baseadas no tipo de pontuação (Positivo, Negativo ou Neutro) - Bem clarinho (0.06 background)
+                                if pts > 0:
+                                    icon_color = '#00e676'
+                                    text_color_class = 'text-green-400'
+                                    bg_rgba = 'rgba(0, 230, 118, 0.06)'
+                                    border_color = 'rgba(0, 230, 118, 0.3)'
+                                elif pts < 0:
+                                    icon_color = '#ff1744'
+                                    text_color_class = 'text-red-400'
+                                    bg_rgba = 'rgba(255, 23, 68, 0.06)'
+                                    border_color = 'rgba(255, 23, 68, 0.3)'
+                                else:
+                                    if is_pendente:
+                                        icon_color = '#ffb300'
+                                        text_color_class = 'text-amber-400'
+                                        bg_rgba = 'rgba(255, 179, 0, 0.06)'
+                                        border_color = 'rgba(255, 179, 0, 0.3)'
+                                    elif status == 'Rejeitado':
+                                        icon_color = '#ff1744'
+                                        text_color_class = 'text-red-400'
+                                        bg_rgba = 'rgba(255, 23, 68, 0.06)'
+                                        border_color = 'rgba(255, 23, 68, 0.3)'
+                                    else:
+                                        icon_color = '#90a4ae'
+                                        text_color_class = 'text-grey-3'
+                                        bg_rgba = 'rgba(144, 164, 174, 0.06)'
+                                        border_color = 'rgba(144, 164, 174, 0.3)'
+
+                                with ui.card().classes('w-full q-pa-xs border q-mb-xs').style(f'background: {bg_rgba}; border-color: {border_color}; margin-bottom: 4px;'):
+                                    # Canto superior direito: tooltip de descrição dinâmica (só se tiver algo e ao passar o mouse por cima)
+                                    motivo_lbl = anot.get('motivo') or ''
+                                    if motivo_lbl and motivo_lbl.strip() != '' and motivo_lbl.upper() != 'SEM DESCRIÇÃO' and 'NENHUM REGISTRO' not in anot['nome']:
+                                        with ui.tooltip().classes('bg-slate-900 text-white text-xs font-semibold max-w-sm'):
+                                            ui.label(motivo_lbl).style('white-space: normal; word-break: break-word;')
+                                            
+                                    with ui.row().classes('w-full items-center justify-between px-1 hover:bg-white/5 no-wrap gap-2'):
+                                        with ui.row().classes('items-center gap-1.5 no-wrap col-grow'):
+                                            # Canto esquerdo: ícone de status
+                                            if is_pendente:
+                                                ui.icon('watch_later', color='amber-5', size='1.3rem')
+                                            elif status == 'Rejeitado':
+                                                ui.icon('cancel', color='red-5', size='1.3rem')
+                                            else: # Lançado
+                                                ui.icon('check_circle', color=icon_color, size='1.3rem')
+                                            
+                                            # SÓ Número Interno (NI) e Nome de Guerra
+                                            if anot.get('ni'):
+                                                ui.label(anot['ni']).classes('text-grey-5 font-mono text-[16px]')
+                                            ui.label(anot['nome']).classes('text-white font-black text-[16px] tracking-wide')
+                                        
+                                        # Tag do Tipo / Status da anotação
+                                        tag_text = 'PENDENTE' if is_pendente else status.upper()
+                                        ui.label(tag_text).classes('px-1.5 py-0.2 rounded border text-[12px] font-black').style(f'color: {icon_color}; border-color: {icon_color}40; background: {icon_color}10;')
 
                 # 3.1 Ticker horizontal de avisos
                 ticker_container.clear()
@@ -1528,7 +1704,8 @@ def render_page():
                                 label_cat = str(status).upper()
                                 text_cat_color_style = f'color: {cor} !important;'
                                 bg_card = f'background: {bg_rgba};'
-                                desc_extra = detalhe if detalhe else ('Leito não informado' if cat == 'enfermaria' else 'Internação')
+                                is_hospital = status.lower() == 'hospital'
+                                desc_extra = (detalhe if detalhe else 'Hospital') if is_hospital else ''
 
                                 item_turma = str(item.get('turma') or 'N/A').upper()
                                 item_nome = str(item.get('nome') or 'MILITAR').upper()
@@ -1537,13 +1714,17 @@ def render_page():
                                     with ui.row().classes('w-full items-center justify-between px-1'):
                                         with ui.row().classes('items-center gap-1.5'):
                                             ui.element('span').classes(f'w-1.5 h-1.5 rounded-full').style(indicator_color_style)
-                                            ui.label(item_turma).classes('text-grey-5 font-black text-[18px]')
-                                            ui.label(item_nome).classes('text-white font-black text-[18px] tracking-wider')
-                                        ui.label(label_cat).classes(f'font-bold text-[16px] tracking-wider').style(text_cat_color_style)
+                                            # Exibe somente Número Interno (NI) e Nome de Guerra (sem Platoon/Mike-1!)
+                                            item_ni = str(item.get('ni') or '').upper()
+                                            if item_ni:
+                                                ui.label(item_ni).classes('text-grey-5 font-mono text-[16px]')
+                                            ui.label(item_nome).classes('text-white font-black text-[16px] tracking-wider')
+                                        ui.label(label_cat).classes(f'font-bold text-[14px] tracking-wider').style(text_cat_color_style)
                                 
-                                    with ui.row().classes('w-full justify-between items-baseline px-1 text-[18px] text-grey-3'):
+                                    with ui.row().classes('w-full justify-between items-baseline px-1 text-[16px] text-grey-3'):
                                         ui.label(motivo).classes('font-semibold italic ellipsis').style('max-width: 60%')
-                                        ui.label(desc_extra).classes('text-white font-bold text-[18px]')
+                                        if desc_extra:
+                                            ui.label(desc_extra).classes('text-white font-bold text-[16px]')
 
                 # 5. Licenciados e Dispensados (Marquee Vertical)
                 lic_disp_marquee_div.clear()
@@ -1559,11 +1740,12 @@ def render_page():
                         except Exception:
                             retorno_str = str(retorno_data)
                 
-                    # Get STATUS_INFO for Licença
                     cor, bg_rgba, ico = STATUS_INFO.get('Licença', ('#00e5ff', 'rgba(0, 229, 255, 0.15)', 'beach_access'))
                     lic_disp_list.append({
+                        'ni': str(lic.get('ni') or '').upper(),
                         'turma': str(lic.get('turma') or 'N/A').upper(),
                         'nome': str(lic.get('nome') or 'MILITAR').upper(),
+                        'motivo': str(lic.get('motivo') or 'Sem motivo informado'),
                         'tipo': 'LICENÇA',
                         'retorno': retorno_str,
                         'color_tag': f'color: {cor}; border-color: {cor}; background: {bg_rgba};'
@@ -1580,11 +1762,12 @@ def render_page():
                             except Exception:
                                 retorno_str = str(retorno_data)
                     
-                        # Get STATUS_INFO for Dispensado
                         cor, bg_rgba, ico = STATUS_INFO.get('Dispensado', ('#00b0ff', 'rgba(0, 176, 255, 0.15)', 'medical_services'))
                         lic_disp_list.append({
+                            'ni': str(disp.get('ni') or '').upper(),
                             'turma': str(disp.get('turma') or 'N/A').upper(),
                             'nome': str(disp.get('nome') or 'MILITAR').upper(),
+                            'motivo': str(disp.get('motivo') or 'Sem motivo informado'),
                             'tipo': 'DISPENSA',
                             'retorno': retorno_str,
                             'color_tag': f'color: {cor}; border-color: {cor}; background: {bg_rgba};'
@@ -1605,11 +1788,15 @@ def render_page():
                                 with ui.card().classes('w-full q-pa-xs border q-mb-xs').style('background: rgba(255,255,255,0.01); border-color: rgba(255, 255, 255, 0.05); margin-bottom: 3px;'):
                                     with ui.row().classes('w-full items-center justify-between px-1 hover:bg-white/5'):
                                         with ui.row().classes('items-center gap-1.5'):
-                                            ui.label(item['turma']).classes('text-grey-5 font-black text-[18px]')
-                                            ui.label(item['nome']).classes('text-white font-black text-[18px]')
-                                        ui.label(item['tipo']).classes(f"px-1 py-0.2 rounded border text-[16px] font-bold").style(item['color_tag'])
-                                    with ui.row().classes('w-full justify-end px-1 text-[18px] font-black').style('color: #00e5ff;'):
-                                        ui.label(f"RETORNO: {item['retorno']}")
+                                            # Exibe somente Número Interno (NI) e Nome de Guerra (sem Platoon/Mike-1!)
+                                            if item['ni']:
+                                                ui.label(item['ni']).classes('text-grey-5 font-mono text-[16px]')
+                                            ui.label(item['nome']).classes('text-white font-black text-[16px]')
+                                        ui.label(item['tipo']).classes(f"px-1 py-0.2 rounded border text-[13px] font-bold").style(item['color_tag'])
+                                    
+                                    with ui.row().classes('w-full justify-between items-baseline px-1 text-[16px] text-grey-3'):
+                                        ui.label(item['motivo']).classes('font-semibold italic ellipsis').style('max-width: 60%')
+                                        ui.label(f"TÉRMINO: {item['retorno']}").style(item['color_tag'].split(';')[0])
 
                 # 6. Programação do Dia (Atividades) - Lado direito (1/3 width)
                 atividades_marquee_container.clear()
@@ -1617,12 +1804,12 @@ def render_page():
                 with atividades_marquee_container:
                     if not d['atividades_dia']:
                         with ui.card().classes('w-full q-pa-md items-center justify-center bg-gray-900/30 border border-gray-800/50'):
-                            ui.label('SEM ATIVIDADES CADASTRADAS PARA HOJE').classes('text-grey-5 font-bold text-[14px]')
+                            ui.label('SEM ATIVIDADES CADASTRADAS PARA HOJE').classes('text-grey-5 font-bold text-[16px]')
                     else:
                         use_marquee = len(d['atividades_dia']) > 8
                         classes_inner = 'activities-marquee-container w-full gap-1' if use_marquee else 'w-full gap-1 overflow-y-auto'
                         items_marquee = d['atividades_dia'] * 2 if use_marquee else d['atividades_dia']
-
+ 
                         with ui.column().classes(classes_inner).style('max-height: 100%;' if not use_marquee else ''):
                             for act in items_marquee:
                                 is_concluida = act.get('status') == 'Concluído'
@@ -1636,17 +1823,17 @@ def render_page():
                                             with ui.row().classes('items-center gap-1.5'):
                                                 raw_time = str(act.get('horario', '--:--'))
                                                 time_formatted = raw_time[:5] if len(raw_time) >= 5 else raw_time
-                                                ui.label(time_formatted).style('color: #F59E0B; font-size: 14px; font-weight: 900; font-family: monospace;')
-                                                ui.label(act.get('local', 'N/A').upper()).classes('px-1 bg-black/40 border border-grey-900 rounded font-mono text-[14px] text-grey-4')
+                                                ui.label(time_formatted).style('color: #F59E0B; font-size: 16px; font-weight: 900; font-family: monospace;')
+                                                ui.label(act.get('local', 'N/A').upper()).classes('px-1 bg-black/40 border border-grey-900 rounded font-mono text-[16px] text-grey-4')
                                             if is_concluida:
                                                 ui.badge('CONCLUÍDO', color='green-9').classes('text-[14px] font-bold')
                                             else:
                                                 ui.badge('AGENDADO', color='amber-9').classes('text-[14px] font-bold text-black animate-pulse')
                                     
                                         # Linha 2: Descrição e Responsável
-                                        with ui.row().classes('w-full justify-between items-start no-wrap gap-2 text-[14px]'):
-                                            ui.label(act.get('descricao', '')).classes('text-white font-bold col-grow').style('white-space: normal; word-break: break-word;')
-                                            ui.label(f"👮 {act.get('responsavel', 'N/A')}").classes('text-grey-4 font-medium shrink-0 max-w-[40%] ellipsis')
+                                        with ui.row().classes('w-full justify-between items-start no-wrap gap-2 text-[16px]'):
+                                            ui.label(act.get('descricao', '')).classes('text-white font-bold col-grow text-[16px]').style('white-space: normal; word-break: break-word;')
+                                            ui.label(f"👮 {act.get('responsavel', 'N/A')}").classes('text-grey-4 font-medium shrink-0 max-w-[40%] ellipsis text-[16px]')
 
                 # Ajusta o timer dinamicamente com base nas configurações
                 polling_interval = d.get('polling_interval', 300.0)
@@ -1661,19 +1848,77 @@ def render_page():
     # Criamos o timer com valor inicial que depois será ajustado dinamicamente
     refresh_timer = ui.timer(300.0, _refresh)
     
-    # Inicia a fila de processamento de alertas
-    queue_task = asyncio.create_task(_process_toast_queue())
-    
-    # Registra a TV no AlertsManager para receber notificações em tempo real
-    from alerts_manager import AlertsManager
-    AlertsManager.register_tv_callback(client, trigger_toast)
-    
-    # Remove a TV ao desconectar a página e cancela a fila
-    def on_disconnect_cleanup():
-        AlertsManager.unregister_tv_callback(client.id)
-        queue_task.cancel()
+    # Variável para rastrear o loop de processamento da fila
+    queue_task = None
+
+    def on_connect_setup():
+        nonlocal queue_task
+        from alerts_manager import AlertsManager
         
-    ui.context.client.on_disconnect(on_disconnect_cleanup)
+        # Garante que a fila de processamento esteja rodando
+        if queue_task is None or queue_task.done():
+            queue_task = asyncio.create_task(_process_toast_queue())
+            print(f"[TV] Loop de processamento de fila iniciado/restaurado para o cliente: {client.id}")
+            
+        # Registra a TV no AlertsManager para receber notificações em tempo real
+        AlertsManager.register_tv_callback(client, trigger_toast)
+        # Sincroniza o estado atual das preferências de som/voz
+        AlertsManager.update_tv_preferences(client.id, voice=audio_config['voice'], sound=audio_config['sound'])
+        print(f"[TV] TV registrada no AlertsManager via on_connect (Client: {client.id})")
+
+    def on_disconnect_cleanup():
+        nonlocal queue_task
+        from alerts_manager import AlertsManager
+        
+        # Remove a TV do AlertsManager
+        AlertsManager.unregister_tv_callback(client.id)
+        
+        # Cancela o loop de processamento da fila para evitar vazamento de memória
+        if queue_task is not None and not queue_task.done():
+            queue_task.cancel()
+            print(f"[TV] Loop de processamento cancelado devido a desconexão (Client: {client.id})")
+        
+    client.on_connect(on_connect_setup)
+    client.on_disconnect(on_disconnect_cleanup)
+    
+    # Elemento visual flutuante para desbloquear áudio (Autoplay policy)
+    ui.html("""
+    <div id="sound-banner-alert" style="
+        position: fixed;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(239, 68, 68, 0.15);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        border: 2px solid rgba(239, 68, 68, 0.5);
+        box-shadow: 0 0 25px rgba(239, 68, 68, 0.3);
+        padding: 14px 28px;
+        border-radius: 12px;
+        z-index: 99999;
+        color: #fff;
+        font-family: monospace;
+        font-size: 14px;
+        font-weight: bold;
+        text-align: center;
+        cursor: pointer;
+        pointer-events: auto;
+        animation: alert-pulse 2s infinite;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    ">
+        <span style="font-size: 20px;">🔊</span>
+        <span>SOM DESATIVADO: Clique em qualquer lugar da tela para ativar os alertas e anúncios por voz.</span>
+    </div>
+    <style>
+    @keyframes alert-pulse {
+        0% { opacity: 0.8; box-shadow: 0 0 10px rgba(239, 68, 68, 0.3); }
+        50% { opacity: 1; box-shadow: 0 0 25px rgba(239, 68, 68, 0.6); border-color: rgba(239, 68, 68, 0.8); }
+        100% { opacity: 0.8; box-shadow: 0 0 10px rgba(239, 68, 68, 0.3); }
+    }
+    </style>
+    """)
     
     # Executa primeiro refresh imediato
     asyncio.create_task(_refresh())

@@ -28,6 +28,18 @@ DEFAULT_ALERTS_CONFIG = {
         "Chamada Diária": "info",
         "Atraso Registrado": "info"
     },
+    "message_templates": {
+        "Registro de Ocorrência": "🚨 {message}",
+        "Novo Aviso": "📢 {message}",
+        "Aviso de Saúde": "🏥 {message}",
+        "Dispensa Médica": "🩹 Dispensa: {message}",
+        "Licença Médica": "📋 Licença: {message}",
+        "Alta Médica": "✅ Alta Médica: {message}",
+        "Escala de Serviço": "📅 {message}",
+        "Escala de Serviço Atualizada": "🔄 {message}",
+        "Chamada Diária": "🔔 Chamada: {message}",
+        "Atraso Registrado": "⏰ Atraso: {message}"
+    },
     "custom_alerts": []
 }
 
@@ -41,6 +53,8 @@ def load_alerts_config() -> dict:
                 merged.update(data)
                 if "sound_mappings" in data:
                     merged["sound_mappings"] = {**DEFAULT_ALERTS_CONFIG["sound_mappings"], **data["sound_mappings"]}
+                if "message_templates" in data:
+                    merged["message_templates"] = {**DEFAULT_ALERTS_CONFIG["message_templates"], **data["message_templates"]}
                 return merged
     except Exception as e:
         print(f"[ALERTA] Erro ao carregar config_alerts.json: {e}")
@@ -57,8 +71,24 @@ def save_alerts_config(config: dict):
 class AlertsManager:
     # Dicionário de callbacks ativos das telas conectadas: client_id -> {'client': client_obj, 'callback': callback, 'voice': bool, 'sound': bool}
     _tv_callbacks: Dict[str, Any] = {}
+    # Lista de callbacks de atualização genérica (ex: para o Dashboard)
+    _refresh_callbacks: List[Callable[[], Any]] = []
     # Referência para o loop de eventos principal do NiceGUI
     _main_loop: Any = None
+
+    @classmethod
+    def register_refresh_callback(cls, callback: Callable[[], Any]):
+        """Registra um callback genérico para atualização de dados em tempo real."""
+        if callback not in cls._refresh_callbacks:
+            cls._refresh_callbacks.append(callback)
+            print(f"[ALERTA] Callback de atualização registrado. Total: {len(cls._refresh_callbacks)}")
+
+    @classmethod
+    def unregister_refresh_callback(cls, callback: Callable[[], Any]):
+        """Remove o callback genérico de atualização."""
+        if callback in cls._refresh_callbacks:
+            cls._refresh_callbacks.remove(callback)
+            print(f"[ALERTA] Callback de atualização desregistrado. Restantes: {len(cls._refresh_callbacks)}")
     
     # Controladores internos do Scheduler
     _last_triggered_bell_slot = None  # (hour, minute)
@@ -148,13 +178,24 @@ class AlertsManager:
         Mapeia os sons baseados no título e suporta toques de sino naval e mudo.
         """
         cls.prune_dead_callbacks()
-        if not cls._tv_callbacks:
-            print("[ALERTA BROADCAST] Nenhum cliente de TV conectado. Pulando geração de áudio e reescrita.")
+        if not cls._tv_callbacks and not cls._refresh_callbacks:
+            print("[ALERTA BROADCAST] Nenhum cliente conectado (TV ou Dashboard). Pulando.")
             return
 
-        # Carrega configuração de alertas para mapear o som correto
+        # Carrega configuração de alertas para mapear o som correto e aplicar template
         config = load_alerts_config()
         mapped_sound = config.get("sound_mappings", {}).get(title, type_)
+
+        templates = config.get("message_templates", {})
+        if title in templates:
+            template = templates[title]
+            try:
+                if "{message}" in template:
+                    message = template.format(message=message)
+                else:
+                    message = f"{template} {message}"
+            except Exception as e:
+                print(f"[ALERTA] Erro ao aplicar template para {title}: {e}")
 
         try:
             print(f"[ALERTA BROADCAST] {title.upper()} - {message} (Sound: {mapped_sound})")
@@ -200,6 +241,16 @@ class AlertsManager:
                 except Exception as e:
                     print(f"[ALERTA] Falha ao notificar tela ({client.id}): {e}")
 
+            # Notifica os callbacks de atualização genérica (ex: Dashboard)
+            for cb in list(cls._refresh_callbacks):
+                try:
+                    if asyncio.iscoroutinefunction(cb):
+                        asyncio.create_task(cb())
+                    else:
+                        cb()
+                except Exception as e:
+                    print(f"[ALERTA] Falha ao executar callback de atualização: {e}")
+
         # Agenda a execução no loop de eventos do asyncio
         try:
             loop = asyncio.get_running_loop()
@@ -218,6 +269,14 @@ class AlertsManager:
                     try:
                         if not asyncio.iscoroutinefunction(cb):
                             cb(title, message, mapped_sound, fallback_text, "")
+                    except Exception:
+                        pass
+                
+                # Notifica os callbacks de atualização genérica
+                for cb in list(cls._refresh_callbacks):
+                    try:
+                        if not asyncio.iscoroutinefunction(cb):
+                            cb()
                     except Exception:
                         pass
 

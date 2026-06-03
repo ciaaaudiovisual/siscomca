@@ -211,10 +211,10 @@ def render_page():
                         with ui.row().classes('w-full gap-3 items-center no-wrap'):
                             foto_url = r.get('url_foto')
                             image_src = foto_url if isinstance(foto_url, str) and foto_url.startswith('http') else f"https://res.cloudinary.com/comcia/image/upload/alunos_app/{r['numero_interno']}.jpg"
-                            ui.element('div').classes('shadow border border-cyan-500/30 rounded-lg shrink-0').style(
-                                f"width: 60px; height: 75px; background-image: url('{image_src}'); "
-                                f"background-size: contain; background-repeat: no-repeat; "
-                                f"background-position: center; background-color: #050b14;"
+                            ui.element('div').classes('shadow border border-cyan-500/30 shrink-0').style(
+                                f"width: 75px; height: 75px; background-image: url('{image_src}'); "
+                                f"background-size: cover; background-repeat: no-repeat; "
+                                f"background-position: center; background-color: #050b14; border-radius: 4px;"
                             )
                             with ui.column().classes('gap-0.5 col-grow overflow-hidden'):
                                 with ui.row().classes('items-center gap-1.5 w-full no-wrap'):
@@ -270,6 +270,25 @@ def render_page():
                 pelo = ui.input('Pelotão*').props('dark outlined dense w-full')
                 nip_val = ui.input('NIP').props('dark outlined dense w-full')
                 espec_val = ui.input('Especialidade').props('dark outlined dense w-full')
+                foto_url = ui.input('URL da Foto (Opcional)').props('dark outlined dense w-full')
+                
+                async def handle_add_upload(e):
+                    import inspect
+                    import asyncio
+                    file_bytes = e.file.read()
+                    if inspect.isawaitable(file_bytes):
+                        file_bytes = await file_bytes
+                    ni = num_int.value or "temp"
+                    filename = f"alunos/{ni}.jpg"
+                    from database import upload_file_to_supabase_storage
+                    public_url = await asyncio.to_thread(upload_file_to_supabase_storage, file_bytes, filename, e.file.content_type)
+                    if public_url:
+                        foto_url.value = public_url
+                        ui.notify('Foto enviada com sucesso!', color='success')
+                    else:
+                        ui.notify('Erro ao enviar foto ao Supabase.', color='red')
+                
+                ui.upload(label='Enviar Foto para o Supabase', on_upload=handle_add_upload, auto_upload=True, max_files=1).props('dark dense').classes('w-full h-20')
                 
                 def salvar():
                     if not num_int.value or not nome_g.value or not pelo.value:
@@ -283,7 +302,8 @@ def render_page():
                             'nome_completo': nome_c.value or '',
                             'pelotao': pelo.value,
                             'especialidade': espec_val.value or '',
-                            'nip': nip_val.value or ''
+                            'nip': nip_val.value or '',
+                            'url_foto': foto_url.value or ''
                         }
                         if db_conn:
                             db_conn.table('Alunos').insert(novo).execute()
@@ -540,10 +560,10 @@ def render_page():
                             # Foto de Visualização Dinâmica
                             image_src = foto_url_val if foto_url_val.startswith('http') else f"https://res.cloudinary.com/comcia/image/upload/alunos_app/{num_i_val}.jpg"
                             with ui.column().classes('items-center shrink-0 justify-center'):
-                                img_box = ui.element('div').classes('shadow border border-cyan-500/30 rounded-lg').style(
-                                    f"width: 72px; height: 90px; background-image: url('{image_src}'); "
-                                    f"background-size: contain; background-repeat: no-repeat; "
-                                    f"background-position: center; background-color: #050b14;"
+                                img_box = ui.element('div').classes('shadow border border-cyan-500/30').style(
+                                    f"width: 90px; height: 90px; background-image: url('{image_src}'); "
+                                    f"background-size: cover; background-repeat: no-repeat; "
+                                    f"background-position: center; background-color: #050b14; border-radius: 4px;"
                                 )
                                 ui.label('FOTO ATUAL').classes('text-[9px] text-grey-5 font-bold tracking-widest q-mt-xs')
                         
@@ -554,6 +574,25 @@ def render_page():
                             
                         # Campo de URL da foto com binding dinâmico para atualizar a imagem no box
                         foto_url = ui.input('URL da Foto', value=foto_url_val).props('dark outlined dense').classes('w-full text-xs')
+                        
+                        async def handle_edit_upload(e):
+                            import inspect
+                            import asyncio
+                            file_bytes = e.file.read()
+                            if inspect.isawaitable(file_bytes):
+                                file_bytes = await file_bytes
+                            ni = num_i.value or aluno['numero_interno']
+                            filename = f"alunos/{ni}.jpg"
+                            from database import upload_file_to_supabase_storage
+                            public_url = await asyncio.to_thread(upload_file_to_supabase_storage, file_bytes, filename, e.file.content_type)
+                            if public_url:
+                                foto_url.value = public_url
+                                update_foto_preview()
+                                ui.notify('Foto enviada com sucesso!', color='success')
+                            else:
+                                ui.notify('Erro ao enviar foto ao Supabase.', color='red')
+                        
+                        ui.upload(label='Enviar Foto para o Supabase', on_upload=handle_edit_upload, auto_upload=True, max_files=1).props('dark dense').classes('w-full h-20')
                         
                         def update_foto_preview():
                             src = foto_url.value.strip() if foto_url.value else ''

@@ -250,21 +250,89 @@ ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY") or ""
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID") or "N2lVS1w4EtoT3dr4eOWO" # Callum (British)
 
 
-@lru_cache(maxsize=128)
-def generate_elevenlabs_tts(text: str) -> str:
-    """Gera áudio TTS via ElevenLabs em formato base64 se a chave estiver configurada."""
-    if not ELEVENLABS_API_KEY or not text:
-        return ""
-        
+def get_config_value(key: str, default: str = "") -> str:
+    """Busca uma chave de configuração do Supabase de forma direta."""
+    try:
+        from database import get_db_connection
+        db = get_db_connection()
+        if db:
+            res = db.table('Config').select('valor').eq('chave', key).execute()
+            if res.data:
+                return res.data[0]['valor']
+    except Exception:
+        pass
+    return default
+
+
+def generate_google_tts(text: str) -> str:
+    """Gera áudio usando a API gratuita do Google Translate, retornando base64."""
     import requests
+    import urllib.parse
+    import base64
+    try:
+        encoded_text = urllib.parse.quote(text)
+        url = f"https://translate.google.com/translate_tts?ie=UTF-8&tl=pt-br&client=tw-ob&q={encoded_text}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        res = requests.get(url, headers=headers, timeout=5)
+        if res.status_code == 200:
+            return base64.b64encode(res.content).decode('utf-8')
+    except Exception as e:
+        print(f"[GOOGLE TTS ERROR] {e}")
+    return ""
+
+
+def generate_piper_tts(text: str, voice: str) -> str:
+    """Gera áudio usando o sintetizador local Piper CLI (se disponível), retornando base64."""
+    import subprocess
     import base64
     
+    piper_path = get_config_value('tts_piper_path', 'piper.exe')
+    # Diretório padrão de modelos na pasta do projeto
+    model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", f"{voice}.onnx")
+    
+    if not os.path.exists(model_path):
+        # Fallback para procurar no diretório local do projeto
+        model_path = os.path.join("models", f"{voice}.onnx")
+        if not os.path.exists(model_path):
+            print(f"[PIPER ERROR] Modelo de voz não encontrado em: {model_path}")
+            return ""
+            
     try:
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_wav:
+            temp_name = temp_wav.name
+            
+        cmd = [piper_path, "-m", model_path, "-f", temp_name]
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout, stderr = proc.communicate(input=text.encode('utf-8'), timeout=15)
+        
+        if os.path.exists(temp_name) and os.path.getsize(temp_name) > 0:
+            with open(temp_name, "rb") as f:
+                audio_bytes = f.read()
+            try:
+                os.remove(temp_name)
+            except Exception:
+                pass
+            return base64.b64encode(audio_bytes).decode('utf-8')
+    except Exception as e:
+        print(f"[PIPER ERROR] Falha ao rodar Piper CLI: {e}")
+    return ""
+
+
+def generate_elevenlabs_tts_custom(text: str, api_key: str, voice_id: str) -> str:
+    """Gera áudio usando ElevenLabs com chaves customizadas."""
+    if not api_key or not text:
+        return ""
+    import requests
+    import base64
+    try:
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
         headers = {
             "Accept": "audio/mpeg",
             "Content-Type": "application/json",
-            "xi-api-key": ELEVENLABS_API_KEY
+            "xi-api-key": api_key
         }
         data = {
             "text": text,
@@ -274,15 +342,39 @@ def generate_elevenlabs_tts(text: str) -> str:
                 "similarity_boost": 0.85
             }
         }
-        
         response = requests.post(url, json=data, headers=headers, timeout=8)
         if response.status_code == 200:
             return base64.b64encode(response.content).decode('utf-8')
-        else:
-            print(f"[ELEVENLABS] Erro HTTP {response.status_code}: {response.text}")
-            return ""
     except Exception as e:
-        print(f"[ELEVENLABS] Erro na API do ElevenLabs: {e}")
+        print(f"[ELEVENLABS ERROR] {e}")
+    return ""
+
+
+@lru_cache(maxsize=128)
+def generate_elevenlabs_tts(text: str) -> str:
+    """Despacha a geração do TTS conforme o motor ativo nas configurações do sistema."""
+    engine = get_config_value('tts_engine', 'basic')
+    
+    if engine == 'basic':
+        # Retorna vazio para sinalizar o fallback local no navegador (Web Speech API)
         return ""
+        
+    if engine == 'google':
+        return generate_google_tts(text)
+        
+    if engine == 'elevenlabs':
+        voice_id = get_config_value('elevenlabs_voice_id', 'N2lVS1w4EtoT3dr4eOWO')
+        api_key = get_config_value('elevenlabs_api_key', '')
+        if not api_key:
+            # Fallback para a variável de ambiente se não houver no banco
+            api_key = os.getenv("ELEVENLABS_API_KEY") or ""
+        return generate_elevenlabs_tts_custom(text, api_key, voice_id)
+        
+    if engine == 'piper':
+        voice = get_config_value('tts_piper_voice', 'pt_BR-fabricio-medium')
+        return generate_piper_tts(text, voice)
+        
+    return ""
+
 
 

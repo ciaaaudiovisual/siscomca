@@ -172,7 +172,7 @@ def build_layout(page_func):
                         ui.label(system_title).style(f'color: {theme.colors["primary"]}; font-weight: bold; line-height: 1; letter-spacing: 1px;').classes('cyber-title')
                         ui.label('Corpo de Alunos • 1º Batalhão').style('font-size: 0.65rem; color: #64748b;')
                 
-                with ui.row().classes('items-center gap-2 cursor-pointer'):
+                with ui.row().classes('items-center gap-3 no-wrap'):
                     theme_toggle.render_theme_toggle()
                     notifications.render_notification_bell()
                     with ui.column().classes('items-end gap-0 gt-xs'):
@@ -180,8 +180,8 @@ def build_layout(page_func):
                         ui.label(user_posto).classes('text-grey-5 text-xs')
                     user_photo = user.get('url_foto') if user else None
                     user_avatar_src = user_photo if isinstance(user_photo, str) and user_photo.startswith('http') else 'https://cdn.quasar.dev/img/boy-avatar.png'
-                    ui.avatar().style(f"background-image: url('{user_avatar_src}'); background-size: cover; background-position: center;")
-                    with ui.button(on_click=logout, icon='logout').props('flat round color=red dense').classes('q-ml-xs'):
+                    ui.avatar().props('size=32px').style(f"background-image: url('{user_avatar_src}'); background-size: cover; background-position: center; border: 1px solid rgba(255, 255, 255, 0.2);")
+                    with ui.button(on_click=logout, icon='logout').props('flat round color=red dense'):
                         ui.tooltip('Sair do Sistema')
         left_drawer = ui.left_drawer(value=True).classes('no-shadow').style(f'background: {theme.colors["bg_panel"]}; border-right: {theme.colors["border"]}')
         with left_drawer:
@@ -406,6 +406,19 @@ def login_page():
                                 "nome_guerra": reg_guerra.value,
                                 "status": "pending"
                             }).execute()
+                            
+                            try:
+                                from notifications_manager import notify_telegram
+                                alert_txt = (
+                                    f"🔔 **SOLICITAÇÃO DE NOVO CADASTRO**\n\n"
+                                    f"👤 Nome: {reg_nome.value.upper()} ({reg_guerra.value.upper()})\n"
+                                    f"📧 E-mail: {reg_email.value}\n"
+                                    f"⚡ Status: Aguardando aprovação administrativa no painel."
+                                )
+                                notify_telegram(alert_txt, "new_user", role_required="admin")
+                            except Exception as e_notif:
+                                print(f"[MAIN REG NOTIFY ERROR] {e_notif}")
+                                
                             ui.notify('Solicitação enviada com sucesso! Aguarde aprovação.', color='success')
                             reg_dialog.close()
                         else:
@@ -510,11 +523,21 @@ from alerts_manager import AlertsManager
 app.on_startup(telegram_bot.init_bot)
 app.on_startup(AlertsManager.start_alerts_scheduler)
 
+# Loop de liberação periódica de memória RAM para manter o pico sob 400MB
+async def memory_cleanup_loop():
+    import gc
+    import asyncio
+    while True:
+        await asyncio.sleep(300) # Coleta a cada 5 minutos
+        gc.collect()
+        # Força o coletor a limpar referências circulares e liberar blocos para o SO
+app.on_startup(memory_cleanup_loop)
+
 # Garante o encerramento limpo da sessão do bot do Telegram ao desligar ou recarregar
 app.on_shutdown(telegram_bot.stop_bot)
 
-# Configuração dinâmica para deploy na nuvem (Render, Railway, etc.)
-port_env = int(os.environ.get('PORT', 8080))
+# Configuração dinâmica para deploy na nuvem (Render, Railway, Hugging Face, etc.)
+port_env = int(os.environ.get('PORT', 7860))
 host_env = os.environ.get('HOST', '0.0.0.0')
 secret_env = os.environ.get('STORAGE_SECRET', 'CHAVE_SECRETA_ALEATORIA')
 

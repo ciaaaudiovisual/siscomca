@@ -19,6 +19,7 @@ def render_page():
 
     def reload_admin_data():
         container.clear()
+        selected_user_ids = set()
         
         # Carregar solicitações pendentes e usuários
         db_conn = get_db_connection()
@@ -51,11 +52,514 @@ def render_page():
                     'created_at': '2026-05-29T10:00:00+00'
                 }
             ]
+            
+            # Vamos garantir que os dados mockados possuam url_foto e telegram_id para testes perfeitos
             users_data = [
-                {'id': '8ff93a11-09ee-4383-b4a3-1e4a86866471', 'username': 'admin', 'nome': 'ADMILSON', 'role': 'admin'},
-                {'id': 'mock-user-2', 'username': 'supervisor_teste', 'nome': 'SGT ALVES', 'role': 'supervisor'},
-                {'id': 'mock-user-3', 'username': 'comcia_teste', 'nome': 'TEN DUARTE', 'role': 'comcia'}
+                {'id': '8ff93a11-09ee-4383-b4a3-1e4a86866471', 'username': 'admin', 'nome': 'ADMILSON', 'role': 'admin', 'telegram_id': '123456789', 'url_foto': 'https://cdn.quasar.dev/img/avatar.png'},
+                {'id': 'mock-user-2', 'username': 'supervisor_teste', 'nome': 'SGT ALVES', 'role': 'supervisor', 'telegram_id': '987654321', 'url_foto': ''},
+                {'id': 'mock-user-3', 'username': 'comcia_teste', 'nome': 'TEN DUARTE', 'role': 'comcia', 'telegram_id': '', 'url_foto': ''}
             ]
+
+        # --- DIÁLOGOS ADMINISTRATIVOS ---
+
+        # 1. Diálogo de Criação de Operador
+        def open_create_dialog():
+            with ui.dialog() as create_dialog, ui.card().classes('w-[420px] q-pa-md bg-slate-900 border').style(f'border-color: {THEME["accent"]};'):
+                with ui.column().classes('w-full gap-4'):
+                    with ui.row().classes('items-center gap-2 w-full justify-between'):
+                        ui.label('➕ CADASTRAR OPERADOR').classes('text-white text-md font-black cyber-title')
+                        ui.icon('person_add', size='1.5rem').style(f'color: {THEME["accent"]}')
+                    ui.separator().style('background-color: rgba(0, 229, 255, 0.15);')
+
+                    c_email = ui.input('E-mail (Login)', placeholder='militar@marinha.mil.br').props('dark outlined dense w-full')
+                    c_pwd = ui.input('Senha Inicial', password=True).props('dark outlined dense w-full')
+                    c_nome = ui.input('Nome de Guerra').props('dark outlined dense w-full')
+                    c_tg = ui.input('Telegram ID (Opcional)').props('dark outlined dense w-full')
+                    c_foto = ui.input('URL da Foto (Opcional)').props('dark outlined dense w-full')
+                    
+                    async def handle_c_upload(e):
+                        import re
+                        import uuid
+                        import inspect
+                        import asyncio
+                        file_bytes = e.file.read()
+                        if inspect.isawaitable(file_bytes):
+                            file_bytes = await file_bytes
+                        clean_name = re.sub(r'\W+', '', c_nome.value or 'operador').lower()
+                        filename = f"operadores/{clean_name}_{uuid.uuid4().hex[:8]}.jpg"
+                        from database import upload_file_to_supabase_storage
+                        public_url = await asyncio.to_thread(upload_file_to_supabase_storage, file_bytes, filename, e.file.content_type)
+                        if public_url:
+                            c_foto.value = public_url
+                            ui.notify('Foto enviada com sucesso!', color='success')
+                        else:
+                            ui.notify('Erro ao enviar foto ao Supabase.', color='red')
+                    
+                    ui.upload(label='Enviar Foto para o Supabase', on_upload=handle_c_upload, auto_upload=True, max_files=1).props('dark dense').classes('w-full h-20')
+                    
+                    c_role = ui.select(ROLE_OPTIONS, label='Papel do Usuário', value='compel').props('dark outlined dense w-full')
+                    
+                    c_error = ui.label('').classes('text-xs text-red w-full text-center')
+                    
+                    def handle_create():
+                        if not c_email.value or not c_pwd.value or not c_nome.value:
+                            c_error.text = 'E-mail, Senha e Nome de Guerra são obrigatórios.'
+                            return
+                        
+                        import hashlib
+                        pwd_hash = hashlib.sha256(c_pwd.value.encode()).hexdigest()
+                        
+                        if is_offline:
+                            ui.notify(f"[OFFLINE] Novo operador {c_nome.value.upper()} cadastrado!", color='success')
+                            users_data.append({
+                                'id': f'mock-uid-{len(users_data)+1}',
+                                'username': c_email.value.split('@')[0],
+                                'nome': c_nome.value.upper(),
+                                'role': c_role.value,
+                                'telegram_id': c_tg.value or '',
+                                'url_foto': c_foto.value or ''
+                            })
+                            create_dialog.close()
+                            reload_admin_data()
+                            return
+                        
+                        conn = get_db_connection()
+                        if not conn:
+                            ui.notify('Sem conexão com banco de dados', color='red')
+                            return
+                        
+                        try:
+                            auth_id = None
+                            admin_conn = None
+                            from database import get_bot_db_connection
+                            try:
+                                admin_conn = get_bot_db_connection()
+                            except Exception:
+                                pass
+                            
+                            if admin_conn and hasattr(admin_conn, 'auth') and hasattr(admin_conn.auth, 'admin'):
+                                try:
+                                    res = admin_conn.auth.admin.create_user({
+                                        "email": c_email.value,
+                                        "password": c_pwd.value,
+                                        "email_confirm": True
+                                    })
+                                    if res and res.user:
+                                        auth_id = res.user.id
+                                except Exception as auth_err:
+                                    print(f"[AUTH ERROR] Tentando signup direto: {auth_err}")
+                            
+                            if not auth_id:
+                                # Fallback para signup regular
+                                res = conn.auth.sign_up({"email": c_email.value, "password": c_pwd.value})
+                                if res and res.user:
+                                    auth_id = res.user.id
+                            
+                            if not auth_id:
+                                import uuid
+                                auth_id = str(uuid.uuid4())
+                                ui.notify('Usuário gerado no DB sem registro Auth (Modo fallback)', color='warning')
+
+                            # Insere na tabela Users
+                            try:
+                                conn.table('Users').insert({
+                                    'id': auth_id,
+                                    'username': c_email.value.split('@')[0],
+                                    'nome': c_nome.value.upper(),
+                                    'role': c_role.value,
+                                    'telegram_id': c_tg.value or None,
+                                    'url_foto': c_foto.value or None
+                                }).execute()
+                            except Exception as db_err:
+                                if 'url_foto' in str(db_err):
+                                    # Fallback: salva sem a coluna url_foto
+                                    conn.table('Users').insert({
+                                        'id': auth_id,
+                                        'username': c_email.value.split('@')[0],
+                                        'nome': c_nome.value.upper(),
+                                        'role': c_role.value,
+                                        'telegram_id': c_tg.value or None
+                                    }).execute()
+                                    ui.notify('Operador cadastrado sem foto. Adicione a coluna url_foto no Supabase!', color='warning', duration=6)
+                                else:
+                                    raise db_err
+                            
+                            # Cria também na tabela efetivo para manter integridade
+                            try:
+                                try:
+                                    conn.table('efetivo').insert({
+                                        'telegram_id': c_tg.value or None,
+                                        'nome_guerra': c_nome.value.upper(),
+                                        'email': c_email.value,
+                                        'senha_hash': pwd_hash,
+                                        'role': c_role.value,
+                                        'url_foto': c_foto.value or None
+                                    }).execute()
+                                except Exception as db_err:
+                                    if 'url_foto' in str(db_err):
+                                        conn.table('efetivo').insert({
+                                            'telegram_id': c_tg.value or None,
+                                            'nome_guerra': c_nome.value.upper(),
+                                            'email': c_email.value,
+                                            'senha_hash': pwd_hash,
+                                            'role': c_role.value
+                                        }).execute()
+                                    else:
+                                        raise db_err
+                            except Exception as db_err:
+                                print(f"[DB WARN] Sincronização parcial em efetivo: {db_err}")
+                            
+                            ui.notify(f"Operador {c_nome.value.upper()} cadastrado com sucesso!", color='success')
+                            data_service.clear_cache()
+                            create_dialog.close()
+                            reload_admin_data()
+                        except Exception as err:
+                            c_error.text = f"Erro: {err}"
+                    
+                    with ui.row().classes('w-full justify-end gap-2'):
+                        ui.button('Cancelar', on_click=create_dialog.close).props('flat color=grey')
+                        ui.button('Cadastrar', on_click=handle_create).props('unelevated color=cyan-9 text-color=white')
+            create_dialog.open()
+
+        # 2. Diálogo de Edição de Operador
+        def open_edit_dialog(user):
+            with ui.dialog() as edit_dialog, ui.card().classes('w-[420px] q-pa-md bg-slate-900 border').style(f'border-color: {THEME["accent"]};'):
+                with ui.column().classes('w-full gap-4'):
+                    with ui.row().classes('items-center gap-2 w-full justify-between'):
+                        ui.label('✏️ EDITAR OPERADOR').classes('text-white text-md font-black cyber-title')
+                        ui.icon('edit', size='1.5rem').style(f'color: {THEME["accent"]}')
+                    ui.separator().style('background-color: rgba(0, 229, 255, 0.15);')
+
+                    e_nome = ui.input('Nome de Guerra', value=user.get('nome', '')).props('dark outlined dense w-full')
+                    e_unm = ui.input('Username (Login)', value=user.get('username', '')).props('dark outlined dense w-full')
+                    e_tg = ui.input('Telegram ID', value=user.get('telegram_id', '') or '').props('dark outlined dense w-full')
+                    
+                    # Layout de duas colunas: Esquerda (URL), Direita (Preview da foto)
+                    with ui.row().classes('w-full items-start gap-4 no-wrap'):
+                        with ui.column().classes('col-grow gap-2'):
+                            e_foto = ui.input('URL da Foto', value=user.get('url_foto', '') or '').props('dark outlined dense w-full').classes('text-xs')
+                        
+                        # Preview do Avatar
+                        user_photo = user.get('url_foto') or ''
+                        user_avatar_src = user_photo if isinstance(user_photo, str) and user_photo.startswith('http') else 'https://cdn.quasar.dev/img/boy-avatar.png'
+                        with ui.column().classes('items-center justify-center shrink-0'):
+                            img_box = ui.element('div').classes('shadow border border-cyan-500/30').style(
+                                f"width: 72px; height: 72px; background-image: url('{user_avatar_src}'); "
+                                f"background-size: cover; background-repeat: no-repeat; "
+                                f"background-position: center; background-color: #050b14; border-radius: 4px;"
+                            )
+                            ui.label('FOTO').classes('text-[9px] text-grey-5 font-bold tracking-widest q-mt-xs')
+                    
+                    # Uploader de arquivos
+                    async def handle_e_upload(e):
+                        import re
+                        import inspect
+                        import asyncio
+                        file_bytes = e.file.read()
+                        if inspect.isawaitable(file_bytes):
+                            file_bytes = await file_bytes
+                        clean_name = re.sub(r'\W+', '', e_nome.value or 'operador').lower()
+                        filename = f"operadores/{clean_name}_{user['id'][:8]}.jpg"
+                        from database import upload_file_to_supabase_storage
+                        public_url = await asyncio.to_thread(upload_file_to_supabase_storage, file_bytes, filename, e.file.content_type)
+                        if public_url:
+                            e_foto.value = public_url
+                            img_box.style(f"background-image: url('{public_url}');")
+                            ui.notify('Foto enviada com sucesso!', color='success')
+                        else:
+                            ui.notify('Erro ao enviar foto ao Supabase.', color='red')
+                            
+                    ui.upload(label='Fazer Upload de Nova Foto', on_upload=handle_e_upload, auto_upload=True, max_files=1).props('dark dense').classes('w-full h-20')
+                    
+                    def update_foto_preview():
+                        src = e_foto.value.strip() if e_foto.value else ''
+                        if not src.startswith('http'):
+                            src = 'https://cdn.quasar.dev/img/boy-avatar.png'
+                        img_box.style(f"background-image: url('{src}');")
+                        
+                    e_foto.on('change', update_foto_preview)
+                    
+                    e_role = ui.select(ROLE_OPTIONS, label='Papel do Usuário', value=user.get('role', 'compel')).props('dark outlined dense w-full')
+                    
+                    e_error = ui.label('').classes('text-xs text-red w-full text-center')
+                    
+                    def handle_edit():
+                        if not e_nome.value or not e_unm.value:
+                            e_error.text = 'Nome de Guerra e Username são obrigatórios.'
+                            return
+                        
+                        if is_offline:
+                            ui.notify(f"[OFFLINE] Dados de {user['username']} atualizados!", color='success')
+                            user['nome'] = e_nome.value.upper()
+                            user['username'] = e_unm.value
+                            user['telegram_id'] = e_tg.value or ''
+                            user['url_foto'] = e_foto.value or ''
+                            user['role'] = e_role.value
+                            edit_dialog.close()
+                            reload_admin_data()
+                            return
+                        
+                        conn = get_db_connection()
+                        if not conn:
+                            ui.notify('Sem conexão com banco de dados', color='red')
+                            return
+                        
+                        try:
+                            try:
+                                conn.table('Users').update({
+                                    'nome': e_nome.value.upper(),
+                                    'username': e_unm.value,
+                                    'telegram_id': e_tg.value or None,
+                                    'url_foto': e_foto.value or None,
+                                    'role': e_role.value
+                                }).eq('id', user['id']).execute()
+                            except Exception as db_err:
+                                if 'url_foto' in str(db_err):
+                                    conn.table('Users').update({
+                                        'nome': e_nome.value.upper(),
+                                        'username': e_unm.value,
+                                        'telegram_id': e_tg.value or None,
+                                        'role': e_role.value
+                                    }).eq('id', user['id']).execute()
+                                    ui.notify('Operador atualizado sem foto. Adicione a coluna url_foto no Supabase!', color='warning', duration=6)
+                                else:
+                                    raise db_err
+                            
+                            # Tenta manter a integridade da tabela efetivo
+                            try:
+                                try:
+                                    conn.table('efetivo').update({
+                                        'nome_guerra': e_nome.value.upper(),
+                                        'telegram_id': e_tg.value or None,
+                                        'role': e_role.value,
+                                        'url_foto': e_foto.value or None
+                                    }).eq('telegram_id', user.get('telegram_id')).execute()
+                                except Exception as db_err:
+                                    if 'url_foto' in str(db_err):
+                                        conn.table('efetivo').update({
+                                            'nome_guerra': e_nome.value.upper(),
+                                            'telegram_id': e_tg.value or None,
+                                            'role': e_role.value
+                                        }).eq('telegram_id', user.get('telegram_id')).execute()
+                                    else:
+                                        raise db_err
+                            except Exception as sync_err:
+                                print(f"[DB WARN] Erro ao sincronizar efetivo: {sync_err}")
+                            
+                            ui.notify(f"Cadastro de {e_nome.value.upper()} atualizado!", color='success')
+                            data_service.clear_cache()
+                            edit_dialog.close()
+                            reload_admin_data()
+                        except Exception as err:
+                            e_error.text = f"Erro: {err}"
+                            
+                    # Botões de Ação (recuados para ficarem dentro da coluna do diálogo)
+                    with ui.row().classes('w-full justify-end gap-2 q-mt-md'):
+                        ui.button('Cancelar', on_click=edit_dialog.close).props('flat color=grey')
+                        ui.button('Salvar', on_click=handle_edit).props('unelevated color=cyan-9 text-color=white')
+            edit_dialog.open()
+
+        # 3. Diálogo de Redefinição de Senha
+        def open_password_dialog(user):
+            with ui.dialog() as pwd_dialog, ui.card().classes('w-[380px] q-pa-md bg-slate-900 border border-amber-500/30'):
+                with ui.column().classes('w-full gap-4'):
+                    with ui.row().classes('items-center gap-2 w-full justify-between'):
+                        ui.label('🔑 ALTERAR SENHA').classes('text-white text-md font-black cyber-title')
+                        ui.icon('lock_reset', size='1.5rem').style('color: #ffb300;')
+                    ui.separator().style('background-color: rgba(255, 179, 0, 0.15);')
+                    
+                    ui.label(f"Alterar senha para: {user['nome']}").classes('text-xs text-grey-4')
+                    new_pwd = ui.input('Nova Senha', password=True).props('dark outlined dense w-full')
+                    pwd_error = ui.label('').classes('text-xs text-red w-full text-center')
+                    
+                    def handle_password():
+                        if not new_pwd.value or len(new_pwd.value) < 6:
+                            pwd_error.text = 'A senha deve conter no mínimo 6 caracteres.'
+                            return
+                        
+                        import hashlib
+                        pwd_hash = hashlib.sha256(new_pwd.value.encode()).hexdigest()
+                        
+                        if is_offline:
+                            ui.notify(f"[OFFLINE] Senha de {user['nome']} redefinida!", color='success')
+                            pwd_dialog.close()
+                            return
+                        
+                        conn = get_db_connection()
+                        if not conn:
+                            ui.notify('Sem conexão com banco de dados', color='red')
+                            return
+                        
+                        try:
+                            from database import get_bot_db_connection
+                            admin_conn = None
+                            try:
+                                admin_conn = get_bot_db_connection()
+                            except Exception:
+                                pass
+                            
+                            auth_updated = False
+                            if admin_conn and hasattr(admin_conn, 'auth') and hasattr(admin_conn.auth, 'admin'):
+                                try:
+                                    admin_conn.auth.admin.update_user_by_id(user['id'], {"password": new_pwd.value})
+                                    auth_updated = True
+                                except Exception as auth_err:
+                                    print(f"[AUTH PASSWORD UPDATE ERROR] {auth_err}")
+                            
+                            # Atualiza também a tabela efetivo
+                            try:
+                                conn.table('efetivo').update({'senha_hash': pwd_hash}).eq('telegram_id', user.get('telegram_id')).execute()
+                            except Exception:
+                                pass
+                            
+                            if auth_updated:
+                                ui.notify(f"Senha de {user['nome']} alterada com sucesso!", color='success')
+                            else:
+                                ui.notify(f"Senha atualizada no DB! Nota: Sem permissão service_role para redefinir no Auth.", color='warning')
+                            
+                            data_service.clear_cache()
+                            pwd_dialog.close()
+                        except Exception as err:
+                            pwd_error.text = f"Erro: {err}"
+            
+                    # Botões de Ação (dentro da coluna do diálogo)
+                    with ui.row().classes('w-full justify-end gap-2 q-mt-md'):
+                        ui.button('Cancelar', on_click=pwd_dialog.close).props('flat color=grey')
+                        ui.button('Alterar Senha', on_click=handle_password).props('unelevated color=amber-9 text-color=black')
+            pwd_dialog.open()
+
+        # 4. Diálogo de Confirmação de Exclusão
+        def open_delete_dialog(user):
+            with ui.dialog() as del_dialog, ui.card().classes('w-[380px] q-pa-md bg-slate-900 border border-red-500/30'):
+                with ui.column().classes('w-full gap-4 items-center text-center'):
+                    ui.icon('warning', color='red', size='3rem').classes('animate-pulse')
+                    ui.label('CONFIRMAR EXCLUSÃO').classes('text-white text-md font-black cyber-title')
+                    ui.label(f"Tem certeza que deseja excluir o acesso de {user['nome']} ({user['username']})?").classes('text-sm text-grey-4')
+                    ui.label('Esta ação removerá definitivamente o militar das permissões do painel.').classes('text-xs text-red-400 font-bold')
+                    
+                    del_error = ui.label('').classes('text-xs text-red w-full')
+                    
+                    def handle_delete():
+                        if is_offline:
+                            ui.notify(f"[OFFLINE] Operador {user['nome']} removido!", color='success')
+                            if user in users_data:
+                                users_data.remove(user)
+                            del_dialog.close()
+                            reload_admin_data()
+                            return
+                        
+                        conn = get_db_connection()
+                        if not conn:
+                            ui.notify('Sem conexão com banco de dados', color='red')
+                            return
+                        
+                        try:
+                            from database import get_bot_db_connection
+                            admin_conn = None
+                            try:
+                                admin_conn = get_bot_db_connection()
+                            except Exception:
+                                pass
+                            
+                            if admin_conn and hasattr(admin_conn, 'auth') and hasattr(admin_conn.auth, 'admin'):
+                                try:
+                                    admin_conn.auth.admin.delete_user(user['id'])
+                                except Exception as auth_err:
+                                    print(f"[AUTH DELETE ERROR] {auth_err}")
+                            
+                            # Remove das tabelas locais
+                            conn.table('Users').delete().eq('id', user['id']).execute()
+                            try:
+                                conn.table('efetivo').delete().eq('telegram_id', user.get('telegram_id')).execute()
+                            except Exception:
+                                pass
+                            
+                            ui.notify(f"Operador {user['nome']} removido!", color='success')
+                            data_service.clear_cache()
+                            del_dialog.close()
+                            reload_admin_data()
+                        except Exception as err:
+                            del_error.text = f"Erro: {err}"
+            
+                    # Botões de Ação (dentro da coluna do diálogo)
+                    with ui.row().classes('w-full justify-end gap-2 q-mt-md'):
+                        ui.button('Cancelar', on_click=del_dialog.close).props('flat color=grey')
+                        ui.button('Confirmar Exclusão', on_click=handle_delete).props('unelevated color=red text-color=white')
+            del_dialog.open()
+
+        # 5. Diálogo de Confirmação de Exclusão em Lote
+        def open_batch_delete_dialog(uids):
+            selected_users_objs = [u for u in users_data if u['id'] in uids]
+            names_str = ", ".join([u['nome'] for u in selected_users_objs])
+            with ui.dialog() as batch_del_dialog, ui.card().classes('w-[420px] q-pa-md bg-slate-900 border border-red-500/30'):
+                with ui.column().classes('w-full gap-4 items-center text-center'):
+                    ui.icon('warning', color='red', size='3rem').classes('animate-pulse')
+                    ui.label('CONFIRMAR EXCLUSÃO EM LOTE').classes('text-white text-md font-black cyber-title')
+                    ui.label(f"Tem certeza que deseja excluir o acesso de {len(uids)} operadores selecionados?").classes('text-sm text-grey-4')
+                    ui.label(f"Operadores: {names_str}").classes('text-xs text-amber-400 font-mono max-h-24 overflow-y-auto w-full')
+                    ui.label('Esta ação removerá definitivamente todos os militares selecionados.').classes('text-xs text-red-400 font-bold')
+                    
+                    del_error = ui.label('').classes('text-xs text-red w-full')
+                    
+                    def handle_batch_delete():
+                        if is_offline:
+                            ui.notify(f"[OFFLINE] Removido {len(uids)} operadores!", color='success')
+                            for uid in list(uids):
+                                for u in list(users_data):
+                                    if u['id'] == uid:
+                                        users_data.remove(u)
+                            uids.clear()
+                            batch_del_dialog.close()
+                            reload_admin_data()
+                            return
+                        
+                        conn = get_db_connection()
+                        if not conn:
+                            ui.notify('Sem conexão com banco de dados', color='red')
+                            return
+                        
+                        try:
+                            from database import get_bot_db_connection
+                            admin_conn = None
+                            try:
+                                admin_conn = get_bot_db_connection()
+                            except Exception:
+                                pass
+                            
+                            # Tenta remover do Auth para cada usuário
+                            for uid in uids:
+                                if admin_conn and hasattr(admin_conn, 'auth') and hasattr(admin_conn.auth, 'admin'):
+                                    try:
+                                        admin_conn.auth.admin.delete_user(uid)
+                                    except Exception as auth_err:
+                                        print(f"[AUTH BATCH DELETE ERROR] {auth_err} for uid {uid}")
+                            
+                            # Remove da tabela Users
+                            conn.table('Users').delete().in_('id', list(uids)).execute()
+                            
+                            # Tenta remover também da tabela efetivo
+                            for u in selected_users_objs:
+                                if u.get('telegram_id'):
+                                    try:
+                                        conn.table('efetivo').delete().eq('telegram_id', u['telegram_id']).execute()
+                                    except Exception:
+                                        pass
+                            
+                            ui.notify(f"{len(uids)} operadores removidos com sucesso!", color='success')
+                            uids.clear()
+                            data_service.clear_cache()
+                            batch_del_dialog.close()
+                            reload_admin_data()
+                        except Exception as err:
+                            del_error.text = f"Erro: {err}"
+            
+                    # Botões de Ação (dentro da coluna do diálogo)
+                    with ui.row().classes('w-full justify-end gap-2 q-mt-md'):
+                        ui.button('Cancelar', on_click=batch_del_dialog.close).props('flat color=grey')
+                        ui.button('Confirmar Exclusão em Lote', on_click=handle_batch_delete).props('unelevated color=red text-color=white')
+            batch_del_dialog.open()
+
+        # --- FIM DIÁLOGOS ---
 
         with container:
             theme.section_header('Usuários e Permissões', 'Gestão de Usuários e Aprovação de Credenciais')
@@ -78,7 +582,6 @@ def render_page():
                     else:
                         with ui.column().classes('w-full gap-3'):
                             for req in requests_data:
-                                # Dicionário de estado do role selecionado para esta solicitação
                                 state = {'role': 'compel'}
                                 
                                 with ui.card().classes('w-full q-pa-sm border hover:border-cyan-500/40 bg-black/20').style(f'border-color: rgba(0, 229, 255, 0.1);'):
@@ -88,7 +591,6 @@ def render_page():
                                             with ui.row().classes('gap-4 text-caption').style(f'color: {THEME["text_dim"]}'):
                                                 ui.label(f"Guerra: {req['nome_guerra']}")
                                                 ui.label(f"E-mail: {req['email']}")
-                                                # Formata data
                                                 date_str = req.get('created_at', '')[:10] if req.get('created_at') else ''
                                                 if date_str:
                                                     ui.label(f"Solicitado em: {date_str}")
@@ -115,9 +617,7 @@ def render_page():
                                                 
                                                 try:
                                                     if action == 'approved':
-                                                        # 1. Atualiza status na solicitação
                                                         conn.table('RegistrationRequests').update({'status': 'approved'}).eq('id', req_id).execute()
-                                                        # 2. Cria/atualiza o perfil de usuário
                                                         conn.table('Users').upsert({
                                                             'id': req_id,
                                                             'username': req_email.split('@')[0],
@@ -126,11 +626,9 @@ def render_page():
                                                         }, on_conflict='id').execute()
                                                         ui.notify(f"Usuário {req_guerra} aprovado como {s['role'].upper()}!", color='success')
                                                     else:
-                                                        # Rejeitado
                                                         conn.table('RegistrationRequests').update({'status': 'rejected'}).eq('id', req_id).execute()
                                                         ui.notify(f"Solicitação de {req_guerra} rejeitada.", color='warning')
                                                     
-                                                    # Recarrega a tela
                                                     data_service.clear_cache()
                                                     reload_admin_data()
                                                 except Exception as err:
@@ -146,83 +644,96 @@ def render_page():
                                                 on_click=lambda r_id=req['id'], r_email=req['email'], r_g=req['nome_guerra']: process_request(r_id, r_email, r_g, 'approved')
                                             ).props('unelevated dense').style(f'background: {THEME["success"]}; color: #0b0f19; font-weight: bold;').classes('cyber-glow')
 
-            # --- SEÇÃO 2: USUÁRIOS ATIVOS ---
+            # --- SEÇÃO 2: USUÁRIOS ATIVOS (CRUD COMPLETO) ---
             with theme.card_base().classes('w-full q-pa-md'):
                 with ui.column().classes('w-full gap-4'):
-                    with ui.row().classes('items-center gap-2'):
-                        ui.icon('people', size='2rem').style(f'color: {THEME["accent"]}')
-                        ui.label(f'Operadores Cadastrados ({len(users_data)})').classes('text-lg font-bold').style(f'color: {THEME["text_main"]}')
+                    with ui.row().classes('items-center justify-between w-full'):
+                        with ui.row().classes('items-center gap-2'):
+                            ui.icon('people', size='2rem').style(f'color: {THEME["accent"]}')
+                            ui.label(f'Operadores Cadastrados ({len(users_data)})').classes('text-lg font-bold').style(f'color: {THEME["text_main"]}')
+                        
+                        with ui.row().classes('gap-2 items-center'):
+                            # Botão de exclusão em lote
+                            batch_del_btn = ui.button(
+                                '🗑️ EXCLUIR SELECIONADOS (0)',
+                                on_click=lambda: open_batch_delete_dialog(selected_user_ids)
+                            ).props('unelevated dense color=red').classes('text-xs px-3 py-1.5').style('display: none;')
+                            
+                            # Botão administrativo para novo cadastro direto
+                            ui.button(
+                                '➕ CADASTRAR OPERADOR',
+                                on_click=open_create_dialog
+                            ).props('unelevated dense').style(f'background: {THEME["accent"]}; color: #0b0f19; font-weight: bold;').classes('cyber-glow text-xs px-3 py-1.5')
+
                     ui.separator().style('background-color: rgba(0, 229, 255, 0.15);')
 
                     if not users_data:
-                        ui.label('Nenhum usuário cadastrado.').classes('italic q-py-md text-sm').style(f'color: {THEME["text_dim"]}')
+                        ui.label('Nenhum operador cadastrado.').classes('italic q-py-md text-sm').style(f'color: {THEME["text_dim"]}')
                     else:
                         with ui.column().classes('w-full gap-3'):
                             for u in users_data:
-                                with ui.card().classes('w-full q-pa-sm border bg-black/10').style(f'border-color: rgba(0, 229, 255, 0.1);'):
+                                with ui.card().classes('w-full q-pa-sm border bg-black/10 hover:border-cyan-500/20 transition-all').style(f'border-color: rgba(0, 229, 255, 0.1);'):
                                     with ui.row().classes('w-full items-center justify-between wrap gap-4'):
+                                        # 1. Informações básicas + Foto de Perfil Quadrada
                                         with ui.row().classes('items-center gap-3 col-grow'):
-                                            ui.avatar('person', size='2rem').style(f'background: rgba(0, 229, 255, 0.05); border: 1px solid rgba(0, 229, 255, 0.2); color: {THEME["primary"]};')
-                                            with ui.column().classes('gap-0'):
-                                                ui.label(u['nome']).classes('font-bold text-sm').style(f'color: {THEME["text_main"]}')
-                                                ui.label(f"User: {u['username']}").classes('text-[11px]').style(f'color: {THEME["text_dim"]}')
-                                        
-                                        # Controle do Telegram ID
-                                        with ui.row().classes('items-center gap-2'):
-                                            tg_input = ui.input(
-                                                label='Telegram ID', 
-                                                value=u.get('telegram_id', '') or ''
-                                            ).props('dark outlined dense').classes('w-44 font-mono')
+                                            # Checkbox para seleção em lote
+                                            def on_checkbox_change(e, uid=u['id']):
+                                                if e.value:
+                                                    selected_user_ids.add(uid)
+                                                else:
+                                                    selected_user_ids.discard(uid)
+                                                count = len(selected_user_ids)
+                                                batch_del_btn.set_visibility(count > 0)
+                                                batch_del_btn.text = f'🗑️ EXCLUIR SELECIONADOS ({count})'
                                             
-                                            def save_telegram_id(val, user_id=u['id'], username=u['username']):
-                                                if is_offline:
-                                                    ui.notify(f"[OFFLINE] Telegram ID de {username} alterado para {val}", color='info')
-                                                    return
-                                                conn = get_db_connection()
-                                                if not conn:
-                                                    ui.notify('Sem conexão com banco de dados', color='red')
-                                                    return
-                                                try:
-                                                    conn.table('Users').update({'telegram_id': val or None}).eq('id', user_id).execute()
-                                                    ui.notify(f"Telegram ID de {username} salvo com sucesso!", color='success')
-                                                    data_service.clear_cache()
-                                                except Exception as err:
-                                                    if 'column "telegram_id" of relation "Users" does not exist' in str(err) or 'telegram_id' in str(err):
-                                                        ui.notify('A coluna "telegram_id" não existe na tabela "Users". Execute a migração SQL no seu painel do Supabase.', color='red', duration=10)
+                                            ui.checkbox(on_change=on_checkbox_change).props('dense dark color=red')
+
+                                            # Foto de Perfil Tática
+                                            user_photo = u.get('url_foto') or ''
+                                            user_avatar_src = user_photo if isinstance(user_photo, str) and user_photo.startswith('http') else 'https://cdn.quasar.dev/img/boy-avatar.png'
+                                            role_color = '#00e676' if u.get('role') == 'admin' else '#00b0ff' if u.get('role') == 'supervisor' else '#e040fb' if u.get('role') == 'comcia' else '#90a4ae'
+                                            ui.element('div').classes('shadow border shrink-0').style(
+                                                f"width: 48px; height: 48px; background-image: url('{user_avatar_src}'); "
+                                                f"background-size: cover; background-repeat: no-repeat; "
+                                                f"background-position: center; background-color: #050b14; "
+                                                f"border: 2px solid {role_color}; border-radius: 4px;"
+                                            )
+                                            with ui.column().classes('gap-0.5'):
+                                                with ui.row().classes('items-center gap-2'):
+                                                    ui.label(u['nome']).classes('font-black text-sm uppercase').style(f'color: {THEME["text_main"]}')
+                                                    role_text = ROLE_OPTIONS.get(u.get('role', 'compel'), 'Compel').split(' (')[0]
+                                                    ui.label(role_text.upper()).classes('text-[9px] font-bold px-1.5 py-0.5 rounded border').style(
+                                                        f"color: {role_color}; border-color: {role_color}40; background: {role_color}10;"
+                                                    )
+                                                with ui.row().classes('items-center gap-4 text-[11px]').style(f'color: {THEME["text_dim"]}'):
+                                                    ui.label(f"User: {u['username']}")
+                                                    if u.get('telegram_id'):
+                                                        ui.label(f"TG ID: {u['telegram_id']}").classes('font-mono text-cyan-400')
                                                     else:
-                                                        ui.notify(f"Erro ao salvar Telegram ID: {err}", color='red')
-
-                                            ui.button(
-                                                icon='save', 
-                                                on_click=lambda e, tgi=tg_input, uid=u['id'], unm=u['username']: save_telegram_id(tgi.value, uid, unm)
-                                            ).props('flat round dense color=amber').classes('text-xs')
-
-                                        # Controle de papel
+                                                        ui.label("TG ID: não associado").classes('italic')
+                                        
+                                        # 2. Ações Administrativas (Editar Perfil, Alterar Senha, Excluir)
                                         with ui.row().classes('items-center gap-2'):
-                                            ui.label('Papel do Usuário:').classes('text-xs').style(f'color: {THEME["text_dim"]}')
+                                            # Editar Perfil
+                                            ui.button(
+                                                icon='edit',
+                                                on_click=lambda e, user=u: open_edit_dialog(user)
+                                            ).props('flat round dense color=primary').classes('text-xs').style('background: rgba(0, 229, 255, 0.05);')
+                                            ui.tooltip('Editar Perfil')
                                             
-                                            def update_user_role(val, user_id=u['id'], username=u['username']):
-                                                if is_offline:
-                                                    ui.notify(f"Simulando papel de {username} para {val.value}", color='info')
-                                                    return
-                                                
-                                                conn = get_db_connection()
-                                                if not conn:
-                                                    ui.notify('Sem conexão com banco de dados', color='red')
-                                                    return
-                                                
-                                                try:
-                                                    conn.table('Users').update({'role': val.value}).eq('id', user_id).execute()
-                                                    ui.notify(f"Papel de {username} alterado para {val.value.upper()}!", color='success')
-                                                    data_service.clear_cache()
-                                                except Exception as err:
-                                                    ui.notify(f"Erro ao alterar papel: {err}", color='red')
-
-                                            ui.select(
-                                                ROLE_OPTIONS, 
-                                                value=u.get('role', 'compel'),
-                                                on_change=lambda e, u_id=u['id'], u_name=u['username']: update_user_role(e, u_id, u_name)
-                                            ).props('dark outlined dense').classes('w-64')
+                                            # Alterar Senha
+                                            ui.button(
+                                                icon='lock_reset',
+                                                on_click=lambda e, user=u: open_password_dialog(user)
+                                            ).props('flat round dense color=amber').classes('text-xs').style('background: rgba(255, 193, 7, 0.05);')
+                                            ui.tooltip('Redefinir Senha')
+                                            
+                                            # Excluir
+                                            ui.button(
+                                                icon='delete',
+                                                on_click=lambda e, user=u: open_delete_dialog(user)
+                                            ).props('flat round dense color=red').classes('text-xs').style('background: rgba(255, 23, 68, 0.05);')
+                                            ui.tooltip('Excluir Operador')
 
     # Primeiro carregamento
     reload_admin_data()

@@ -839,3 +839,32 @@ def load_data(table_name: str, db_conn = None) -> pd.DataFrame:
     except Exception as e:
         print(f"[ERRO] Falha ao carregar tabela {table_name}: {e}")
         return pd.DataFrame()
+
+
+def upload_file_to_supabase_storage(file_bytes: bytes, filename: str, content_type: str = "image/jpeg") -> Optional[str]:
+    """
+    Realiza o upload de um arquivo para o bucket 'fotos-efetivos' no Supabase Storage.
+    Retorna a URL pública do arquivo ou None em caso de falha.
+    """
+    conn = get_bot_db_connection()
+    if not conn:
+        conn = get_db_connection()
+    if not conn:
+        print("[STORAGE UPLOAD] Sem conexão com Supabase.")
+        return None
+    try:
+        bucket_name = "fotos-efetivos"
+        # Realiza o upload (upsert=true permite substituir arquivos com o mesmo nome)
+        conn.storage.from_(bucket_name).upload(
+            path=filename,
+            file=file_bytes,
+            file_options={"content-type": content_type, "upsert": "true"}
+        )
+        # Pega a URL pública
+        public_url = conn.storage.from_(bucket_name).get_public_url(filename)
+        if public_url and public_url.endswith('?'):
+            public_url = public_url.rstrip('?')
+        return public_url
+    except Exception as e:
+        print(f"[STORAGE UPLOAD ERROR] {e}")
+        return None

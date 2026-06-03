@@ -34,12 +34,20 @@ def get_main_menu_keyboard():
     markup.row(types.KeyboardButton("📊 Resumo Diário"), types.KeyboardButton("👮 Escala de Serviço"))
     markup.row(types.KeyboardButton("🔍 Consulta de Aluno"), types.KeyboardButton("📋 Lançar Ocorrência"))
     markup.row(types.KeyboardButton("📞 Chamada Diária"), types.KeyboardButton("🏥 Lançar Saúde"))
-    markup.row(types.KeyboardButton("📢 Aviso na TV"), types.KeyboardButton("❌ Cancelar"))
+    markup.row(types.KeyboardButton("📢 Aviso na TV"), types.KeyboardButton("🛌 Lançar Pernoite"))
+    markup.row(types.KeyboardButton("❌ Cancelar"))
     return markup
 
 def get_cancel_keyboard():
     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
     markup.add(types.KeyboardButton("❌ Cancelar"))
+    return markup
+
+def get_aviso_menu_keyboard():
+    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+    markup.row(types.KeyboardButton("📢 Novo Aviso"), types.KeyboardButton("📋 Listar Existentes"))
+    markup.row(types.KeyboardButton("✏️ Editar Aviso"), types.KeyboardButton("❌ Remover/Excluir"))
+    markup.row(types.KeyboardButton("🔒 Enviar Aviso Privado"), types.KeyboardButton("❌ Cancelar"))
     return markup
 
 def get_duration_keyboard():
@@ -92,17 +100,18 @@ def setup_handlers(bot_instance):
         clear_state(chat_id)
         
         welcome_text = (
-            "⚓ Comando Tático SisCOMCA ⚓\n\n"
+            "⚓ **Comando Tático SisCOMCA** ⚓\n\n"
             "Olá! Eu sou o assistente oficial do SisCOMCA para lançamento de avisos, ocorrências, presença e saúde por Telegram.\n\n"
-            "Comandos Disponíveis:\n"
+            "**Comandos Disponíveis:**\n"
             "🔹 `/menu` : Exibe este menu de comandos.\n"
             "🔹 `/resumo` (ou `/parada`) : Exibe o resumo do efetivo e saúde de hoje.\n"
-            "🔹 `/escala` (ou `/servico`) : Consulta e altera a escala de serviço.\n"
+            "🔹 `/escala` (ou `/servico`) : Consulta, adiciona e altera a escala (pessoal de serviço).\n"
             "🔹 `/consulta` (ou `/aluno`) : Exibe a ficha de contatos e ocorrências de um aluno.\n"
             "🔹 `/anotacao` : Inicia o lançamento guiado de comportamento de alunos.\n"
             "🔹 `/presenca` (ou `/chamada`) : Realiza a chamada coletiva de uma turma.\n"
             "🔹 `/atrasado` (ou `/atraso`) : Registra atrasado (retira falta e lança ocorrência).\n"
             "🔹 `/enfermaria` (ou `/saude`) : Inicia o lançamento guiado de registros de saúde/baixas.\n"
+            "🔹 `/pernoite` : Lança autorização de pernoite para hoje.\n"
             "🔹 `/aviso` : Adiciona um aviso corrido no letreiro da TV.\n"
             "🔹 `/vincular <email>` : Vincula seu Telegram ID ao seu usuário cadastrado na Web.\n"
             "🔹 `/cancelar` : Aborta qualquer operação em andamento.\n\n"
@@ -322,10 +331,16 @@ def setup_handlers(bot_instance):
             
         chat_states[chat_id] = {
             'action': 'aviso',
-            'step': 'get_text',
+            'step': 'select_option',
             'user': profile
         }
-        await bot_instance.reply_to(message, "📢 Letreiro da TV: Digite o texto do aviso que deseja exibir:", reply_markup=get_cancel_keyboard())
+        await bot_instance.reply_to(
+            message, 
+            "📢 **MENU AVISOS (TV & OPERADORES)**\n\n"
+            "Escolha o que deseja fazer com os avisos no painel/TV ou para os operadores:", 
+            reply_markup=get_aviso_menu_keyboard(), 
+            parse_mode='Markdown'
+        )
 
     @bot_instance.message_handler(commands=['anotacao'])
     async def register_anotacao(message):
@@ -348,6 +363,28 @@ def setup_handlers(bot_instance):
             'data': {}
         }
         await bot_instance.reply_to(message, "📋 Ocorrência: Digite o nome de guerra ou número interno do aluno:", reply_markup=get_cancel_keyboard())
+
+    @bot_instance.message_handler(commands=['pernoite'])
+    async def register_pernoite_command(message):
+        chat_id = message.chat.id
+        clear_state(chat_id)
+        
+        profile = await check_authorized_user(message.from_user.id)
+        if not profile:
+            await bot_instance.reply_to(
+                message, 
+                "⚠️ Acesso não autorizado!\n"
+                f"Associe seu Telegram ID ({message.from_user.id}) usando `/vincular <email>` ou com o Administrador."
+            )
+            return
+            
+        chat_states[chat_id] = {
+            'action': 'pernoite',
+            'step': 'search_student',
+            'user': profile,
+            'data': {}
+        }
+        await bot_instance.reply_to(message, "🛌 Lançar Pernoite: Digite o nome de guerra ou número interno do aluno:", reply_markup=get_cancel_keyboard())
 
     @bot_instance.message_handler(commands=['resumo', 'parada'])
     async def register_resumo_command(message):
@@ -456,13 +493,32 @@ def setup_handlers(bot_instance):
                         })
                         added_nis.add(ni)
             
-            def format_list(items):
+            # 👮 Pessoal de Serviço de Hoje
+            escala_text = ""
+            try:
+                res_es = conn.table('escala_diaria').select('*').eq('data', hoje_str).execute()
+                escala_records = res_es.data if res_es.data else []
+                if escala_records:
+                    escala_text = "\n👮 **PESSOAL DE SERVIÇO DE HOJE:**\n"
+                    for esc in escala_records:
+                        cargo = esc.get('cargo', '').upper()
+                        nome = esc.get('nome', '').upper()
+                        if nome and nome != 'NÃO ESCALADO':
+                            escala_text += f"• *{cargo}*: {nome}\n"
+                else:
+                    escala_text = "\n👮 **PESSOAL DE SERVIÇO DE HOJE:**\n• _(Nenhuma escala cadastrada para hoje)_\n"
+            except Exception as e_esc:
+                print(f"[BOT RESUMO ESCALA ERROR] {e_esc}")
+
+            def format_list(items, show_motivo=False):
                 if not items:
-                    return " (Nenhum)"
+                    return " _(Nenhum)_"
+                if show_motivo:
+                    return "\n  ↳ _" + ", ".join([f"{x['ni']}—{x['nome']} ({x['motivo']})" for x in items]) + "_"
                 return "\n  ↳ _" + ", ".join([f"{x['ni']}—{x['nome']}" for x in items]) + "_"
                 
-            ausentes_names = [f"{a[0]['numero_interno']}—{a[0]['nome_guerra']}" for a in ausentes]
-            ausentes_str = format_list([{'ni': a[0]['numero_interno'], 'nome': a[0]['nome_guerra']} for a in ausentes]) if ausentes_names else " (Nenhum)"
+            ausentes_list = [{'ni': a[0]['numero_interno'], 'nome': a[0]['nome_guerra']} for a in ausentes]
+            ausentes_str = format_list(ausentes_list)
             
             pernoite_names = []
             for pn in pernoites:
@@ -470,22 +526,26 @@ def setup_handlers(bot_instance):
                 al_match = next((a for a in alunos if str(a['id']) == aid), None)
                 if al_match:
                     pernoite_names.append({'ni': al_match['numero_interno'], 'nome': al_match['nome_guerra']})
-            pernoite_str = format_list(pernoite_names) if pernoite_names else " (Nenhum)"
+            
+            pernoite_nis = [f"{x['ni']}" for x in pernoite_names] if pernoite_names else []
+            pernoite_str = "\n  ↳ _" + ", ".join(pernoite_nis) + "_" if pernoite_nis else " _(Nenhum)_"
             
             resumo_text = (
-                f"📊 RESUMO DIÁRIO ({hoje_br})\n\n"
-                f"👥 Efetivo Geral:\n"
-                f"• Total de Alunos: `{total_alunos}`\n"
-                f"• Presentes: `{total_pres}`\n"
-                f"• Ausentes: `{total_aus}`{ausentes_str}\n"
-                f"• Sem Registro (Pendente): `{total_pend}`\n\n"
-                f"🛌 Pernoite:\n"
-                f"• Pernoite Autorizado: `{total_pernoite}`{pernoite_str}\n\n"
-                f"🏥 Situação de Saúde:\n"
+                f"📊 **RESUMO DIÁRIO — {hoje_br}**\n"
+                f"━━━━━━━━━━━━━━━━━━━━━\n\n"
+                f"👥 **EFETIVO GERAL:**\n"
+                f"• 📈 Total de Alunos: `{total_alunos}`\n"
+                f"• ✅ Presentes: `{total_pres}`\n"
+                f"• ❌ Ausentes: `{total_aus}`{ausentes_str}\n"
+                f"• ⏳ Pendentes de Chamada: `{total_pend}`\n"
+                f"{escala_text}\n"
+                f"🛌 **PERNOITE (A BORDO):**\n"
+                f"• 🛌 Autorizados: `{total_pernoite}`{pernoite_str}\n\n"
+                f"🏥 **SITUAÇÃO DE SAÚDE / LICENÇAS:**\n"
                 f"• 🏥 Internado/Observação: `{len(baixados)}`{format_list(baixados)}\n"
                 f"• 🚑 Hospitalizado: `{len(hospitalizados)}`{format_list(hospitalizados)}\n"
-                f"• 📝 Dispensas Ativas: `{len(dispensados)}`{format_list(dispensados)}\n"
-                f"• ✈️ Licenças Ativas: `{len(licenciados)}`{format_list(licenciados)}"
+                f"• 📝 Dispensas Ativas: `{len(dispensados)}`{format_list(dispensados, show_motivo=True)}\n"
+                f"• ✈️ Licenças Ativas: `{len(licenciados)}`{format_list(licenciados, show_motivo=True)}"
             )
             
             await bot_instance.reply_to(message, resumo_text, reply_markup=get_main_menu_keyboard(), parse_mode='Markdown')
@@ -550,6 +610,13 @@ def setup_handlers(bot_instance):
         chat_id = message.chat.id
         state = chat_states.get(chat_id)
         text = message.text.strip() if message.text else ""
+        
+        # Cancelamento global e prioritário: se houver texto com "cancelar", aborta qualquer fluxo imediatamente
+        if text and "cancelar" in text.lower():
+            await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+            clear_state(chat_id)
+            return
+            
         if not state:
             clean_text = text.lower()
             if "resumo" in clean_text or "parada" in clean_text:
@@ -576,6 +643,9 @@ def setup_handlers(bot_instance):
             elif "aviso" in clean_text:
                 await register_aviso(message)
                 return
+            elif "pernoite" in clean_text:
+                await register_pernoite_command(message)
+                return
             elif "cancelar" in clean_text:
                 await cancel_action(message)
                 return
@@ -584,10 +654,11 @@ def setup_handlers(bot_instance):
                 "⚠️ Comando ou opção não reconhecida.\n\n"
                 "Para iniciar uma conversa ou operação, use os botões abaixo ou um dos comandos:\n"
                 "🔹 `/resumo` (ou `/parada`) : Exibe o resumo do efetivo e saúde de hoje.\n"
-                "🔹 `/escala` (ou `/servico`) : Consulta e altera a escala de serviço.\n"
+                "🔹 `/escala` (ou `/servico`) : Consulta, adiciona e altera a escala (pessoal de serviço).\n"
                 "🔹 `/consulta` (ou `/aluno`) : Exibe a ficha de contatos e ocorrências de um aluno.\n"
                 "🔹 `/anotacao` : Inicia o lançamento de comportamento de alunos.\n"
                 "🔹 `/enfermaria` (ou `/saude`) : Inicia o lançamento de registros de saúde.\n"
+                "🔹 `/pernoite` : Lança autorização de pernoite para hoje.\n"
                 "🔹 `/aviso` : Adiciona um aviso no letreiro da TV.\n"
                 "🔹 `/menu` : Exibe o menu principal do SisCOMCA.\n"
                 "🔹 `/vincular <email>` : Vincula seu Telegram ID ao seu usuário.\n"
@@ -608,28 +679,347 @@ def setup_handlers(bot_instance):
             return
 
         # ── PROCESSAMENTO DO AVISO ────────────────────────────────────
-        if action == 'aviso' and step == 'get_text':
-            try:
-                autor = state['user'].get('nome', 'TELEGRAM').upper()
-                conn.table('Ordens_Diarias').insert({
-                    'data': date.today().strftime('%Y-%m-%d'),
-                    'texto': text,
-                    'autor_id': autor,
-                    'status': 'Ativo'
-                }).execute()
-                
-                # Transmite à TV
-                AlertsManager.trigger_alert(
-                    "Novo Aviso",
-                    f"Aviso publicado por {autor}: {text}",
-                    "info"
-                )
-                
-                await bot_instance.reply_to(message, "✅ Aviso gravado com sucesso e transmitido para a TV!", reply_markup=get_main_menu_keyboard())
-            except Exception as e:
-                await bot_instance.reply_to(message, f"❌ Erro ao gravar aviso: {e}", reply_markup=get_main_menu_keyboard())
-            finally:
+        if action == 'aviso':
+            if text.lower() in ['cancelar', '❌ cancelar']:
+                await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                 clear_state(chat_id)
+                return
+
+            autor = state['user'].get('nome', 'TELEGRAM').upper()
+
+            if step == 'select_option':
+                clean_opt = text.lower()
+                if "novo" in clean_opt or "adicionar" in clean_opt:
+                    state['step'] = 'get_text'
+                    await bot_instance.reply_to(message, "📢 Digite o texto do aviso que deseja exibir/enviar:", reply_markup=get_cancel_keyboard())
+                    return
+                elif "listar" in clean_opt or "existente" in clean_opt:
+                    try:
+                        today_str = date.today().strftime('%Y-%m-%d')
+                        res = conn.table('Ordens_Diarias').select('*').eq('data', today_str).execute()
+                        active_list = res.data if res.data else []
+                    except Exception as e:
+                        await bot_instance.reply_to(message, f"❌ Erro ao ler avisos: {e}", reply_markup=get_main_menu_keyboard())
+                        clear_state(chat_id)
+                        return
+                    
+                    if not active_list:
+                        await bot_instance.reply_to(message, "📋 **Avisos de Hoje na TV**:\nNenhum aviso cadastrado para hoje no letreiro da TV.", reply_markup=get_main_menu_keyboard())
+                        clear_state(chat_id)
+                        return
+                    
+                    resp = "📋 **AVISOS ATIVOS HOJE NA TV:**\n\n"
+                    for i, o in enumerate(active_list):
+                        resp += f"🔹 *{i+1}* - \"{o['texto']}\" (Autor: {o.get('autor_id', 'TELEGRAM')})\n\n"
+                    
+                    await bot_instance.reply_to(message, resp, reply_markup=get_main_menu_keyboard(), parse_mode='Markdown')
+                    clear_state(chat_id)
+                    return
+                elif "editar" in clean_opt:
+                    try:
+                        today_str = date.today().strftime('%Y-%m-%d')
+                        res = conn.table('Ordens_Diarias').select('*').eq('data', today_str).execute()
+                        active_list = res.data if res.data else []
+                    except Exception as e:
+                        await bot_instance.reply_to(message, f"❌ Erro ao ler avisos: {e}", reply_markup=get_main_menu_keyboard())
+                        clear_state(chat_id)
+                        return
+                    
+                    if not active_list:
+                        await bot_instance.reply_to(message, "⚠️ Nenhum aviso ativo cadastrado para hoje.", reply_markup=get_main_menu_keyboard())
+                        clear_state(chat_id)
+                        return
+                    
+                    state['active_avisos'] = active_list
+                    state['step'] = 'select_edit_index'
+                    
+                    response_text = "✏️ **Selecione o aviso que deseja editar:**\n\n"
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    for i, o in enumerate(active_list):
+                        idx = i + 1
+                        response_text += f"*{idx}* - \"{o['texto']}\" (Autor: {o.get('autor_id', 'TELEGRAM')})\n\n"
+                        markup.add(types.KeyboardButton(str(idx)))
+                    markup.add(types.KeyboardButton("❌ Cancelar"))
+                    
+                    await bot_instance.reply_to(message, response_text + "Digite ou clique no número correspondente:", reply_markup=markup, parse_mode='Markdown')
+                    return
+                elif "remover" in clean_opt or "excluir" in clean_opt:
+                    try:
+                        today_str = date.today().strftime('%Y-%m-%d')
+                        res = conn.table('Ordens_Diarias').select('*').eq('data', today_str).execute()
+                        active_list = res.data if res.data else []
+                    except Exception as e:
+                        await bot_instance.reply_to(message, f"❌ Erro ao ler avisos: {e}", reply_markup=get_main_menu_keyboard())
+                        clear_state(chat_id)
+                        return
+                    
+                    if not active_list:
+                        await bot_instance.reply_to(message, "⚠️ Nenhum aviso cadastrado para hoje.", reply_markup=get_main_menu_keyboard())
+                        clear_state(chat_id)
+                        return
+                    
+                    state['active_avisos'] = active_list
+                    state['step'] = 'select_remove_index'
+                    
+                    response_text = "❌ **Selecione o aviso que deseja remover do letreiro da TV:**\n\n"
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    for i, o in enumerate(active_list):
+                        idx = i + 1
+                        response_text += f"*{idx}* - \"{o['texto']}\" (Autor: {o.get('autor_id', 'TELEGRAM')})\n\n"
+                        markup.add(types.KeyboardButton(str(idx)))
+                    markup.add(types.KeyboardButton("❌ Cancelar"))
+                    
+                    await bot_instance.reply_to(message, response_text + "Digite ou clique no número correspondente:", reply_markup=markup, parse_mode='Markdown')
+                    return
+                elif "privado" in clean_opt:
+                    try:
+                        res = conn.table('Users').select('*').execute()
+                        recipients = [u for u in res.data if u.get('telegram_id') and str(u.get('telegram_id')).strip()] if res.data else []
+                    except Exception as e:
+                        await bot_instance.reply_to(message, f"❌ Erro ao ler operadores cadastrados: {e}", reply_markup=get_main_menu_keyboard())
+                        clear_state(chat_id)
+                        return
+                    
+                    if not recipients:
+                        await bot_instance.reply_to(message, "⚠️ Nenhum outro operador possui Telegram ID associado no SisCOMCA.", reply_markup=get_main_menu_keyboard())
+                        clear_state(chat_id)
+                        return
+                    
+                    state['recipients'] = recipients
+                    state['step'] = 'select_recipient_index'
+                    
+                    response_text = "🔒 **Selecione o operador que receberá o aviso privado:**\n\n"
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    for i, u in enumerate(recipients):
+                        idx = i + 1
+                        response_text += f"*{idx}* - {u.get('nome', 'Sem Nome').upper()} ({u.get('email', 'Sem Email')})\n"
+                        markup.add(types.KeyboardButton(str(idx)))
+                    markup.add(types.KeyboardButton("❌ Cancelar"))
+                    
+                    await bot_instance.reply_to(message, response_text + "\nDigite ou clique no número correspondente:", reply_markup=markup, parse_mode='Markdown')
+                    return
+                else:
+                    await bot_instance.reply_to(message, "⚠️ Opção inválida. Selecione uma das opções abaixo:", reply_markup=get_aviso_menu_keyboard())
+                    return
+
+            elif step == 'get_text':
+                state['aviso_text'] = text
+                state['step'] = 'select_target'
+                
+                # Pergunta destinatário
+                markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                markup.row(types.KeyboardButton("📺 Letreiro da TV (Todos)"), types.KeyboardButton("🔒 Operador Específico (Privado)"))
+                markup.add(types.KeyboardButton("❌ Cancelar"))
+                
+                await bot_instance.reply_to(
+                    message, 
+                    "📺 **DESTINATÁRIO DO AVISO**\n\n"
+                    "Onde deseja publicar este aviso?\n"
+                    "🔹 **Letreiro da TV (Todos)**: Fica rodando na TV da parada.\n"
+                    "🔹 **Operador Específico (Privado)**: Notificação particular para o Telegram de um operador específico.", 
+                    reply_markup=markup,
+                    parse_mode='Markdown'
+                )
+                return
+
+            elif step == 'select_target':
+                clean_target = text.lower()
+                aviso_text = state.get('aviso_text', '')
+                
+                if "tv" in clean_target or "todos" in clean_target or "letreiro" in clean_target:
+                    # Salva no letreiro da TV
+                    try:
+                        conn.table('Ordens_Diarias').insert({
+                            'data': date.today().strftime('%Y-%m-%d'),
+                            'texto': aviso_text,
+                            'autor_id': autor,
+                            'status': 'Ativo'
+                        }).execute()
+                        
+                        # Transmite à TV
+                        AlertsManager.trigger_alert(
+                            "Novo Aviso",
+                            f"Aviso publicado por {autor}: {aviso_text}",
+                            "info"
+                        )
+                        
+                        try:
+                            from notifications_manager import notify_telegram
+                            alert_txt = (
+                                f"📢 **NOVO AVISO CRÍTICO PUBLICADO**\n"
+                                f"👤 Autor: {autor}\n\n"
+                                f"\"{aviso_text}\""
+                            )
+                            notify_telegram(alert_txt, "aviso")
+                        except Exception as e_notif:
+                            print(f"[BOT AVISO NOTIFY ERROR] {e_notif}")
+                        
+                        await bot_instance.reply_to(message, "✅ Aviso gravado com sucesso e transmitido para a TV!", reply_markup=get_main_menu_keyboard())
+                    except Exception as e:
+                        await bot_instance.reply_to(message, f"❌ Erro ao gravar aviso na TV: {e}", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                        
+                elif "operador" in clean_target or "privado" in clean_target or "especifico" in clean_target:
+                    # Selecionar Operador
+                    try:
+                        res = conn.table('Users').select('*').execute()
+                        recipients = [u for u in res.data if u.get('telegram_id') and str(u.get('telegram_id')).strip()] if res.data else []
+                    except Exception as e:
+                        await bot_instance.reply_to(message, f"❌ Erro ao ler operadores cadastrados: {e}", reply_markup=get_main_menu_keyboard())
+                        clear_state(chat_id)
+                        return
+                    
+                    if not recipients:
+                        await bot_instance.reply_to(message, "⚠️ Nenhum outro operador possui Telegram ID associado no SisCOMCA para receber avisos privados.", reply_markup=get_main_menu_keyboard())
+                        clear_state(chat_id)
+                        return
+                    
+                    state['recipients'] = recipients
+                    state['step'] = 'select_recipient_index'
+                    
+                    response_text = "🔒 **Selecione o operador que receberá o aviso privado:**\n\n"
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    for i, u in enumerate(recipients):
+                        idx = i + 1
+                        response_text += f"*{idx}* - {u.get('nome', 'Sem Nome').upper()} ({u.get('email', 'Sem Email')})\n"
+                        markup.add(types.KeyboardButton(str(idx)))
+                    markup.add(types.KeyboardButton("❌ Cancelar"))
+                    
+                    await bot_instance.reply_to(message, response_text + "\nDigite ou clique no número correspondente:", reply_markup=markup, parse_mode='Markdown')
+                    return
+                else:
+                    await bot_instance.reply_to(message, "⚠️ Opção inválida. Selecione Letreiro da TV ou Operador Específico:")
+                    return
+
+            elif step == 'select_edit_index':
+                try:
+                    idx = int(text) - 1
+                    active_list = state.get('active_avisos', [])
+                    if idx < 0 or idx >= len(active_list):
+                        raise ValueError()
+                    selected = active_list[idx]
+                except (ValueError, TypeError):
+                    await bot_instance.reply_to(message, "⚠️ Número inválido. Digite um número válido da lista ou clique em Cancelar:")
+                    return
+                
+                state['selected_aviso'] = selected
+                state['step'] = 'get_edit_text'
+                await bot_instance.reply_to(message, f"✏️ Aviso selecionado:\n\"{selected['texto']}\"\n\nDigite o novo texto para este aviso:", reply_markup=get_cancel_keyboard())
+                return
+
+            elif step == 'get_edit_text':
+                selected = state.get('selected_aviso')
+                if not selected:
+                    await bot_instance.reply_to(message, "❌ Erro ao recuperar aviso selecionado. Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                
+                try:
+                    conn.table('Ordens_Diarias').update({
+                        'texto': text,
+                        'autor_id': autor
+                    }).eq('id', selected['id']).execute()
+                    
+                    # Transmite à TV
+                    AlertsManager.trigger_alert(
+                        "Aviso Atualizado",
+                        f"Aviso atualizado por {autor}: {text}",
+                        "info"
+                    )
+                    
+                    try:
+                        from notifications_manager import notify_telegram
+                        alert_txt = (
+                            f"✏️ **AVISO ATUALIZADO NA TV**\n"
+                            f"👤 Autor: {autor}\n\n"
+                            f"Novo Texto: \"{text}\""
+                        )
+                        notify_telegram(alert_txt, "aviso")
+                    except Exception as e_notif:
+                        print(f"[BOT AVISO EDIT NOTIFY ERROR] {e_notif}")
+                    
+                    await bot_instance.reply_to(message, "✅ Aviso atualizado com sucesso e transmitido para a TV!", reply_markup=get_main_menu_keyboard())
+                except Exception as e:
+                    await bot_instance.reply_to(message, f"❌ Erro ao atualizar aviso: {e}", reply_markup=get_main_menu_keyboard())
+                clear_state(chat_id)
+                return
+
+            elif step == 'select_remove_index':
+                try:
+                    idx = int(text) - 1
+                    active_list = state.get('active_avisos', [])
+                    if idx < 0 or idx >= len(active_list):
+                        raise ValueError()
+                    selected = active_list[idx]
+                except (ValueError, TypeError):
+                    await bot_instance.reply_to(message, "⚠️ Número inválido. Digite um número válido da lista ou clique em Cancelar:")
+                    return
+                
+                try:
+                    conn.table('Ordens_Diarias').delete().eq('id', selected['id']).execute()
+                    
+                    # Transmite à TV
+                    AlertsManager.trigger_alert(
+                        "Aviso Removido",
+                        f"Aviso publicado por {selected.get('autor_id', 'OPERADOR')} foi removido por {autor}.",
+                        "warning"
+                    )
+                    
+                    try:
+                        from notifications_manager import notify_telegram
+                        alert_txt = (
+                            f"❌ **AVISO REMOVIDO DO LETREIRO**\n"
+                            f"👤 Removido por: {autor}\n\n"
+                            f"Texto antigo: \"{selected['texto']}\""
+                        )
+                        notify_telegram(alert_txt, "aviso")
+                    except Exception as e_notif:
+                        print(f"[BOT AVISO REMOVE NOTIFY ERROR] {e_notif}")
+                    
+                    await bot_instance.reply_to(message, "✅ Aviso removido com sucesso!", reply_markup=get_main_menu_keyboard())
+                except Exception as e:
+                    await bot_instance.reply_to(message, f"❌ Erro ao remover aviso: {e}", reply_markup=get_main_menu_keyboard())
+                clear_state(chat_id)
+                return
+
+            elif step == 'select_recipient_index':
+                try:
+                    idx = int(text) - 1
+                    recipients = state.get('recipients', [])
+                    if idx < 0 or idx >= len(recipients):
+                        raise ValueError()
+                    selected = recipients[idx]
+                except (ValueError, TypeError):
+                    await bot_instance.reply_to(message, "⚠️ Número inválido. Digite um número válido da lista ou clique em Cancelar:")
+                    return
+                
+                state['selected_recipient'] = selected
+                state['step'] = 'get_private_text'
+                await bot_instance.reply_to(message, f"🔒 Enviar Aviso Privado para {selected.get('nome', 'OPERADOR').upper()}:\nDigite o texto do aviso que deseja enviar em privado:", reply_markup=get_cancel_keyboard())
+                return
+
+            elif step == 'get_private_text':
+                selected = state.get('selected_recipient')
+                if not selected or not selected.get('telegram_id'):
+                    await bot_instance.reply_to(message, "❌ Erro ao recuperar operador selecionado ou o ID é inválido. Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                
+                try:
+                    recipient_tg = int(selected['telegram_id'])
+                    alert_txt = (
+                        f"🔒 **AVISO PRIVADO RECEBIDO**\n"
+                        f"👤 Remetente: {autor}\n"
+                        f"📅 Data: {datetime.now().strftime('%d/%m/%Y %H:%M')}\n\n"
+                        f"\"{text}\""
+                    )
+                    await bot_instance.send_message(recipient_tg, alert_txt, parse_mode='Markdown')
+                    await bot_instance.reply_to(message, f"✅ Aviso privado enviado com sucesso para {selected.get('nome', 'OPERADOR').upper()}!", reply_markup=get_main_menu_keyboard())
+                except Exception as e:
+                    await bot_instance.reply_to(message, f"❌ Erro ao enviar aviso privado: {e}", reply_markup=get_main_menu_keyboard())
+                clear_state(chat_id)
+                return
 
         # ── PROCESSAMENTO DA ANOTAÇÃO ─────────────────────────────────
         elif action == 'anotacao':
@@ -1499,9 +1889,23 @@ def setup_handlers(bot_instance):
                         health_title = "Alta Médica" if status == "Alta" else "Aviso de Saúde"
                         AlertsManager.trigger_alert(
                             health_title,
-                            f"{student['numero_interno']} — {student['nome_guerra'].upper()} ({student.get('pelotao', '').upper()}) classificado como {status.upper()} por {usuario}!",
+                            f"{student['numero_interno']} — {student['nome_guerra'].upper()} ({student.get('pelotao', '').upper()}) classificado como {status.upper()} by {usuario}!",
                             "success" if status == "Alta" else "warning"
                         )
+                        
+                        if status == 'Hospital' or status == 'Hospitalizado':
+                            try:
+                                from notifications_manager import notify_telegram
+                                alert_txt = (
+                                    f"🏥 **ALERTA: INTERNAÇÃO HOSPITALAR**\n\n"
+                                    f"👤 Aluno: {student['nome_guerra'].upper()} ({student['numero_interno']})\n"
+                                    f"🩺 Status: HOSPITALIZADO\n"
+                                    f"🔬 Motivo: {motivo}\n"
+                                    f"👮 Registrado por: {usuario}"
+                                )
+                                notify_telegram(alert_txt, "saude")
+                            except Exception as e_notif:
+                                print(f"[BOT SAUDE NOTIFY ERROR] {e_notif}")
                         
                         await bot_instance.reply_to(message, f"✅ Registro de saúde para {student['nome_guerra']} gravado com sucesso!", reply_markup=get_main_menu_keyboard())
                     except Exception as e:
@@ -1643,7 +2047,7 @@ def setup_handlers(bot_instance):
                         )
                     
                     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-                    markup.row(types.KeyboardButton("✏️ Alterar Escala"), types.KeyboardButton("❌ Sair"))
+                    markup.row(types.KeyboardButton("✏️ Adicionar / Alterar Escala"), types.KeyboardButton("❌ Sair"))
                     
                     await bot_instance.reply_to(message, roster_text, reply_markup=markup, parse_mode='Markdown')
                     state['step'] = 'choose_action'
@@ -1672,7 +2076,7 @@ def setup_handlers(bot_instance):
                     
                     await bot_instance.reply_to(message, "✏️ Selecione o Cargo que deseja alterar/adicionar na escala:", reply_markup=markup)
                 else:
-                    await bot_instance.reply_to(message, "⚠️ Escolha uma das opções: '✏️ Alterar Escala' ou '❌ Sair':")
+                    await bot_instance.reply_to(message, "⚠️ Escolha uma das opções: '✏️ Adicionar / Alterar Escala' ou '❌ Sair':")
             
             # Passo 3: Escolha do Cargo
             elif step == 'choose_cargo':
@@ -1804,10 +2208,10 @@ def setup_handlers(bot_instance):
                 nome_escalado = state['data']['nome_escalado']
                 
                 markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-                markup.row(types.KeyboardButton("S — Salvar alteração"), types.KeyboardButton("N — Cancelar"))
+                markup.row(types.KeyboardButton("S — Salvar Escala"), types.KeyboardButton("N — Cancelar"))
                 
                 prompt = (
-                    f"⚠️ Confirmar Alteração de Escala?\n\n"
+                    f"⚠️ Confirmar Gravação de Escala de Serviço?\n\n"
                     f"📅 Data: {date_lbl} ({date_br})\n"
                     f"👮 Cargo: {cargo}\n"
                     f"👤 Escalado: {nome_escalado.upper()}\n"
@@ -1819,7 +2223,7 @@ def setup_handlers(bot_instance):
             # Passo 7: Confirmação e Gravação da Escala
             elif step == 'confirm_escala_submit':
                 ans = text.strip().lower()
-                if ans in ['s', 'sim', 'y', 'yes', 's — salvar alteração']:
+                if ans in ['s', 'sim', 'y', 'yes', 's — salvar alteração', 's — salvar escala']:
                     try:
                         date_str = state['data']['date_str']
                         date_lbl = state['data']['date_lbl']
@@ -1833,11 +2237,11 @@ def setup_handlers(bot_instance):
                         # Dispara alerta sonoro e popup na TV
                         AlertsManager.trigger_alert(
                             "Escala de Serviço",
-                            f"Escala de {date_lbl} atualizada: {cargo} alterado para {nome_escalado.upper()}!",
+                            f"Escala de {date_lbl} salva: {cargo} definido como {nome_escalado.upper()}!",
                             "info"
                         )
                         
-                        await bot_instance.reply_to(message, f"✅ Escala de {cargo} atualizada para {nome_escalado} com sucesso!", reply_markup=get_main_menu_keyboard())
+                        await bot_instance.reply_to(message, f"✅ Escala de {cargo} salva para {nome_escalado} com sucesso!", reply_markup=get_main_menu_keyboard())
                     except Exception as e:
                         await bot_instance.reply_to(message, f"❌ Erro ao salvar escala: {e}", reply_markup=get_main_menu_keyboard())
                     finally:
@@ -1845,6 +2249,104 @@ def setup_handlers(bot_instance):
                 else:
                     await bot_instance.reply_to(message, "❌ Alteração de escala abortada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
+        
+        # ── PROCESSAMENTO DO PERNOITE ─────────────────────────────────
+        elif action == 'pernoite':
+            if step == 'search_student':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                try:
+                    res = conn.table('Alunos').select('*').execute()
+                    alunos = res.data if res.data else []
+                except Exception as e:
+                    await bot_instance.reply_to(message, f"❌ Erro ao ler alunos: {e}")
+                    clear_state(chat_id)
+                    return
+                
+                matches = []
+                query = text.lower()
+                for al in alunos:
+                    num = str(al.get('numero_interno', '')).lower()
+                    nome = str(al.get('nome_guerra', '')).lower()
+                    if query in num or query in nome or num.endswith("-" + query) or num.endswith(query):
+                        matches.append(al)
+                
+                if not matches:
+                    await bot_instance.reply_to(message, f"⚠️ Nenhum aluno encontrado com '{text}'. Digite novamente ou selecione Cancelar:", reply_markup=get_cancel_keyboard())
+                    return
+                
+                if len(matches) > 1:
+                    state['step'] = 'choose_student'
+                    state['data']['matches'] = matches[:10]
+                    
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    for idx, al in enumerate(state['data']['matches']):
+                        markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']}"))
+                    markup.add(types.KeyboardButton("❌ Cancelar"))
+                    
+                    prompt = "🔍 Múltiplos alunos encontrados. Selecione o correspondente abaixo:\n\n"
+                    for idx, al in enumerate(state['data']['matches']):
+                        prompt += f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al['pelotao']})\n"
+                    await bot_instance.reply_to(message, prompt, reply_markup=markup)
+                else:
+                    await prompt_pernoite_confirm(bot_instance, message, state, matches[0])
+            
+            elif step == 'choose_student':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                matches = state['data'].get('matches', [])
+                try:
+                    clean_text = text.split('—')[0].strip()
+                    choice = int(clean_text)
+                    if 1 <= choice <= len(matches):
+                        selected = matches[choice - 1]
+                        await prompt_pernoite_confirm(bot_instance, message, state, selected)
+                    else:
+                        await bot_instance.reply_to(message, f"⚠️ Opção inválida. Digite um número entre 1 e {len(matches)}:")
+                except ValueError:
+                    await bot_instance.reply_to(message, "⚠️ Digite apenas o número correspondente à sua escolha:")
+            
+            elif step == 'confirm_pernoite_submit':
+                ans = text.strip().lower()
+                if ans in ['s', 'sim', 'y', 'yes', 's — confirmar']:
+                    try:
+                        student = state['data']['student']
+                        usuario = state['user'].get('nome', 'TELEGRAM').upper()
+                        hoje_str = date.today().strftime('%Y-%m-%d')
+                        
+                        conn.table('pernoite').upsert({
+                            'aluno_id': int(student['id']),
+                            'data': hoje_str,
+                            'presente': True
+                        }, on_conflict='aluno_id,data').execute()
+                        
+                        aluno_lbl = f"{student.get('numero_interno', '')} — {str(student.get('nome_guerra', '')).upper()} ({str(student.get('pelotao', '')).upper()})"
+                        AlertsManager.trigger_alert(
+                            "Pernoite Autorizado",
+                            f"Pernoite de {aluno_lbl} autorizado por {usuario}!",
+                            "success"
+                        )
+                        
+                        await bot_instance.reply_to(
+                            message,
+                            f"✅ Pernoite Autorizado com Sucesso!\n"
+                            f"• Militar: {student['nome_guerra']} ({student['numero_interno']})\n"
+                            f"• Status: Autorizado para Hoje ({date.today().strftime('%d/%m')}).",
+                            reply_markup=get_main_menu_keyboard()
+                        )
+                    except Exception as e:
+                        await bot_instance.reply_to(message, f"❌ Erro ao salvar pernoite: {e}", reply_markup=get_main_menu_keyboard())
+                    finally:
+                        clear_state(chat_id)
+                elif ans in ['n', 'não', 'nao', 'no', 'n — cancelar', 'cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Lançamento de pernoite abortado.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                else:
+                    await bot_instance.reply_to(message, "⚠️ Responda apenas com S (Sim) ou N (Não):")
         
         # ── PROCESSAMENTO DA CONSULTA DE ALUNO ────────────────────────
         elif action == 'consulta':
@@ -1867,6 +2369,22 @@ def setup_handlers(bot_instance):
                 except ValueError:
                     # Treat as new name search
                     await perform_consulta_search(bot_instance, message, state['user'], text)
+
+async def prompt_pernoite_confirm(bot_instance, message, state, student):
+    state['step'] = 'confirm_pernoite_submit'
+    state['data']['student'] = student
+    
+    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+    markup.row(types.KeyboardButton("S — Confirmar"), types.KeyboardButton("N — Cancelar"))
+    
+    confirm_prompt = (
+        "🛌 Confirmar Autorização de Pernoite?\n\n"
+        f"👤 Aluno: {student['nome_guerra']} ({student['numero_interno']})\n"
+        f"📋 Pelotão: {student['pelotao']}\n"
+        f"📅 Data: Hoje ({date.today().strftime('%d/%m/%Y')})\n\n"
+        "Selecione uma das opções abaixo:"
+    )
+    await bot_instance.reply_to(message, confirm_prompt, reply_markup=markup)
 
 async def prompt_health_status(bot_instance, message, state, student):
     """Apresenta as opções de status de saúde para seleção."""
@@ -2193,6 +2711,27 @@ async def init_bot():
         bot = AsyncTeleBot(token)
         setup_handlers(bot)
         
+        # Configura a lista oficial de comandos no menu do Telegram
+        try:
+            print("[TELEGRAM BOT] Configurando lista de comandos no menu do Telegram...", flush=True)
+            await bot.set_my_commands([
+                types.BotCommand("menu", "Exibe o menu de comandos e teclado"),
+                types.BotCommand("resumo", "Exibe o resumo diário do efetivo"),
+                types.BotCommand("escala", "Consulta/altera escala de serviço"),
+                types.BotCommand("consulta", "Dossiê completo de contatos de um aluno"),
+                types.BotCommand("anotacao", "Lança comportamento/ocorrência"),
+                types.BotCommand("presenca", "Realiza chamada coletiva da turma"),
+                types.BotCommand("atrasado", "Registra atraso e retira falta do dia"),
+                types.BotCommand("enfermaria", "Lança saúde/baixas de alunos"),
+                types.BotCommand("pernoite", "Lança autorização de pernoite"),
+                types.BotCommand("aviso", "Adiciona aviso corrido letreiro na TV"),
+                types.BotCommand("vincular", "Associa Telegram ID ao usuário Web"),
+                types.BotCommand("cancelar", "Cancela a operação atual")
+            ])
+            print("[TELEGRAM BOT] Lista de comandos configurada com sucesso!", flush=True)
+        except Exception as cmd_err:
+            print(f"[TELEGRAM BOT] Aviso ao configurar lista de comandos: {cmd_err}", flush=True)
+
         # Limpa qualquer webhook pendente e atualizações acumuladas para evitar erros de 409 Conflict no polling
         try:
             print("[TELEGRAM BOT] Limpando webhooks e atualizações pendentes...", flush=True)

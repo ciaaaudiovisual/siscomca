@@ -82,7 +82,7 @@ def get_colors():
 def render_theme_toggle():
     theme = get_theme()
     
-    with ui.row().classes('items-center gap-2'):
+    with ui.row().classes('items-center gap-1 q-ma-none q-pa-none'):
         ui.icon('dark_mode' if theme == 'dark' else 'light_mode').classes('text-xl')
         
         switch = ui.switch('', value=(theme == 'dark'), on_change=lambda e: handle_theme_change(e.value))

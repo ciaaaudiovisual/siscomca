@@ -205,6 +205,20 @@ def _upsert_registro(
                     f"Militar {militar_lbl} está {str(status).upper()}: {motivo}! (Registrado por: {usuario})",
                     "warning"
                 )
+                
+                if status == 'Hospital' or status == 'Hospitalizado':
+                    try:
+                        from notifications_manager import notify_telegram
+                        alert_txt = (
+                            f"🏥 **ALERTA: INTERNAÇÃO HOSPITALAR**\n\n"
+                            f"👤 Aluno: {str(nome_guerra).upper()} ({numero_interno})\n"
+                            f"🩺 Status: HOSPITALIZADO\n"
+                            f"🔬 Motivo: {motivo}\n"
+                            f"👮 Registrado por: {usuario}"
+                        )
+                        notify_telegram(alert_txt, "saude")
+                    except Exception as e_notif:
+                        print(f"[SAUDE HOSP NOTIFY ERROR] {e_notif}")
             elif status == 'Dispensado':
                 AlertsManager.trigger_alert(
                     "Dispensa Médica",

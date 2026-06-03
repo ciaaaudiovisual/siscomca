@@ -107,7 +107,7 @@ def render_notification_bell():
     unread = [a for a in alerts if not a.read]
     count = len(unread)
     
-    with ui.row().classes('relative-position'):
+    with ui.row().classes('relative-position items-center q-ma-none q-pa-none'):
         ui.button(icon='notifications', on_click=lambda: show_notifications()).props('flat round dense color=white')
         
         if count > 0:

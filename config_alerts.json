@@ -12,6 +12,18 @@
     "Chamada Diária": "info",
     "Atraso Registrado": "info"
   },
+  "message_templates": {
+    "Registro de Ocorrência": "🚨 {message}",
+    "Novo Aviso": "📢 {message}",
+    "Aviso de Saúde": "🏥 {message}",
+    "Dispensa Médica": "🩹 Dispensa: {message}",
+    "Licença Médica": "📋 Licença: {message}",
+    "Alta Médica": "✅ Alta Médica: {message}",
+    "Escala de Serviço": "📅 {message}",
+    "Escala de Serviço Atualizada": "🔄 {message}",
+    "Chamada Diária": "🔔 Chamada: {message}",
+    "Atraso Registrado": "⏰ Atraso: {message}"
+  },
   "custom_alerts": [
     {
       "id": "4c71b249",
@@ -19,6 +31,14 @@
       "title": "SINO",
       "message": "MEMSG",
       "sound": "naval_bell_8",
+      "enabled": true
+    },
+    {
+      "id": "9b9ed271",
+      "time": "19:46",
+      "title": "teste",
+      "message": "treste",
+      "sound": "naval_bell_dobrada",
       "enabled": true
     }
   ]
