@@ -470,7 +470,7 @@ def login_page():
                         ui.label('🔐 ACESSO AO SISTEMA').classes('text-white text-md font-bold cyber-title tracking-widest')
                         ui.label('Entre com suas credenciais').classes('text-grey-5 text-xs')
                     
-                    user = ui.input('E-mail').props('dark outlined w-full autocomplete=username name=username').classes('w-full text-sm')
+                    user = ui.input('E-mail', value=app.storage.user.get('last_username', '')).props('dark outlined w-full autocomplete=username name=username').classes('w-full text-sm')
                     pwd = ui.input('Senha', password=True).props('dark outlined w-full autocomplete=current-password name=password').classes('w-full text-sm')
                     
                     session_type = ui.radio(
@@ -506,6 +506,7 @@ def login_page():
                             app.storage.user['authenticated'] = True
                             app.storage.user['login_time'] = time.time()
                             app.storage.user['session_duration'] = session_type.value
+                            app.storage.user['last_username'] = user.value
                             app.storage.user['user_data'] = {
                                 'id': profile.get('id'),
                                 'username': profile.get('username'),
