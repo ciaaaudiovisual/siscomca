@@ -2708,6 +2708,18 @@ async def init_bot():
         
     try:
         print("[TELEGRAM BOT] Conectando ao Telegram...", flush=True)
+        
+        import telebot
+        custom_api_url = os.getenv("TELEGRAM_API_URL")
+        if custom_api_url:
+            print(f"[TELEGRAM BOT] Usando URL de API personalizada: {custom_api_url}", flush=True)
+            telebot.apihelper.API_URL = custom_api_url
+            
+        custom_proxy = os.getenv("TELEGRAM_PROXY")
+        if custom_proxy:
+            print(f"[TELEGRAM BOT] Usando proxy de conexao: {custom_proxy}", flush=True)
+            telebot.apihelper.proxy = {'https': custom_proxy, 'http': custom_proxy}
+
         bot = AsyncTeleBot(token)
         setup_handlers(bot)
         
