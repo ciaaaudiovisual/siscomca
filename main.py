@@ -1,6 +1,17 @@
 import os
+import socket
+
+# Monkeypatch socket.getaddrinfo para forçar IPv4 e evitar timeouts de IPv6 no Hugging Face
+original_getaddrinfo = socket.getaddrinfo
+def forced_ipv4_getaddrinfo(*args, **kwargs):
+    responses = original_getaddrinfo(*args, **kwargs)
+    filtered = [r for r in responses if r[0] == socket.AF_INET]
+    return filtered if filtered else responses
+socket.getaddrinfo = forced_ipv4_getaddrinfo
+
 from nicegui import ui, app
 from dotenv import load_dotenv
+
 
 # Mapeia a pasta local de assets para servir arquivos estáticos no navegador
 assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets')

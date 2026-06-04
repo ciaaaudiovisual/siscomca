@@ -16,5 +16,9 @@ COPY . .
 # EXTREMAMENTE IMPORTANTE: O Hugging Face Free exige que o app rode na porta 7860
 EXPOSE 7860
 
+# Configurações para o Uvicorn reconhecer os cabeçalhos de proxy do Hugging Face (HTTPS e Cookies)
+ENV UVICORN_FORWARDED_ALLOW_IPS=*
+ENV UVICORN_PROXY_HEADERS=true
+
 # Comando para rodar o seu script principal (ajuste 'main.py' se o seu arquivo tiver outro nome)
 CMD ["python", "main.py"]
