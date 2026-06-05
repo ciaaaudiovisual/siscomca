@@ -878,6 +878,53 @@ def render_page():
             eye_btn.set_text('REVELAR DADOS')
             ui.notify('Anotações ocultadas com sucesso!', color='warning')
 
+    # Dialog de Desbloqueio de Saída do Modo TV
+    with ui.dialog() as exit_lock_dialog, ui.card().classes('q-pa-lg items-center text-center rounded-2xl border-4').style(
+        f"background: #020813; border-color: {THEME['primary']} !important; box-shadow: 0 0 30px rgba(212, 175, 55, 0.3); color: #fff; min-width: 400px; font-family: monospace;"
+    ):
+        ui.icon('lock_open', color='red-5', size='4rem')
+        ui.label('SAIR DO MODO TV').style(
+            f"color: {THEME['primary']}; font-size: 1.5rem; font-weight: 900; letter-spacing: 3px;"
+        ).classes('q-mt-sm')
+        ui.label('Digite a senha do usuário autenticado para retornar ao painel:').classes('text-grey-4 text-xs q-mb-md')
+        
+        exit_pwd_input = ui.input('Senha', password=True).props('dark dense outlined autofocus w-full').classes('w-full font-mono text-center text-lg')
+        
+        async def confirm_exit():
+            pwd = exit_pwd_input.value.strip()
+            if not pwd:
+                ui.notify('Senha não informada', color='negative')
+                return
+            
+            # Autentica a senha usando a sessão
+            from nicegui import app
+            user_data = app.storage.user.get('user_data', {})
+            username = user_data.get('email') or user_data.get('username')
+            
+            if not username:
+                ui.notify('Usuário não identificado na sessão', color='negative')
+                return
+                
+            from database import authenticate_user_supabase
+            
+            ui.notify('Autenticando...', color='info')
+            auth_res = await asyncio.to_thread(authenticate_user_supabase, username, pwd)
+            
+            if auth_res:
+                app.storage.user['tv_lock_active'] = False
+                exit_lock_dialog.close()
+                ui.notify('Modo TV desativado com sucesso!', color='positive')
+                ui.navigate.to('/siscomca_dashboard')
+            else:
+                ui.notify('Senha incorreta! Não foi possível sair do Modo TV.', color='negative')
+                exit_pwd_input.value = ''
+                
+        exit_pwd_input.on('keydown.enter', confirm_exit)
+        
+        with ui.row().classes('w-full justify-center gap-2 q-mt-md'):
+            ui.button('CANCELAR', on_click=exit_lock_dialog.close).props('outline color=grey dense')
+            ui.button('SAIR DO MODO TV', on_click=confirm_exit).props('unelevated color=red text-color=white dense').classes('font-bold')
+
     # Container Principal
     with ui.column().classes('w-full q-pa-sm gap-2 tv-main-container'):
         
@@ -929,7 +976,7 @@ def render_page():
                     
                     ui.button(
                         'DASHBOARD', icon='arrow_back',
-                        on_click=lambda: ui.navigate.to('/siscomca_dashboard')
+                        on_click=exit_lock_dialog.open
                     ).props('outline color=grey dense no-caps').classes('text-xs font-bold text-grey-4 px-2.5 py-1')
 
                 # Definição das funções de callback de áudio

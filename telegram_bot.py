@@ -50,22 +50,16 @@ def get_main_menu_keyboard():
         markup.row(types.KeyboardButton("⚙️ Configurações"), types.KeyboardButton("❌ Cancelar"))
         return markup
 
+    # Linha 1: Anotação e Resumo Diário
     row = []
-    if 'menu_siscomca_dashboard' in allowed_features:
-        row.append(types.KeyboardButton("📊 Resumo Diário"))
-    if 'menu_escalas' in allowed_features:
-        row.append(types.KeyboardButton("👮 Escala de Serviço"))
-    if row:
-        markup.row(*row)
-        
-    row = []
-    if 'menu_alunos' in allowed_features:
-        row.append(types.KeyboardButton("🔍 Consulta de Aluno"))
     if 'menu_gestao_acoes' in allowed_features:
         row.append(types.KeyboardButton("📋 Anotação"))
+    if 'menu_siscomca_dashboard' in allowed_features:
+        row.append(types.KeyboardButton("📊 Resumo Diário"))
     if row:
         markup.row(*row)
         
+    # Linha 2: Presença e Saúde
     row = []
     if 'menu_presenca' in allowed_features:
         row.append(types.KeyboardButton("📞 Presença"))
@@ -74,6 +68,7 @@ def get_main_menu_keyboard():
     if row:
         markup.row(*row)
         
+    # Linha 3: Quadro de Avisos e Pernoite
     row = []
     if 'menu_avisos' in allowed_features:
         row.append(types.KeyboardButton("📢 Quadro de Avisos"))
@@ -82,6 +77,14 @@ def get_main_menu_keyboard():
     if row:
         markup.row(*row)
         
+    # Linha 4: Consulta de Aluno
+    row = []
+    if 'menu_alunos' in allowed_features:
+        row.append(types.KeyboardButton("🔍 Consulta de Aluno"))
+    if row:
+        markup.row(*row)
+        
+    # Linha 5: Configurações e Cancelar
     markup.row(types.KeyboardButton("⚙️ Configurações"), types.KeyboardButton("❌ Cancelar"))
     return markup
 

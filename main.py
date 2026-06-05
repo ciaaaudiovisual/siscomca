@@ -152,6 +152,10 @@ def build_layout(page_func):
             ui.navigate.to('/login')
             return
             
+        if app.storage.user.get('tv_lock_active', False) and app.storage.user.get('current_path') != '/siscomca_tv':
+            ui.navigate.to('/siscomca_tv')
+            return
+            
         theme.apply_global_styles()
         
         # Se for sessão temporária, atualiza o timestamp de atividade para renovar as 2h
@@ -442,6 +446,8 @@ def siscomca_dashboard_page():
 def siscomca_tv_page():
     """Modo TV/Monitor do SisCOMCA — sem barra lateral, tela cheia."""
     check_auth()
+    app.storage.user['current_path'] = '/siscomca_tv'
+    app.storage.user['tv_lock_active'] = True
     siscomca_tv.render_page()
 
 
