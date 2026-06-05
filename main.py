@@ -19,6 +19,7 @@ os.makedirs(assets_dir, exist_ok=True)
 app.add_static_files('/assets', assets_dir)
 
 import theme
+from logo_base64 import LOGO_BASE64
 import admin
 import notifications
 import theme_toggle
@@ -212,7 +213,7 @@ def build_layout(page_func):
             with ui.row().classes('w-full items-center justify-between'):
                 with ui.row().classes('items-center gap-2'):
                     ui.button(on_click=lambda: left_drawer.toggle(), icon='menu').props('flat color=white dense')
-                    ui.image('/assets/logo.png').style('width: 32px; height: 32px;').classes('drop-shadow-[0_0_8px_rgba(0,229,255,0.4)]')
+                    ui.image(LOGO_BASE64).style('width: 32px; height: 32px;').classes('drop-shadow-[0_0_8px_rgba(0,229,255,0.4)]')
                     with ui.column().classes('gap-0'):
                         ui.label(system_title).style(f'color: {theme.colors["primary"]}; font-weight: bold; line-height: 1; letter-spacing: 1px;').classes('cyber-title')
                         ui.label('Corpo de Alunos • 1º Batalhão').style('font-size: 0.65rem; color: #64748b;')
@@ -546,7 +547,7 @@ def login_page():
             with ui.column().classes('w-full items-center gap-4'):
                 
                 # ── TOPO: LOGO E IDENTIFICAÇÃO ──
-                ui.image('/assets/logo.png').style('width: 120px; height: 120px;').classes('drop-shadow-[0_0_15px_rgba(212,175,55,0.4)]')
+                ui.image(LOGO_BASE64).style('width: 120px; height: 120px;').classes('drop-shadow-[0_0_15px_rgba(212,175,55,0.4)]')
                 ui.label('SisCOMCA').classes('cyber-title').style(
                     f'color: {theme.colors["primary"]}; font-size: 2.8rem; font-weight: 700; letter-spacing: 2px; line-height: 1;'
                 )
