@@ -201,15 +201,29 @@ def build_layout(page_func):
             with ui.column().classes('w-full q-py-md gap-1'):
                 def render_menu_list(categories):
                     user_role = role
+                    import pandas as pd
+                    perms_df = data_service.get_core_data().get('permissions', pd.DataFrame())
+                    
                     for cat in categories:
-                        # Filtrar itens que o papel do usuário tem acesso
                         allowed_items = []
                         for item in cat['items']:
-                            if 'roles' in item:
-                                if user_role in item['roles']:
+                            path_clean = item['path'].strip('/').replace('/', '_')
+                            f_key = f"menu_{path_clean}"
+                            
+                            # Buscar allowed_roles da permissão no banco
+                            row = perms_df[perms_df['feature_key'] == f_key] if not perms_df.empty else pd.DataFrame()
+                            
+                            if not row.empty:
+                                allowed_roles_str = str(row['allowed_roles'].iloc[0])
+                                allowed_roles = [r.strip().lower() for r in allowed_roles_str.split(',') if r.strip()]
+                                if user_role in allowed_roles:
                                     allowed_items.append(item)
                             else:
-                                allowed_items.append(item)
+                                if 'roles' in item:
+                                    if user_role in item['roles']:
+                                        allowed_items.append(item)
+                                else:
+                                    allowed_items.append(item)
                         
                         if not allowed_items:
                             continue
@@ -545,8 +559,47 @@ def login_page():
 
         # Rodapé (Footer) centralizado fora do card principal
         ui.label('🚀 Desenvolvido por Sargento Calaça 🇧🇷').classes('text-amber-5 text-xs font-bold tracking-wider opacity-80')
+
+def sync_menu_permissions_db():
+    try:
+        from database import get_db_connection
+        db = get_db_connection()
+        if not db:
+            return
+        
+        # Obter todos os itens de menu
+        menu_items = []
+        for cat in siscomca_menu_categories:
+            for item in cat['items']:
+                menu_items.append(item)
+                
+        # Buscar permissões atuais
+        res = db.table('Permissions').select('feature_key').execute()
+        existing_keys = {row['feature_key'] for row in res.data} if res.data else set()
+        
+        # Inserir novos itens de menu se não existirem
+        new_permissions = []
+        for item in menu_items:
+            path_clean = item['path'].strip('/').replace('/', '_')
+            f_key = f"menu_{path_clean}"
+            if f_key not in existing_keys:
+                # Default allowed roles (as configured in main.py)
+                default_roles = ",".join(item.get('roles', [])) if 'roles' in item else "admin,supervisor,operador,comcia,compel,aluno,ajosca"
+                new_permissions.append({
+                    'feature_key': f_key,
+                    'feature_name': f"Acesso ao Menu: {item['name']}",
+                    'allowed_roles': default_roles
+                })
+        
+        if new_permissions:
+            db.table('Permissions').insert(new_permissions).execute()
+            print(f"[DB] Sincronizados {len(new_permissions)} novos menus com a tabela Permissions.")
+    except Exception as e:
+        print(f"[ERRO sync_menu_permissions_db] {e}")
+
 # Inicializa o Bot do Telegram concorrente ao servidor
 from alerts_manager import AlertsManager
+app.on_startup(sync_menu_permissions_db)
 app.on_startup(telegram_bot.init_bot)
 app.on_startup(AlertsManager.start_alerts_scheduler)
 

@@ -363,7 +363,20 @@ def render_page():
 
     with ui.column().classes('w-full q-pa-lg gap-6'):
         theme.section_header('Configurações', 'Configurações de Variáveis Globais e Parâmetros de Conceito')
-        with ui.tabs().classes('w-full border-b border-white/10') as tabs:
+        ui.add_head_html('''
+        <style>
+        .config-tabs .q-tabs__content {
+            flex-wrap: wrap !important;
+        }
+        .config-tabs .q-tab {
+            white-space: normal !important;
+            min-height: 40px;
+            height: auto !important;
+            flex-shrink: 1 !important;
+        }
+        </style>
+        ''')
+        with ui.tabs().classes('w-full border-b border-white/10 config-tabs') as tabs:
             tab_geral = ui.tab('Parâmetros Gerais', icon='settings')
             tab_sons = ui.tab('Personalização de Sons', icon='volume_up')
             tab_sinos = ui.tab('Sinos & Alertas Agendados', icon='alarm')
@@ -1552,39 +1565,54 @@ def render_page():
                                 if not perms_data:
                                     ui.label('Nenhuma regra de permissão cadastrada no Supabase.').classes('text-xs italic text-grey-5 text-center w-full py-4')
                                 else:
-                                    for p in perms_data:
-                                        f_key = p['feature_key']
-                                        f_desc = p.get('description', f_key)
-                                        f_roles = [r.strip().lower() for r in str(p.get('allowed_roles', '')).split(',') if r.strip()]
-                                        
-                                        with ui.column().classes('w-full border border-white/5 q-pa-sm rounded bg-black/10 hover:bg-black/20 gap-2'):
-                                            with ui.row().classes('w-full items-baseline justify-between no-wrap gap-2'):
-                                                ui.label(f_desc).classes('text-xs font-bold text-white')
-                                                ui.label(f_key).classes('text-[10px] text-grey-5 font-mono shrink-0')
-                                            
-                                            with ui.row().classes('w-full gap-4 items-center'):
-                                                roles_list = ['admin', 'supervisor', 'operador', 'comcia', 'compel', 'aluno', 'ajosca']
-                                                checkboxes = {}
-                                                for role in roles_list:
-                                                    is_checked = role in f_roles
-                                                    checkboxes[role] = ui.checkbox(role.upper(), value=is_checked).props('dark dense').classes('text-xs text-grey-3')
+                                    # Separar as permissões
+                                    general_perms = sorted([p for p in perms_data if not p['feature_key'].startswith('menu_')], key=lambda x: x.get('feature_name', x.get('description', x['feature_key'])))
+                                    menu_perms = sorted([p for p in perms_data if p['feature_key'].startswith('menu_')], key=lambda x: x.get('feature_name', x.get('description', x['feature_key'])))
+                                    
+                                    def render_permissions_group(title, subtitle, list_data):
+                                        if not list_data:
+                                            return
+                                        with ui.column().classes('w-full gap-2 q-mb-md'):
+                                            with ui.row().classes('items-center gap-2 q-mt-sm q-mb-xs'):
+                                                ui.badge(text=title, color='cyan-9').classes('text-xs font-bold')
+                                                ui.label(subtitle).classes('text-xs text-grey-5 italic')
+                                            for p in list_data:
+                                                f_key = p['feature_key']
+                                                f_desc = p.get('feature_name', p.get('description', f_key))
+                                                f_roles = [r.strip().lower() for r in str(p.get('allowed_roles', '')).split(',') if r.strip()]
                                                 
-                                                def make_save_handler(key=f_key, cbs=checkboxes):
-                                                    def save_perms():
-                                                        selected_roles = [r for r, cb in cbs.items() if cb.value]
-                                                        roles_str = ",".join(selected_roles)
-                                                        db_u = get_db_connection()
-                                                        if db_u:
-                                                            try:
-                                                                db_u.table('Permissions').update({'allowed_roles': roles_str}).eq('feature_key', key).execute()
-                                                                ui.notify(f'Permissões para "{key}" atualizadas!', color='success')
-                                                            except Exception as err:
-                                                                ui.notify(f'Erro ao salvar: {err}', color='red')
-                                                        else:
-                                                            ui.notify('Offline: Operação indisponível.', color='warning')
-                                                    return save_perms
-                                                
-                                                ui.button('Aplicar', on_click=make_save_handler()).props('unelevated dense color=cyan-10 text-color=white no-caps text-xs').classes('ml-auto px-3')
+                                                with ui.column().classes('w-full border border-white/5 q-pa-sm rounded bg-black/10 hover:bg-black/20 gap-2'):
+                                                    with ui.row().classes('w-full items-baseline justify-between no-wrap gap-2'):
+                                                        ui.label(f_desc).classes('text-xs font-bold text-white')
+                                                        ui.label(f_key).classes('text-[10px] text-grey-5 font-mono shrink-0')
+                                                    
+                                                    with ui.row().classes('w-full gap-4 items-center'):
+                                                        roles_list = ['admin', 'supervisor', 'operador', 'comcia', 'compel', 'aluno', 'ajosca']
+                                                        checkboxes = {}
+                                                        for role in roles_list:
+                                                            is_checked = role in f_roles
+                                                            checkboxes[role] = ui.checkbox(role.upper(), value=is_checked).props('dark dense').classes('text-xs text-grey-3')
+                                                        
+                                                        def make_save_handler(key=f_key, cbs=checkboxes):
+                                                            def save_perms():
+                                                                selected_roles = [r for r, cb in cbs.items() if cb.value]
+                                                                roles_str = ",".join(selected_roles)
+                                                                db_u = get_db_connection()
+                                                                if db_u:
+                                                                    try:
+                                                                        db_u.table('Permissions').update({'allowed_roles': roles_str}).eq('feature_key', key).execute()
+                                                                        ui.notify(f'Permissões para "{key}" atualizadas!', color='success')
+                                                                        data_service.clear_cache()
+                                                                    except Exception as err:
+                                                                        ui.notify(f'Erro ao salvar: {err}', color='red')
+                                                                else:
+                                                                    ui.notify('Offline: Operação indisponível.', color='warning')
+                                                            return save_perms
+                                                        
+                                                        ui.button('Aplicar', on_click=make_save_handler()).props('unelevated dense color=cyan-10 text-color=white no-caps text-xs').classes('ml-auto px-3')
+                                    
+                                    render_permissions_group('🛡️ OPERAÇÕES E REGRAS GERAIS', 'Permissões e capacidades dentro das telas do sistema e bot', general_perms)
+                                    render_permissions_group('📋 ACESSO AOS MENUS LATERAIS', 'Definição de quais menus de navegação aparecem para cada perfil', menu_perms)
                         
                         render_permissions_editor()
 
