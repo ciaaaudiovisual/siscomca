@@ -253,6 +253,7 @@ def _carregar_dados_tv(prog_date: datetime = None):
         'atividades_dia': [],
         'cabecalho_tv_title': cabecalho_title,
         'pernoite_count': 0,
+        'atletas_count': 0,
         'is_offline': is_offline
     }
 
@@ -615,6 +616,24 @@ def _carregar_dados_tv(prog_date: datetime = None):
     respondidos_nis = set(presenca_df['numero_interno'].astype(str).str.upper()) if not presenca_df.empty else set()
     pendentes_nis = alunos_todos_nis - respondidos_nis
     dados['pendentes_count'] = len(pendentes_nis)
+
+    # 8.2 Atletas do Dia (Alunos com anotação ATLETA lançada hoje)
+    atletas_count = 0
+    if db_conn:
+        try:
+            t_start = f"{hoje_str} 00:00:00"
+            t_end = f"{hoje_str} 23:59:59"
+            res_at = db_conn.table('Acoes').select('aluno_id,tipo,tipo_acao_id').gte('data', t_start).lte('data', t_end).in_('status', ['Lançado', 'Pendente']).execute()
+            if res_at.data:
+                atletas_ids = set()
+                for ac in res_at.data:
+                    tipo_str = str(ac.get('tipo', '')).upper()
+                    if 'ATLETA' in tipo_str or str(ac.get('tipo_acao_id')) == '52':
+                        atletas_ids.add(ac.get('aluno_id'))
+                atletas_count = len(atletas_ids)
+        except Exception as e:
+            print(f"[TV] Erro Atletas: {e}")
+    dados['atletas_count'] = atletas_count
 
     # 9. Polling interval configurado
     dados['polling_interval'] = get_tv_polling_interval()
@@ -1608,6 +1627,7 @@ def render_page():
                     else:
                         ausentes_count = d.get('ausentes_hoje', 0)
                     pernoite_count = d.get('pernoite_count', 0)
+                    atletas_count = d.get('atletas_count', 0)
                     pendentes_val = d.get('pendentes_count', 0)
 
                     # Linha 1: Efetivo, Presentes, Ausentes/Faltas, Licenças Autorizadas
@@ -1617,11 +1637,12 @@ def render_page():
                         build_mini_kpi(ausentes_count, 'Ausentes/Faltas', '#F44336', 'person_off', subtext=f"{pendentes_val} SEM CHAMADA" if pendentes_val > 0 else None)
                         build_mini_kpi(licenciados_count, 'Licenças Autorizadas', '#2196F3', 'flight_takeoff')
                 
-                    # Linha 2: Enfermaria, Dispensados, Pernoite
+                    # Linha 2: Enfermaria, Dispensados, Pernoite, Atletas
                     with ui.row().classes('w-full gap-1 justify-between no-wrap').style('flex: 1; min-height: 0;'):
                         build_mini_kpi(baixados_count + hospital_count, 'Enfermaria', '#E91E63', 'local_hospital')
                         build_mini_kpi(dispensados_count, 'Dispensados', '#FF9800', 'event_busy')
                         build_mini_kpi(pernoite_count, 'Pernoite', '#00BCD4', 'nightlight')
+                        build_mini_kpi(atletas_count, 'Atletas', '#9C27B0', 'directions_run')
 
                 # 3. Anotações do Dia (Ações dos Alunos com cores positivo/negativo/neutro)
                 anotacoes_container.clear()
