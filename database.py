@@ -10,7 +10,9 @@ load_dotenv(env_path)
 
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY")
+# SEGURANÇA: Usa a chave anon (que respeita RLS) como padrão.
+# A service_role_key é usada APENAS em get_bot_db_connection() / get_service_db_connection().
+SUPABASE_KEY = os.getenv("SUPABASE_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 db: Any = None
 
@@ -24,6 +26,17 @@ def get_bot_db_connection():
         except Exception as e:
             print(f"[ERRO BOT DB CLIENT] Falha ao criar cliente com service_role: {e}")
     return get_db_connection()
+
+
+def get_service_db_connection():
+    """Retorna uma conexão com service_role_key para operações admin privilegiadas.
+    NUNCA use para operações de usuário comum."""
+    if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
+        try:
+            return create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
+        except Exception as e:
+            print(f"[ERRO SERVICE DB] Falha ao criar cliente service_role: {e}")
+    return None
 
 
 
@@ -101,17 +114,16 @@ def authenticate_user(username: str, password: str) -> Optional[dict]:
     """
     Autentica usuário contra a tabela 'efetivo'.
     username: pode ser telegram_id, nome_guerra ou email
-    password: senha_hash (armazenada como hash SHA256)
+    password: senha em texto plano (comparada contra hash bcrypt no banco)
     """
     import hashlib
+    import bcrypt
     
     db = get_db_connection()
     if not db:
         return None
     
     try:
-        password_hash = hashlib.sha256(password.encode()).hexdigest()
-        
         # Busca por telegram_id, nome_guerra ou email
         result = db.table('efetivo').select('*').or_(
             f'telegram_id.eq.{username},nome_guerra.eq.{username},email.eq.{username}'
@@ -121,10 +133,45 @@ def authenticate_user(username: str, password: str) -> Optional[dict]:
             return None
         
         user = result.data[0]
-        
-        # Verifica senha (armazenada como hash ou texto plano para compatibilidade)
         stored_password = user.get('senha_hash', '')
-        if stored_password == password_hash or stored_password == password:
+        
+        if not stored_password:
+            return None
+        
+        password_valid = False
+        needs_upgrade = False
+        
+        # 1. Tenta verificar como bcrypt (formato moderno)
+        if stored_password.startswith('$2b$') or stored_password.startswith('$2a$'):
+            try:
+                password_valid = bcrypt.checkpw(
+                    password.encode('utf-8'),
+                    stored_password.encode('utf-8')
+                )
+            except Exception:
+                password_valid = False
+        else:
+            # 2. Fallback: verifica como SHA-256 legado (para migração)
+            password_hash = hashlib.sha256(password.encode()).hexdigest()
+            if stored_password == password_hash:
+                password_valid = True
+                needs_upgrade = True  # Marcar para upgrade para bcrypt
+        
+        if password_valid:
+            # Auto-upgrade: migra hash SHA-256 legado para bcrypt
+            if needs_upgrade:
+                try:
+                    new_hash = bcrypt.hashpw(
+                        password.encode('utf-8'),
+                        bcrypt.gensalt(rounds=12)
+                    ).decode('utf-8')
+                    db.table('efetivo').update(
+                        {'senha_hash': new_hash}
+                    ).eq('id', user['id']).execute()
+                    print(f"[SEGURANÇA] Hash migrado para bcrypt: {username}")
+                except Exception as e:
+                    print(f"[SEGURANÇA] Erro ao migrar hash: {e}")
+            
             # Remove senha antes de retornar
             user.pop('senha_hash', None)
             return user

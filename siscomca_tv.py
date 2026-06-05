@@ -1738,7 +1738,7 @@ def render_page():
                                         ui.label(label_cat).classes(f'font-bold text-[14px] tracking-wider').style(text_cat_color_style)
                                 
                                     with ui.row().classes('w-full justify-between items-baseline px-1 text-[16px] text-grey-3'):
-                                        ui.label(f"MOTIVO: {motivo}").classes('font-semibold italic ellipsis').style('max-width: 60%')
+                                        # SEGURANÇA: Omitido motivo médico na TV pública por privacidade (LGPD)
                                         if desc_extra:
                                             ui.label(desc_extra).classes('text-white font-bold text-[16px]')
 
@@ -1811,7 +1811,7 @@ def render_page():
                                         ui.label(item['tipo']).classes(f"px-1 py-0.2 rounded border text-[13px] font-bold").style(item['color_tag'])
                                     
                                     with ui.row().classes('w-full justify-between items-baseline px-1 text-[16px] text-grey-3'):
-                                        ui.label(f"MOTIVO: {item['motivo']}").classes('font-semibold italic ellipsis').style('max-width: 60%')
+                                        # SEGURANÇA: Omitido motivo médico na TV pública por privacidade (LGPD)
                                         ui.label(f"TÉRMINO: {item['retorno']}").style(item['color_tag'].split(';')[0])
 
                 # 6. Programação do Dia (Atividades) - Lado direito (1/3 width)

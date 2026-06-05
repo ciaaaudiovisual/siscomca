@@ -109,8 +109,8 @@ def render_page():
                             c_error.text = 'E-mail, Senha e Nome de Guerra são obrigatórios.'
                             return
                         
-                        import hashlib
-                        pwd_hash = hashlib.sha256(c_pwd.value.encode()).hexdigest()
+                        import bcrypt
+                        pwd_hash = bcrypt.hashpw(c_pwd.value.encode('utf-8'), bcrypt.gensalt(rounds=12)).decode('utf-8')
                         
                         if is_offline:
                             ui.notify(f"[OFFLINE] Novo operador {c_nome.value.upper()} cadastrado!", color='success')
@@ -380,8 +380,8 @@ def render_page():
                             pwd_error.text = 'A senha deve conter no mínimo 6 caracteres.'
                             return
                         
-                        import hashlib
-                        pwd_hash = hashlib.sha256(new_pwd.value.encode()).hexdigest()
+                        import bcrypt
+                        pwd_hash = bcrypt.hashpw(new_pwd.value.encode('utf-8'), bcrypt.gensalt(rounds=12)).decode('utf-8')
                         
                         if is_offline:
                             ui.notify(f"[OFFLINE] Senha de {user['nome']} redefinida!", color='success')

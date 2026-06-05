@@ -181,8 +181,22 @@ def build_layout(page_func):
 
         # ── AUTORIZAÇÃO SERVER-SIDE: verifica role contra rotas protegidas ──
         current_path = app.storage.user.get('current_path', '/')
-        if current_path in ROUTE_ROLES:
-            if role_user not in ROUTE_ROLES[current_path]:
+        path_clean = current_path.strip('/').replace('/', '_')
+        f_key = f"menu_{path_clean}"
+        
+        import pandas as pd
+        perms_df = data_service.get_core_data().get('permissions', pd.DataFrame())
+        row = perms_df[perms_df['feature_key'] == f_key] if not perms_df.empty else pd.DataFrame()
+        
+        allowed_roles = []
+        if not row.empty:
+            allowed_roles_str = str(row['allowed_roles'].iloc[0])
+            allowed_roles = [r.strip().lower() for r in allowed_roles_str.split(',') if r.strip()]
+        elif current_path in ROUTE_ROLES:
+            allowed_roles = ROUTE_ROLES[current_path]
+            
+        if allowed_roles:
+            if role_user not in allowed_roles:
                 ui.notify('⛔ Acesso não autorizado para esta página.', color='negative')
                 app.storage.user['current_path'] = '/'
                 ui.navigate.to('/')
@@ -703,12 +717,13 @@ app.on_shutdown(telegram_bot.stop_bot)
 # Configuração dinâmica para deploy na nuvem (Render, Railway, Hugging Face, etc.)
 port_env = int(os.environ.get('PORT', 7860))
 host_env = os.environ.get('HOST', '0.0.0.0')
-# SEGURANÇA: Gera um secret aleatório forte se não definido (mas avisa no log)
-_default_secret = os.urandom(32).hex()
-if not os.environ.get('STORAGE_SECRET'):
-    print('\n⚠️  [SEGURANÇA] STORAGE_SECRET não definida no .env! Usando chave temporária aleatória.')
-    print('    Defina STORAGE_SECRET no seu .env com: python -c "import os; print(os.urandom(32).hex())"\n')
-secret_env = os.environ.get('STORAGE_SECRET', _default_secret)
+# SEGURANÇA: Exige STORAGE_SECRET no ambiente para segurança de sessão
+secret_env = os.environ.get('STORAGE_SECRET')
+if not secret_env:
+    raise RuntimeError(
+        "A variável de ambiente STORAGE_SECRET é OBRIGATÓRIA para fins de segurança de sessão! "
+        "Defina STORAGE_SECRET no seu .env com um segredo aleatório forte (ex: python -c \"import os; print(os.urandom(32).hex())\")."
+    )
 
 # Desativamos o 'reload' por padrão para rodar em Modo Produção super leve, veloz, estável e sem reinícios.
 ui.run(

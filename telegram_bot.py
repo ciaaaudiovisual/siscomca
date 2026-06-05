@@ -779,8 +779,7 @@ def setup_handlers(bot_instance):
             def format_list(items, show_motivo=False):
                 if not items:
                     return " _(Nenhum)_"
-                if show_motivo:
-                    return "\n  ↳ _" + ", ".join([f"{x['ni']}—{x['nome']} ({x['motivo']})" for x in items]) + "_"
+                # SEGURANÇA: Nunca exibe motivo médico no Telegram por privacidade (LGPD)
                 return "\n  ↳ _" + ", ".join([f"{x['ni']}—{x['nome']}" for x in items]) + "_"
                 
             ausentes_list = [{'ni': a[0]['numero_interno'], 'nome': a[0]['nome_guerra']} for a in ausentes]
@@ -2453,7 +2452,7 @@ def setup_handlers(bot_instance):
                                     f"🏥 **ALERTA: INTERNAÇÃO HOSPITALAR**\n\n"
                                     f"👤 Aluno: {student['nome_guerra'].upper()} ({student['numero_interno']})\n"
                                     f"🩺 Status: HOSPITALIZADO\n"
-                                    f"🔬 Motivo: {motivo}\n"
+                                    f"📋 Consulte o sistema para obter detalhes clínicos.\n"
                                     f"👮 Registrado por: {usuario}"
                                 )
                                 notify_telegram(alert_txt, "saude")
