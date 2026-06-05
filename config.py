@@ -363,7 +363,6 @@ def render_page():
 
     with ui.column().classes('w-full q-pa-lg gap-6'):
         theme.section_header('Configurações', 'Configurações de Variáveis Globais e Parâmetros de Conceito')
-
         with ui.tabs().classes('w-full border-b border-white/10') as tabs:
             tab_geral = ui.tab('Parâmetros Gerais', icon='settings')
             tab_sons = ui.tab('Personalização de Sons', icon='volume_up')
@@ -371,10 +370,10 @@ def render_page():
             tab_templates = ui.tab('Modelos de Mensagens', icon='chat')
             tab_telegram = ui.tab('Notificações Telegram', icon='notifications')
             tab_tts = ui.tab('Configuração de Voz (TTS)', icon='record_voice_over')
+            tab_tipos_acao = ui.tab('Tipos de Ações (Notas)', icon='calculate')
+            tab_permissoes = ui.tab('Gerenciar Permissões', icon='admin_panel_settings')
 
         with ui.tab_panels(tabs, value=tab_geral).classes('w-full bg-transparent'):
-            
-            # --- ABA 1: PARÂMETROS GERAIS ---
             with ui.tab_panel(tab_geral).classes('bg-transparent q-pa-none gap-6'):
                 with ui.grid(columns='1 md:grid-cols-2').classes('w-full gap-6'):
                     
@@ -1375,6 +1374,204 @@ def render_page():
                             
                     elevenlabs_card.bind_visibility_from(input_tts_engine, 'value', backward=lambda x: x == 'elevenlabs')
                     piper_card.bind_visibility_from(input_tts_engine, 'value', backward=lambda x: x == 'piper')
+
+            # --- ABA 7: TIPOS DE AÇÕES (PONTOS/NOTAS) ---
+            with ui.tab_panel(tab_tipos_acao).classes('bg-transparent q-pa-none gap-6'):
+                with theme.card_base().classes('w-full q-pa-md'):
+                    with ui.column().classes('w-full gap-4'):
+                        with ui.row().classes('items-center justify-between w-full'):
+                            with ui.row().classes('items-center gap-2'):
+                                ui.icon('calculate', size='2rem').style(f'color: {THEME["accent"]}')
+                                ui.label('Tipos de Ação e Pesos de Notas').classes('text-lg font-bold').style(f'color: {THEME["text_main"]}')
+                            
+                            def abrir_dialogo_novo_tipo():
+                                d_tipo = ui.dialog()
+                                with d_tipo, ui.card().classes('w-[380px] q-pa-md bg-slate-900 border border-cyan-5'):
+                                    ui.label('🆕 NOVO TIPO DE AÇÃO').classes('text-white text-sm font-black cyber-title q-mb-xs')
+                                    nome_inp = ui.input('Nome do Tipo de Ação', placeholder='Ex: Elogio de Serviço').props('dark outlined dense w-full').classes('w-full')
+                                    pontos_inp = ui.input('Pontuação / Peso (Ex: 0.5 ou -0.3)', value='0.0').props('dark outlined dense w-full').classes('w-full q-mt-xs')
+                                    
+                                    def salvar_novo():
+                                        name = nome_inp.value.strip().upper()
+                                        if not name:
+                                            ui.notify('Nome é obrigatório.', color='red')
+                                            return
+                                        try:
+                                            pts = float(pontos_inp.value)
+                                        except ValueError:
+                                            ui.notify('Pontuação deve ser um número decimal válido.', color='red')
+                                            return
+                                        
+                                        db_c = get_db_connection()
+                                        if db_c:
+                                            try:
+                                                db_c.table('Tipos_Acao').insert({'nome': name, 'pontuacao': pts, 'ativo': True}).execute()
+                                                ui.notify('Novo tipo de ação criado!', color='success')
+                                                d_tipo.close()
+                                                render_tipos_list.refresh()
+                                                data_service.clear_cache()
+                                            except Exception as err:
+                                                ui.notify(f'Erro ao salvar: {err}', color='red')
+                                        else:
+                                            ui.notify('Offline: Operação indisponível sem conexão com banco.', color='warning')
+                                    
+                                    with ui.row().classes('w-full justify-end gap-2 q-mt-md'):
+                                        ui.button('Cancelar', on_click=d_tipo.close).props('flat color=grey no-caps')
+                                        ui.button('Salvar', on_click=salvar_novo).props('unelevated color=cyan-9 text-color=white no-caps')
+                                d_tipo.open()
+                                
+                            ui.button('Adicionar Tipo de Ação', icon='add', on_click=abrir_dialogo_novo_tipo).props('unelevated dense color=cyan-9 text-color=white no-caps').classes('cyber-glow')
+                        
+                        ui.separator().style(f'background-color: rgba(0, 229, 255, 0.15);')
+                        
+                        busca_tipos = ui.input(placeholder='🔍 Buscar tipos de ação...').props('dark dense outlined').classes('w-full max-w-sm')
+                        
+                        @ui.refreshable
+                        def render_tipos_list():
+                            db_c = get_db_connection()
+                            tipos_data = []
+                            if db_c:
+                                try:
+                                    res = db_c.table('Tipos_Acao').select('*').order('nome').execute()
+                                    tipos_data = res.data if res.data else []
+                                except Exception as e:
+                                    print(f"Erro ao carregar tipos: {e}")
+                            
+                            query = busca_tipos.value.strip().upper() if busca_tipos.value else ''
+                            filtered_tipos = [t for t in tipos_data if query in str(t.get('nome','')).upper()] if query else tipos_data
+                            
+                            with ui.column().classes('w-full gap-2').style('max-height: 400px; overflow-y: auto;'):
+                                if not filtered_tipos:
+                                    ui.label('Nenhum tipo de ação encontrado.').classes('text-xs italic text-grey-5 text-center w-full py-4')
+                                else:
+                                    for t in filtered_tipos:
+                                        t_nome = t['nome']
+                                        t_pts = t.get('pontuacao', 0.0)
+                                        pts_color = 'text-green-400' if t_pts > 0 else ('text-red-400' if t_pts < 0 else 'text-grey-4')
+                                        pts_sign = f"+{t_pts}" if t_pts > 0 else str(t_pts)
+                                        
+                                        with ui.row().classes('w-full justify-between items-center py-2 px-2 border-b border-white/5 bg-white/[0.01] hover:bg-white/[0.03] rounded no-wrap'):
+                                            ui.label(t_nome).classes('text-xs font-bold text-white truncate col-grow')
+                                            
+                                            with ui.row().classes('items-center gap-4 shrink-0'):
+                                                ui.label(pts_sign).classes(f'text-xs font-mono font-bold {pts_color} min-w-[50px] text-right')
+                                                
+                                                def abrir_dialogo_editar(item=t):
+                                                    d_edit = ui.dialog()
+                                                    with d_edit, ui.card().classes('w-[380px] q-pa-md bg-slate-900 border border-cyan-5'):
+                                                        ui.label('✏️ EDITAR TIPO DE AÇÃO').classes('text-white text-sm font-black cyber-title q-mb-xs')
+                                                        nome_inp = ui.input('Nome do Tipo de Ação', value=item['nome']).props('dark outlined dense w-full').classes('w-full')
+                                                        pontos_inp = ui.input('Pontuação / Peso', value=str(item.get('pontuacao', 0.0))).props('dark outlined dense w-full').classes('w-full q-mt-xs')
+                                                        
+                                                        def salvar_edicao():
+                                                            name = nome_inp.value.strip().upper()
+                                                            if not name:
+                                                                ui.notify('Nome é obrigatório.', color='red')
+                                                                return
+                                                            try:
+                                                                pts = float(pontos_inp.value)
+                                                            except ValueError:
+                                                                ui.notify('Pontuação deve ser um número decimal válido.', color='red')
+                                                                return
+                                                            
+                                                            db_u = get_db_connection()
+                                                            if db_u:
+                                                                try:
+                                                                    db_u.table('Tipos_Acao').update({'nome': name, 'pontuacao': pts}).eq('id', item['id']).execute()
+                                                                    ui.notify('Tipo de ação editado com sucesso!', color='success')
+                                                                    d_edit.close()
+                                                                    render_tipos_list.refresh()
+                                                                    data_service.clear_cache()
+                                                                except Exception as err:
+                                                                    ui.notify(f'Erro ao salvar: {err}', color='red')
+                                                            else:
+                                                                    ui.notify('Offline: Operação indisponível.', color='warning')
+                                                                    
+                                                        with ui.row().classes('w-full justify-end gap-2 q-mt-md'):
+                                                            ui.button('Cancelar', on_click=d_edit.close).props('flat color=grey no-caps')
+                                                            ui.button('Salvar', on_click=salvar_edicao).props('unelevated color=cyan-9 text-color=white no-caps')
+                                                    d_edit.open()
+                                                    
+                                                def excluir_tipo(item=t):
+                                                    db_d = get_db_connection()
+                                                    if db_d:
+                                                        try:
+                                                            db_d.table('Tipos_Acao').delete().eq('id', item['id']).execute()
+                                                            ui.notify('Tipo de ação excluído!', color='success')
+                                                            render_tipos_list.refresh()
+                                                            data_service.clear_cache()
+                                                        except Exception as err:
+                                                            ui.notify(f'Erro ao excluir: {err}', color='red')
+                                                    else:
+                                                        ui.notify('Offline: Operação indisponível.', color='warning')
+                                                        
+                                                ui.button(icon='edit', on_click=abrir_dialogo_editar).props('flat round dense color=cyan').classes('text-xs')
+                                                ui.button(icon='delete', on_click=excluir_tipo).props('flat round dense color=red').classes('text-xs')
+                        
+                        busca_tipos.on('input', render_tipos_list.refresh)
+                        render_tipos_list()
+
+            # --- ABA 8: GERENCIAR PERMISSÕES ---
+            with ui.tab_panel(tab_permissoes).classes('bg-transparent q-pa-none gap-6'):
+                with theme.card_base().classes('w-full q-pa-md'):
+                    with ui.column().classes('w-full gap-4'):
+                        with ui.row().classes('items-center gap-2'):
+                            ui.icon('admin_panel_settings', size='2rem').style(f'color: {THEME["accent"]}')
+                            ui.label('Gerenciar Permissões por Função').classes('text-lg font-bold').style(f'color: {THEME["text_main"]}')
+                        ui.separator().style(f'background-color: rgba(0, 229, 255, 0.15);')
+                        
+                        ui.label('Defina quais perfis (Cargos/Funções) têm acesso às operações do painel e do Telegram Bot.').classes('text-xs').style(f'color: {THEME["text_dim"]}')
+                        
+                        @ui.refreshable
+                        def render_permissions_editor():
+                            db_c = get_db_connection()
+                            perms_data = []
+                            if db_c:
+                                try:
+                                    res = db_c.table('Permissions').select('*').execute()
+                                    perms_data = res.data if res.data else []
+                                except Exception as e:
+                                    print(f"Erro ao carregar permissões: {e}")
+                            
+                            with ui.column().classes('w-full gap-4'):
+                                if not perms_data:
+                                    ui.label('Nenhuma regra de permissão cadastrada no Supabase.').classes('text-xs italic text-grey-5 text-center w-full py-4')
+                                else:
+                                    for p in perms_data:
+                                        f_key = p['feature_key']
+                                        f_desc = p.get('description', f_key)
+                                        f_roles = [r.strip().lower() for r in str(p.get('allowed_roles', '')).split(',') if r.strip()]
+                                        
+                                        with ui.column().classes('w-full border border-white/5 q-pa-sm rounded bg-black/10 hover:bg-black/20 gap-2'):
+                                            with ui.row().classes('w-full items-baseline justify-between no-wrap gap-2'):
+                                                ui.label(f_desc).classes('text-xs font-bold text-white')
+                                                ui.label(f_key).classes('text-[10px] text-grey-5 font-mono shrink-0')
+                                            
+                                            with ui.row().classes('w-full gap-4 items-center'):
+                                                roles_list = ['admin', 'supervisor', 'operador', 'comcia', 'compel']
+                                                checkboxes = {}
+                                                for role in roles_list:
+                                                    is_checked = role in f_roles
+                                                    checkboxes[role] = ui.checkbox(role.upper(), value=is_checked).props('dark dense').classes('text-xs text-grey-3')
+                                                
+                                                def make_save_handler(key=f_key, cbs=checkboxes):
+                                                    def save_perms():
+                                                        selected_roles = [r for r, cb in cbs.items() if cb.value]
+                                                        roles_str = ",".join(selected_roles)
+                                                        db_u = get_db_connection()
+                                                        if db_u:
+                                                            try:
+                                                                db_u.table('Permissions').update({'allowed_roles': roles_str}).eq('feature_key', key).execute()
+                                                                ui.notify(f'Permissões para "{key}" atualizadas!', color='success')
+                                                            except Exception as err:
+                                                                ui.notify(f'Erro ao salvar: {err}', color='red')
+                                                        else:
+                                                            ui.notify('Offline: Operação indisponível.', color='warning')
+                                                    return save_perms
+                                                
+                                                ui.button('Aplicar', on_click=make_save_handler()).props('unelevated dense color=cyan-10 text-color=white no-caps text-xs').classes('ml-auto px-3')
+                        
+                        render_permissions_editor()
 
         # --- AÇÕES ---
         # --- AÇÕES ---
