@@ -617,13 +617,11 @@ def _carregar_dados_tv(prog_date: datetime = None):
     pendentes_nis = alunos_todos_nis - respondidos_nis
     dados['pendentes_count'] = len(pendentes_nis)
 
-    # 8.2 Atletas do Dia (Alunos com anotação ATLETA lançada hoje)
+    # 8.2 Atletas Ativos (Alunos com anotação ATLETA ativa, sem limite de data)
     atletas_count = 0
     if db_conn:
         try:
-            t_start = f"{hoje_str} 00:00:00"
-            t_end = f"{hoje_str} 23:59:59"
-            res_at = db_conn.table('Acoes').select('aluno_id,tipo,tipo_acao_id').gte('data', t_start).lte('data', t_end).in_('status', ['Lançado', 'Pendente']).execute()
+            res_at = db_conn.table('Acoes').select('aluno_id,tipo,tipo_acao_id').in_('status', ['Lançado', 'Pendente']).execute()
             if res_at.data:
                 atletas_ids = set()
                 for ac in res_at.data:
