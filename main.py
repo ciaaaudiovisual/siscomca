@@ -584,13 +584,12 @@ def login_page(request: Request):
             
             reg_email = ui.input('E-mail').props('dark dense outlined w-full')
             reg_pwd = ui.input('Senha', password=True).props('dark dense outlined w-full')
-            reg_nome = ui.input('Nome Completo').props('dark dense outlined w-full')
-            reg_guerra = ui.input('Nome de Guerra').props('dark dense outlined w-full')
+            reg_guerra = ui.input('Nome de Guerra com Posto/Graduação', placeholder='Ex: SG SILVA, TEN COSTA').props('dark dense outlined w-full')
             
             reg_error = ui.label('').classes('text-caption text-red')
             
             def submit_registration():
-                if not reg_email.value or not reg_pwd.value or not reg_nome.value or not reg_guerra.value:
+                if not reg_email.value or not reg_pwd.value or not reg_guerra.value:
                     reg_error.text = 'Preencha todos os campos'
                     return
                 if len(reg_pwd.value) < 6:
@@ -642,7 +641,7 @@ def login_page(request: Request):
                             svc_conn_to_use.table("RegistrationRequests").insert({
                                 "id": auth_id,
                                 "email": reg_email.value,
-                                "nome_completo": reg_nome.value,
+                                "nome_completo": reg_guerra.value,
                                 "nome_guerra": reg_guerra.value,
                                 "status": "pending"
                             }).execute()
@@ -677,7 +676,7 @@ def login_page(request: Request):
                             from notifications_manager import notify_telegram
                             alert_txt = (
                                 f"🔔 **NOVA SOLICITAÇÃO DE ACESSO**\n\n"
-                                f"👤 Nome: {reg_nome.value.upper()} ({reg_guerra.value.upper()})\n"
+                                f"👤 Nome: {reg_guerra.value.upper()}\n"
                                 f"📧 E-mail: {reg_email.value}\n"
                                 f"⚡ Papel Temporário: `aluno` (Acesso Liberado com limites).\n"
                                 f"⚙️ Ação: O administrador pode alterar as permissões deste usuário no painel a qualquer momento."
