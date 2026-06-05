@@ -23,8 +23,7 @@ services:
     image: redis:7-alpine
     container_name: comsoc-redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
+    # SEGURANÇA: Porta 6379 não exposta para fora (apenas acessível na rede interna comsoc-network)
     volumes:
       - redis-data:/data
     networks:

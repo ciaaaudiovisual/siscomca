@@ -105,6 +105,11 @@ def render_page():
                     c_error = ui.label('').classes('text-xs text-red w-full text-center')
                     
                     def handle_create():
+                        # SEGURANÇA: Verificação de privilégios server-side
+                        user_role = str(app.storage.user.get('user_data', {}).get('role', '')).upper()
+                        if user_role not in ('ADMIN', 'SUPERVISOR'):
+                            ui.notify("⛔ Acesso negado. Apenas administradores ou supervisores.", color='negative')
+                            return
                         if not c_email.value or not c_pwd.value or not c_nome.value:
                             c_error.text = 'E-mail, Senha e Nome de Guerra são obrigatórios.'
                             return
@@ -287,6 +292,11 @@ def render_page():
                     e_error = ui.label('').classes('text-xs text-red w-full text-center')
                     
                     def handle_edit():
+                        # SEGURANÇA: Verificação de privilégios server-side
+                        user_role = str(app.storage.user.get('user_data', {}).get('role', '')).upper()
+                        if user_role not in ('ADMIN', 'SUPERVISOR'):
+                            ui.notify("⛔ Acesso negado. Apenas administradores ou supervisores.", color='negative')
+                            return
                         if not e_nome.value or not e_unm.value:
                             e_error.text = 'Nome de Guerra e Username são obrigatórios.'
                             return
@@ -376,6 +386,11 @@ def render_page():
                     pwd_error = ui.label('').classes('text-xs text-red w-full text-center')
                     
                     def handle_password():
+                        # SEGURANÇA: Verificação de privilégios server-side
+                        user_role = str(app.storage.user.get('user_data', {}).get('role', '')).upper()
+                        if user_role not in ('ADMIN', 'SUPERVISOR'):
+                            ui.notify("⛔ Acesso negado. Apenas administradores ou supervisores.", color='negative')
+                            return
                         if not new_pwd.value or len(new_pwd.value) < 6:
                             pwd_error.text = 'A senha deve conter no mínimo 6 caracteres.'
                             return
@@ -443,6 +458,11 @@ def render_page():
                     del_error = ui.label('').classes('text-xs text-red w-full')
                     
                     def handle_delete():
+                        # SEGURANÇA: Apenas administradores reais podem excluir
+                        user_role = str(app.storage.user.get('user_data', {}).get('role', '')).upper()
+                        if user_role != 'ADMIN':
+                            ui.notify("⛔ Acesso negado. Apenas administradores podem excluir operadores.", color='negative')
+                            return
                         if is_offline:
                             ui.notify(f"[OFFLINE] Operador {user['nome']} removido!", color='success')
                             if user in users_data:
@@ -505,6 +525,11 @@ def render_page():
                     del_error = ui.label('').classes('text-xs text-red w-full')
                     
                     def handle_batch_delete():
+                        # SEGURANÇA: Apenas administradores reais podem excluir em lote
+                        user_role = str(app.storage.user.get('user_data', {}).get('role', '')).upper()
+                        if user_role != 'ADMIN':
+                            ui.notify("⛔ Acesso negado. Apenas administradores podem excluir operadores em lote.", color='negative')
+                            return
                         if is_offline:
                             ui.notify(f"[OFFLINE] Removido {len(uids)} operadores!", color='success')
                             for uid in list(uids):
@@ -608,6 +633,11 @@ def render_page():
                                             ).props('dark outlined dense').classes('w-60')
                                             
                                             def process_request(req_id=req['id'], req_email=req['email'], req_guerra=req['nome_guerra'], action='', s=state):
+                                                # SEGURANÇA: Verificação de privilégios server-side
+                                                user_role = str(app.storage.user.get('user_data', {}).get('role', '')).upper()
+                                                if user_role not in ('ADMIN', 'SUPERVISOR'):
+                                                    ui.notify("⛔ Acesso negado. Apenas administradores ou supervisores podem aprovar/rejeitar solicitações.", color='negative')
+                                                    return
                                                 if is_offline:
                                                     ui.notify(f"Simulando {action} para o e-mail {req_email}", color='info')
                                                     reload_admin_data()

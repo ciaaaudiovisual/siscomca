@@ -1,0 +1,26 @@
+# Evitar cópia de segredos e chaves SSH para o container
+.env
+env.example
+*.key
+ssh-key-*
+
+# Ignorar versionamento e metadados
+.git
+.github
+.gitignore
+.gitattributes
+
+# Ignorar pastas locais temporárias e de desenvolvimento
+venv/
+__pycache__/
+.nicegui/
+.pytest_cache/
+.qodo/
+scratch/
+tests/
+Novo(a) Documento de Texto.txt
+
+# Arquivos de banco locais temporários
+*.db
+*.sqlite
+*.sqlite3

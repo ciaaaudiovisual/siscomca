@@ -1,6 +1,9 @@
 # Usa uma imagem oficial leve do Python
 FROM python:3.10-slim
 
+# Cria usuário não-root com UID 1000
+RUN useradd -m -u 1000 appuser
+
 # Define o diretório de trabalho dentro do servidor do Hugging Face
 WORKDIR /app
 
@@ -11,7 +14,13 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copia todo o resto do seu código para dentro do container
-COPY . .
+COPY --chown=appuser:appuser . .
+
+# Ajusta permissões extras da pasta
+RUN chown -R appuser:appuser /app
+
+# Muda para o usuário não-root
+USER appuser
 
 # EXTREMAMENTE IMPORTANTE: O Hugging Face Free exige que o app rode na porta 7860
 EXPOSE 7860

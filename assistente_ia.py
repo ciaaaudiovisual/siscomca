@@ -271,14 +271,55 @@ def render_page():
                                     else:
                                         history_text = "Nenhuma ocorrência anterior registrada no sistema. Bons antecedentes (comportamento exemplar)."
                                     
-                                    # Chamada de IA
+                                    # Anonimização (LGPD) para proteção de PII enviada a serviços de terceiros
+                                    real_name = str(aluno_row.get('nome_completo') or '')
+                                    real_guerra = str(aluno_row.get('nome_guerra') or '')
+                                    real_ni = str(aluno_row.get('numero_interno') or '')
+                                    real_pelotao = str(aluno_row.get('pelotao') or '')
+                                    real_nip = str(aluno_row.get('nip') or '')
+                                    
+                                    anon_name_full = "[ALUNO_NI] - [ALUNO_GUERRA] ([ALUNO_PELOTAO]) • Nome Completo: [ALUNO_NOME]"
+                                    
+                                    anon_history_text = history_text
+                                    if real_name:
+                                        anon_history_text = anon_history_text.replace(real_name, "[ALUNO_NOME]")
+                                    if real_guerra:
+                                        anon_history_text = anon_history_text.replace(real_guerra, "[ALUNO_GUERRA]")
+                                    if real_ni:
+                                        anon_history_text = anon_history_text.replace(real_ni, "[ALUNO_NI]")
+                                    if real_nip:
+                                        anon_history_text = anon_history_text.replace(real_nip, "[ALUNO_NIP]")
+                                        
+                                    anon_fact = fato_input.value.strip()
+                                    if real_name:
+                                        anon_fact = anon_fact.replace(real_name, "[ALUNO_NOME]")
+                                    if real_guerra:
+                                        anon_fact = anon_fact.replace(real_guerra, "[ALUNO_GUERRA]")
+                                    if real_ni:
+                                        anon_fact = anon_fact.replace(real_ni, "[ALUNO_NI]")
+                                    if real_nip:
+                                        anon_fact = anon_fact.replace(real_nip, "[ALUNO_NIP]")
+                                    
+                                    # Chamada de IA com dados anonimizados
                                     try:
                                         report_output = ai_helper.generate_disciplinary_report(
-                                            student_name=student_name_full,
-                                            student_history=history_text,
-                                            new_fact=fato_input.value.strip(),
+                                            student_name=anon_name_full,
+                                            student_history=anon_history_text,
+                                            new_fact=anon_fact,
                                             regulation='RDM' if 'RDM' in reg_select.value else reg_select.value
                                         )
+                                        
+                                        # Restaura os dados reais localmente na interface
+                                        if real_name:
+                                            report_output = report_output.replace("[ALUNO_NOME]", real_name).replace("[aluno_nome]", real_name)
+                                        if real_guerra:
+                                            report_output = report_output.replace("[ALUNO_GUERRA]", real_guerra).replace("[aluno_guerra]", real_guerra)
+                                        if real_ni:
+                                            report_output = report_output.replace("[ALUNO_NI]", real_ni).replace("[aluno_ni]", real_ni)
+                                        if real_pelotao:
+                                            report_output = report_output.replace("[ALUNO_PELOTAO]", real_pelotao).replace("[aluno_pelotao]", real_pelotao)
+                                        if real_nip:
+                                            report_output = report_output.replace("[ALUNO_NIP]", real_nip).replace("[aluno_nip]", real_nip)
                                     except Exception as e:
                                         report_output = f"Erro na chamada da API de IA: {str(e)}"
                                     

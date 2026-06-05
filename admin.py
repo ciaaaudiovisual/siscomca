@@ -51,8 +51,20 @@ def fetch_data():
         state['loading'] = False
 
 def update_user(id, field, value):
-    """Atualiza um campo específico do usuário"""
+    """Atualiza um campo específico do usuário com restrições de segurança"""
     if not db: return
+    
+    # SEGURANÇA: Verificação de autorização server-side
+    user_role = str(app.storage.user.get('user_data', {}).get('role', '')).upper()
+    if user_role not in ('ADMIN', 'SUPERVISOR'):
+        ui.notify("⛔ Operação não autorizada. Apenas administradores ou supervisores.", color='negative')
+        return
+        
+    # SEGURANÇA: Whitelist de campos permitidos
+    if field not in ('permissao', 'status'):
+        ui.notify("⛔ Alteração de campo não permitida.", color='negative')
+        return
+        
     try:
         db.table('efetivo').update({field: value}).eq('id', id).execute()
         ui.notify(f"Usuário atualizado: {value}", color='positive')
@@ -62,8 +74,15 @@ def update_user(id, field, value):
         ui.notify(f"Erro ao atualizar: {e}", color='negative')
 
 def delete_user(id):
-    """Remove um usuário do sistema"""
+    """Remove um usuário do sistema com restrições de segurança"""
     if not db: return
+    
+    # SEGURANÇA: Apenas administradores reais podem excluir usuários
+    user_role = str(app.storage.user.get('user_data', {}).get('role', '')).upper()
+    if user_role != 'ADMIN':
+        ui.notify("⛔ Operação não autorizada. Apenas administradores podem remover usuários.", color='negative')
+        return
+        
     try:
         db.table('efetivo').delete().eq('id', id).execute()
         ui.notify("Usuário removido.", color='warning')
