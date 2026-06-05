@@ -992,7 +992,8 @@ def _build_aviso_rapido_card():
         with ui.column().classes('w-full q-pa-md gap-3'):
             aviso_date_inp = ui.input(
                 'Data do Aviso', 
-                value=datetime.now().strftime('%Y-%m-%d')
+                value=datetime.now().strftime('%Y-%m-%d'),
+                on_change=lambda: render_avisos.refresh()
             ).props('dark dense outlined type=date').classes('w-full')
             
             aviso_text_inp = ui.input(
@@ -1054,12 +1055,109 @@ def _build_aviso_rapido_card():
                     ui.notify('[OFFLINE] Aviso simulado salvo.', color='warning')
                 
                 aviso_text_inp.value = ''
+                render_avisos.refresh()
                 
             ui.button(
                 '⚡ Publicar Aviso na TV', on_click=registrar_aviso
             ).props('unelevated no-caps').style(
                 f'background:{THEME["accent"]}; color:#000; font-weight:700;'
             ).classes('cyber-glow w-full')
+
+            @ui.refreshable
+            def render_avisos():
+                dt = aviso_date_inp.value
+                db_conn = get_db_connection()
+                avisos = []
+                if db_conn:
+                    try:
+                        res = db_conn.table('Ordens_Diarias').select('*').eq('data', dt).execute()
+                        if res.data:
+                            avisos = res.data
+                    except Exception as e:
+                        print(f"Erro ao carregar avisos: {e}")
+                else:
+                    if hasattr(app, '_mock_ordens_diarias'):
+                        avisos = [a for a in app._mock_ordens_diarias if a['data'] == dt]
+                
+                ui.label('AVISOS ATIVOS NESTE DIA:').classes('text-[10px] text-grey-5 font-bold tracking-widest q-mt-md')
+                
+                with ui.column().classes('w-full gap-1 q-pa-xs border border-gray-800 rounded bg-black/10').style('max-height: 180px; overflow-y: auto;'):
+                    if not avisos:
+                        ui.label('Nenhum aviso publicado nesta data.').classes('text-grey italic text-xs q-pa-sm self-center')
+                    else:
+                        for a in avisos:
+                            aid = a.get('id')
+                            texto = a.get('texto', '')
+                            autor = a.get('autor_id', 'DASHBOARD')
+                            
+                            with ui.row().classes('w-full items-center justify-between q-py-1 px-2 hover:bg-white/5 rounded border-b border-gray-900'):
+                                with ui.column().classes('gap-0').style('flex: 1; margin-right: 8px;'):
+                                    ui.label(texto).classes('text-white text-xs font-semibold').style('word-break: break-word;')
+                                    ui.label(f"Por: {autor}").classes('text-grey text-[9px]')
+                                
+                                with ui.row().classes('items-center gap-1 no-wrap'):
+                                    def make_edit_handler(aviso_item=a):
+                                        def edit_aviso():
+                                            with ui.dialog() as edit_dialog, ui.card().classes('q-pa-md w-80').style(
+                                                f'background:{THEME["bg_panel"]}; border:{THEME["border"]};'
+                                            ):
+                                                ui.label('✏️ Editar Aviso').classes('text-white text-sm font-bold')
+                                                edit_inp = ui.input(value=aviso_item['texto']).props('dark dense outlined').classes('w-full text-xs')
+                                                
+                                                def salvar_edicao():
+                                                    new_val = edit_inp.value.strip()
+                                                    if not new_val:
+                                                        ui.notify('Texto não pode ser vazio!', color='warning')
+                                                        return
+                                                    
+                                                    db_c = get_db_connection()
+                                                    if db_c:
+                                                        try:
+                                                            db_c.table('Ordens_Diarias').update({'texto': new_val}).eq('id', aviso_item['id']).execute()
+                                                            ui.notify('Aviso atualizado!', color='success')
+                                                            edit_dialog.close()
+                                                            render_avisos.refresh()
+                                                            
+                                                            from alerts_manager import AlertsManager
+                                                            AlertsManager.trigger_alert("Aviso Atualizado", f"Aviso atualizado por {aviso_item['autor_id']}: {new_val}", "info")
+                                                        except Exception as err:
+                                                            ui.notify(f'Erro: {err}', color='negative')
+                                                    else:
+                                                        aviso_item['texto'] = new_val
+                                                        ui.notify('[OFFLINE] Edição simulada.', color='warning')
+                                                        edit_dialog.close()
+                                                        render_avisos.refresh()
+                                                        
+                                                with ui.row().classes('w-full justify-end gap-2'):
+                                                    ui.button('Cancelar', on_click=edit_dialog.close).props('flat dense size=sm color=grey')
+                                                    ui.button('Salvar', on_click=salvar_edicao).props('unelevated dense size=sm color=accent text-color=black')
+                                            edit_dialog.open()
+                                        return edit_aviso
+                                    
+                                    def make_delete_handler(aviso_id=aid):
+                                        def delete_aviso():
+                                            db_c = get_db_connection()
+                                            if db_c:
+                                                try:
+                                                    db_c.table('Ordens_Diarias').delete().eq('id', aviso_id).execute()
+                                                    ui.notify('Aviso removido!', color='info')
+                                                    render_avisos.refresh()
+                                                    
+                                                    from alerts_manager import AlertsManager
+                                                    AlertsManager.trigger_alert("Aviso Removido", "Um aviso foi removido do letreiro.", "info")
+                                                except Exception as err:
+                                                    ui.notify(f'Erro: {err}', color='negative')
+                                            else:
+                                                if hasattr(app, '_mock_ordens_diarias'):
+                                                    app._mock_ordens_diarias = [item for item in app._mock_ordens_diarias if item['id'] != aviso_id]
+                                                ui.notify('[OFFLINE] Remoção simulada.', color='warning')
+                                                render_avisos.refresh()
+                                        return delete_aviso
+                                    
+                                    ui.button(icon='edit', on_click=make_edit_handler()).props('flat dense size=xs color=cyan')
+                                    ui.button(icon='delete', on_click=make_delete_handler()).props('flat dense size=xs color=red')
+
+            render_avisos()
 
 
 def _build_pernoite_dashboard_card(pernoite_ids: list):
