@@ -974,10 +974,14 @@ def render_page():
                         'OCULTAR DADOS', icon='visibility'
                     ).props('outline color=amber dense no-caps').classes('text-xs font-bold px-2.5 py-1')
                     
-                    ui.button(
-                        'DASHBOARD', icon='arrow_back',
-                        on_click=exit_lock_dialog.open
-                    ).props('outline color=grey dense no-caps').classes('text-xs font-bold text-grey-4 px-2.5 py-1')
+                    from nicegui import app
+                    user_data = app.storage.user.get('user_data', {})
+                    user_role = str(user_data.get('role', '')).strip().lower()
+                    if user_role not in ('tv', 'tv_comcia'):
+                        ui.button(
+                            'DASHBOARD', icon='arrow_back',
+                            on_click=exit_lock_dialog.open
+                        ).props('outline color=grey dense no-caps').classes('text-xs font-bold text-grey-4 px-2.5 py-1')
 
                 # Definição das funções de callback de áudio
                 def toggle_sound():

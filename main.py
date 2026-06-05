@@ -152,6 +152,11 @@ def build_layout(page_func):
             ui.navigate.to('/login')
             return
             
+        role_user = str(app.storage.user.get('user_data', {}).get('role', '')).strip().lower()
+        if role_user in ('tv', 'tv_comcia') and app.storage.user.get('current_path') != '/siscomca_tv':
+            ui.navigate.to('/siscomca_tv')
+            return
+            
         if app.storage.user.get('tv_lock_active', False) and app.storage.user.get('current_path') != '/siscomca_tv':
             ui.navigate.to('/siscomca_tv')
             return
@@ -590,11 +595,12 @@ def login_page():
                             }
                             app.storage.user['supabase_session'] = session_data
                             
-                            target_path = '/'
+                            role_user = str(profile.get('role', 'compel')).strip().lower()
+                            target_path = '/siscomca_tv' if role_user in ('tv', 'tv_comcia') else '/'
                             app.storage.user['current_path'] = target_path
                             ui.notify(f'Bem-vindo, {profile.get("nome", user.value)}!', color='success')
                             # Força redirecionamento físico de página via JS para o gerenciador de senhas do navegador salvar as credenciais
-                            ui.run_javascript("window.location.href = '/'")
+                            ui.run_javascript(f"window.location.href = '{target_path}'")
                         else:
                             error_label.text = 'E-mail ou senha incorretos'
  
