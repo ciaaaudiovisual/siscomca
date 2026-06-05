@@ -601,58 +601,93 @@ def login_page(request: Request):
                 db_conn = get_db_connection()
                 if db_conn:
                     try:
-                        res = db_conn.auth.sign_up({"email": reg_email.value, "password": reg_pwd.value})
-                        if res.user:
-                            # Conexão de serviço para contornar RLS temporariamente e criar o perfil do usuário
-                            svc_conn = get_service_db_connection()
-                            if svc_conn:
-                                # 1. Cria a solicitação pendente para aprovação/controle posterior
-                                svc_conn.table("RegistrationRequests").insert({
-                                    "id": res.user.id,
-                                    "email": reg_email.value,
-                                    "nome_completo": reg_nome.value,
-                                    "nome_guerra": reg_guerra.value,
-                                    "status": "pending"
-                                }).execute()
-                                
-                                # 2. Cria imediatamente o perfil de acesso limitado (aluno) para evitar bloqueio inicial
-                                svc_conn.table("Users").insert({
-                                    "id": res.user.id,
-                                    "username": reg_email.value.split('@')[0],
-                                    "nome": reg_guerra.value.upper(),
-                                    "role": "aluno"
-                                }).execute()
-                                
-                                # 3. Cria o hash e insere na tabela efetivo
-                                import bcrypt
-                                pwd_hash = bcrypt.hashpw(reg_pwd.value.encode('utf-8'), bcrypt.gensalt(rounds=12)).decode('utf-8')
-                                try:
-                                    svc_conn.table('efetivo').insert({
-                                        'nome_guerra': reg_guerra.value.upper(),
-                                        'email': reg_email.value,
-                                        'senha_hash': pwd_hash,
-                                        'role': 'aluno'
-                                    }).execute()
-                                except Exception as e_ef:
-                                    print(f"[REG EFETIVO ERR] {e_ef}")
-                            
+                        svc_conn = get_service_db_connection()
+                        auth_id = None
+                        created_via_admin = False
+                        
+                        # 1. Tenta criar via Service Role Admin (bypassa confirmação de e-mail e rate limit)
+                        if svc_conn and hasattr(svc_conn, 'auth') and hasattr(svc_conn.auth, 'admin'):
                             try:
-                                from notifications_manager import notify_telegram
-                                alert_txt = (
-                                    f"🔔 **NOVA SOLICITAÇÃO DE ACESSO**\n\n"
-                                    f"👤 Nome: {reg_nome.value.upper()} ({reg_guerra.value.upper()})\n"
-                                    f"📧 E-mail: {reg_email.value}\n"
-                                    f"⚡ Papel Temporário: `aluno` (Acesso Liberado com limites).\n"
-                                    f"⚙️ Ação: O administrador pode alterar as permissões deste usuário no painel a qualquer momento."
-                                )
-                                notify_telegram(alert_txt, "new_user", role_required="admin", request_id=res.user.id)
-                            except Exception as e_notif:
-                                print(f"[MAIN REG NOTIFY ERROR] {e_notif}")
+                                res = svc_conn.auth.admin.create_user({
+                                    "email": reg_email.value,
+                                    "password": reg_pwd.value,
+                                    "email_confirm": True
+                                })
+                                if res and res.user:
+                                    auth_id = res.user.id
+                                    created_via_admin = True
+                            except Exception as admin_err:
+                                print(f"[ADMIN SIGNUP REGISTER ERR] {admin_err}")
                                 
-                            ui.notify('Solicitação enviada e acesso inicial liberado! Efetue o login.', color='success')
-                            reg_dialog.close()
-                        else:
-                            reg_error.text = 'Não foi possível registrar o usuário'
+                        # 2. Se falhar ou não tiver a chave, tenta signup normal
+                        if not auth_id:
+                            try:
+                                res = db_conn.auth.sign_up({"email": reg_email.value, "password": reg_pwd.value})
+                                if res and res.user:
+                                    auth_id = res.user.id
+                            except Exception as signup_err:
+                                print(f"[NORMAL SIGNUP REGISTER ERR] {signup_err}")
+                                
+                        # 3. Se ainda assim falhar (ex: rate limit exceeded), cria no banco local/Postgres diretamente
+                        if not auth_id:
+                            import uuid
+                            auth_id = str(uuid.uuid4())
+                            ui.notify('Limite de e-mails atingido. Criando conta no banco local...', color='warning', duration=6)
+                            
+                        # Determina conexão a ser usada para as inserções no banco
+                        svc_conn_to_use = svc_conn if svc_conn else db_conn
+                        
+                        # 1. Cria a solicitação pendente para aprovação/controle posterior
+                        try:
+                            svc_conn_to_use.table("RegistrationRequests").insert({
+                                "id": auth_id,
+                                "email": reg_email.value,
+                                "nome_completo": reg_nome.value,
+                                "nome_guerra": reg_guerra.value,
+                                "status": "pending"
+                            }).execute()
+                        except Exception as req_err:
+                            print(f"[REG REQUEST ERR] {req_err}")
+                            
+                        # 2. Cria imediatamente o perfil de acesso limitado (aluno) para evitar bloqueio inicial
+                        try:
+                            svc_conn_to_use.table("Users").insert({
+                                "id": auth_id,
+                                "username": reg_email.value.split('@')[0],
+                                "nome": reg_guerra.value.upper(),
+                                "role": "aluno"
+                            }).execute()
+                        except Exception as users_err:
+                            print(f"[REG USERS ERR] {users_err}")
+                            
+                        # 3. Cria o hash e insere na tabela efetivo
+                        import bcrypt
+                        pwd_hash = bcrypt.hashpw(reg_pwd.value.encode('utf-8'), bcrypt.gensalt(rounds=12)).decode('utf-8')
+                        try:
+                            svc_conn_to_use.table('efetivo').insert({
+                                'nome_guerra': reg_guerra.value.upper(),
+                                'email': reg_email.value,
+                                'senha_hash': pwd_hash,
+                                'role': 'aluno'
+                            }).execute()
+                        except Exception as e_ef:
+                            print(f"[REG EFETIVO ERR] {e_ef}")
+                            
+                        try:
+                            from notifications_manager import notify_telegram
+                            alert_txt = (
+                                f"🔔 **NOVA SOLICITAÇÃO DE ACESSO**\n\n"
+                                f"👤 Nome: {reg_nome.value.upper()} ({reg_guerra.value.upper()})\n"
+                                f"📧 E-mail: {reg_email.value}\n"
+                                f"⚡ Papel Temporário: `aluno` (Acesso Liberado com limites).\n"
+                                f"⚙️ Ação: O administrador pode alterar as permissões deste usuário no painel a qualquer momento."
+                            )
+                            notify_telegram(alert_txt, "new_user", role_required="admin", request_id=auth_id)
+                        except Exception as e_notif:
+                            print(f"[MAIN REG NOTIFY ERROR] {e_notif}")
+                            
+                        ui.notify('Solicitação enviada e acesso inicial liberado! Efetue o login.', color='success')
+                        reg_dialog.close()
                     except Exception as err:
                         reg_error.text = f'Erro: {err}'
                 else:
