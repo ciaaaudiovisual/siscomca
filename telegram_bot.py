@@ -152,8 +152,8 @@ async def handle_pelotao_selection(bot_instance, message, state):
     state['data']['alunos_pelotao'] = alunos_pelotao
     
     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-    # Ordena os alunos por número interno
-    alunos_pelotao_sorted = sorted(alunos_pelotao, key=lambda x: int(x.get('numero_interno', 0)) if str(x.get('numero_interno', '')).isdigit() else 999)
+    # Ordena os alunos por ordem alfabética do nome de guerra
+    alunos_pelotao_sorted = sorted(alunos_pelotao, key=lambda x: str(x.get('nome_guerra', '')).upper())
     for i in range(0, len(alunos_pelotao_sorted), 2):
         row = [types.KeyboardButton(f"MIKE {a['numero_interno']} - {a['nome_guerra']}") for a in alunos_pelotao_sorted[i:i+2]]
         markup.row(*row)
@@ -1163,6 +1163,9 @@ def setup_handlers(bot_instance):
                     await bot_instance.reply_to(message, f"⚠️ Nenhum aluno encontrado com '{text}'. Digite novamente ou selecione Cancelar:", reply_markup=get_cancel_keyboard())
                     return
                 
+                # Ordena os resultados da busca por ordem alfabética do nome de guerra
+                matches = sorted(matches, key=lambda x: str(x.get('nome_guerra', '')).upper())
+                
                 if len(matches) > 1:
                     state['step'] = 'choose_student'
                     state['data']['matches'] = matches[:10] # Limita a 10 opções
@@ -1801,6 +1804,9 @@ def setup_handlers(bot_instance):
                     await bot_instance.reply_to(message, f"⚠️ Nenhum aluno encontrado com '{text}'. Digite novamente ou selecione Cancelar:", reply_markup=get_cancel_keyboard())
                     return
                 
+                # Ordena os resultados da busca por ordem alfabética do nome de guerra
+                matches = sorted(matches, key=lambda x: str(x.get('nome_guerra', '')).upper())
+                
                 if len(matches) > 1:
                     state['step'] = 'choose_student'
                     state['data']['matches'] = matches[:10] # Limita a 10 opções
@@ -2414,6 +2420,9 @@ def setup_handlers(bot_instance):
                     await bot_instance.reply_to(message, f"⚠️ Nenhum aluno encontrado com '{text}'. Digite novamente ou selecione Cancelar:", reply_markup=get_cancel_keyboard())
                     return
                 
+                # Ordena os resultados da busca por ordem alfabética do nome de guerra
+                matches = sorted(matches, key=lambda x: str(x.get('nome_guerra', '')).upper())
+                
                 if len(matches) > 1:
                     state['step'] = 'choose_student'
                     state['data']['matches'] = matches[:10]
@@ -2702,6 +2711,9 @@ async def perform_consulta_search(bot_instance, message, profile, term):
         await bot_instance.reply_to(message, f"⚠️ Nenhum aluno encontrado com '{term}'. Consulta abortada.", reply_markup=get_main_menu_keyboard())
         clear_state(chat_id)
         return
+        
+    # Ordena os resultados da busca por ordem alfabética do nome de guerra
+    matches = sorted(matches, key=lambda x: str(x.get('nome_guerra', '')).upper())
         
     if len(matches) > 1:
         chat_states[chat_id] = {
