@@ -19,10 +19,10 @@ ROLE_OPTIONS = {
 def render_page():
     # Container principal com refresh/carregamento dinâmico
     container = ui.column().classes('w-full q-pa-lg gap-6')
+    selected_user_ids = set()
 
     def reload_admin_data():
         container.clear()
-        selected_user_ids = set()
         
         # Carregar solicitações pendentes e usuários
         db_conn = get_db_connection()
@@ -656,11 +656,29 @@ def render_page():
                             ui.label(f'Operadores Cadastrados ({len(users_data)})').classes('text-lg font-bold').style(f'color: {THEME["text_main"]}')
                         
                         with ui.row().classes('gap-2 items-center'):
+                            # Selecionar/Desselecionar Todos
+                            all_ids = {u['id'] for u in users_data}
+                            all_selected = all_ids == selected_user_ids if all_ids else False
+                            
+                            def toggle_select_all():
+                                if all_selected:
+                                    selected_user_ids.clear()
+                                else:
+                                    selected_user_ids.update(all_ids)
+                                reload_admin_data()
+                                
+                            ui.button(
+                                '⬜ DESSELECIONAR TODOS' if all_selected else '☑️ SELECIONAR TODOS',
+                                on_click=toggle_select_all
+                            ).props('outline dense color=cyan').classes('text-xs px-3 py-1.5')
+
                             # Botão de exclusão em lote
+                            batch_count = len(selected_user_ids)
                             batch_del_btn = ui.button(
-                                '🗑️ EXCLUIR SELECIONADOS (0)',
+                                f'🗑️ EXCLUIR SELECIONADOS ({batch_count})',
                                 on_click=lambda: open_batch_delete_dialog(selected_user_ids)
-                            ).props('unelevated dense color=red').classes('text-xs px-3 py-1.5').style('display: none;')
+                            ).props('unelevated dense color=red').classes('text-xs px-3 py-1.5')
+                            batch_del_btn.set_visibility(batch_count > 0)
                             
                             # Botão administrativo para novo cadastro direto
                             ui.button(
@@ -689,7 +707,10 @@ def render_page():
                                                 batch_del_btn.set_visibility(count > 0)
                                                 batch_del_btn.text = f'🗑️ EXCLUIR SELECIONADOS ({count})'
                                             
-                                            ui.checkbox(on_change=on_checkbox_change).props('dense dark color=red')
+                                            ui.checkbox(
+                                                value=u['id'] in selected_user_ids,
+                                                on_change=on_checkbox_change
+                                            ).props('dense dark color=red')
 
                                             # Foto de Perfil Tática
                                             user_photo = u.get('url_foto') or ''
