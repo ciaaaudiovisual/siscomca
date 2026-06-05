@@ -12,7 +12,8 @@ ROLE_OPTIONS = {
     'supervisor': 'Supervisor (Edição Completa)',
     'admin': 'Administrador (Acesso Total)',
     'aluno': 'Aluno (Visualização)',
-    'ajosca': 'Ajosca (Acesso Ajosca)'
+    'ajosca': 'Ajosca (Acesso Ajosca)',
+    'tv': 'Modo TV/Monitor'
 }
 
 def render_page():
