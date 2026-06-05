@@ -167,7 +167,9 @@ def build_layout(page_func):
             'admin': 'Administrador',
             'supervisor': 'Supervisor',
             'comcia': 'Comissão CIA',
-            'compel': 'Companhia Alunos'
+            'compel': 'Companhia Alunos',
+            'aluno': 'Aluno',
+            'ajosca': 'Ajosca'
         }
         user_posto = user.get('posto') or role_map.get(role, 'Operador')
         

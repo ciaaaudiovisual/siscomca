@@ -1548,7 +1548,7 @@ def render_page():
                                                 ui.label(f_key).classes('text-[10px] text-grey-5 font-mono shrink-0')
                                             
                                             with ui.row().classes('w-full gap-4 items-center'):
-                                                roles_list = ['admin', 'supervisor', 'operador', 'comcia', 'compel']
+                                                roles_list = ['admin', 'supervisor', 'operador', 'comcia', 'compel', 'aluno', 'ajosca']
                                                 checkboxes = {}
                                                 for role in roles_list:
                                                     is_checked = role in f_roles

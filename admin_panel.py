@@ -10,7 +10,9 @@ ROLE_OPTIONS = {
     'compel': 'Compel (Aluno/Apenas Visualização)',
     'comcia': 'Comcia (Comandante de Cia/Edição Limitada)',
     'supervisor': 'Supervisor (Edição Completa)',
-    'admin': 'Administrador (Acesso Total)'
+    'admin': 'Administrador (Acesso Total)',
+    'aluno': 'Aluno (Visualização)',
+    'ajosca': 'Ajosca (Acesso Ajosca)'
 }
 
 def render_page():
@@ -691,7 +693,7 @@ def render_page():
                                             # Foto de Perfil Tática
                                             user_photo = u.get('url_foto') or ''
                                             user_avatar_src = user_photo if isinstance(user_photo, str) and user_photo.startswith('http') else 'https://cdn.quasar.dev/img/boy-avatar.png'
-                                            role_color = '#00e676' if u.get('role') == 'admin' else '#00b0ff' if u.get('role') == 'supervisor' else '#e040fb' if u.get('role') == 'comcia' else '#90a4ae'
+                                            role_color = '#00e676' if u.get('role') == 'admin' else '#00b0ff' if u.get('role') == 'supervisor' else '#e040fb' if u.get('role') == 'comcia' else '#ff9100' if u.get('role') == 'aluno' else '#d500f9' if u.get('role') == 'ajosca' else '#90a4ae'
                                             ui.element('div').classes('shadow border shrink-0').style(
                                                 f"width: 48px; height: 48px; background-image: url('{user_avatar_src}'); "
                                                 f"background-size: cover; background-repeat: no-repeat; "
