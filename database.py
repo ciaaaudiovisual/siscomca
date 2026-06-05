@@ -866,7 +866,7 @@ def load_data(table_name: str, db_conn = None) -> pd.DataFrame:
     """Carrega dados de uma tabela com paginação direto do Supabase"""
     db = db_conn or get_db_connection()
     if not db:
-        return pd.DataFrame()
+        return get_mock_table(table_name)
     try:
         all_data = []
         page = 0

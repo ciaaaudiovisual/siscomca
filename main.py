@@ -531,33 +531,59 @@ def login_page(request: Request):
                     reg_error.text = 'A senha deve ter no mínimo 6 caracteres'
                     return
                 
-                from database import get_db_connection
+                from database import get_db_connection, get_service_db_connection
                 db_conn = get_db_connection()
                 if db_conn:
                     try:
                         res = db_conn.auth.sign_up({"email": reg_email.value, "password": reg_pwd.value})
                         if res.user:
-                            db_conn.table("RegistrationRequests").insert({
-                                "id": res.user.id,
-                                "email": reg_email.value,
-                                "nome_completo": reg_nome.value,
-                                "nome_guerra": reg_guerra.value,
-                                "status": "pending"
-                            }).execute()
+                            # Conexão de serviço para contornar RLS temporariamente e criar o perfil do usuário
+                            svc_conn = get_service_db_connection()
+                            if svc_conn:
+                                # 1. Cria a solicitação pendente para aprovação/controle posterior
+                                svc_conn.table("RegistrationRequests").insert({
+                                    "id": res.user.id,
+                                    "email": reg_email.value,
+                                    "nome_completo": reg_nome.value,
+                                    "nome_guerra": reg_guerra.value,
+                                    "status": "pending"
+                                }).execute()
+                                
+                                # 2. Cria imediatamente o perfil de acesso limitado (aluno) para evitar bloqueio inicial
+                                svc_conn.table("Users").insert({
+                                    "id": res.user.id,
+                                    "username": reg_email.value.split('@')[0],
+                                    "nome": reg_guerra.value.upper(),
+                                    "role": "aluno"
+                                }).execute()
+                                
+                                # 3. Cria o hash e insere na tabela efetivo
+                                import bcrypt
+                                pwd_hash = bcrypt.hashpw(reg_pwd.value.encode('utf-8'), bcrypt.gensalt(rounds=12)).decode('utf-8')
+                                try:
+                                    svc_conn.table('efetivo').insert({
+                                        'nome_guerra': reg_guerra.value.upper(),
+                                        'email': reg_email.value,
+                                        'senha_hash': pwd_hash,
+                                        'role': 'aluno'
+                                    }).execute()
+                                except Exception as e_ef:
+                                    print(f"[REG EFETIVO ERR] {e_ef}")
                             
                             try:
                                 from notifications_manager import notify_telegram
                                 alert_txt = (
-                                    f"🔔 **SOLICITAÇÃO DE NOVO CADASTRO**\n\n"
+                                    f"🔔 **NOVA SOLICITAÇÃO DE ACESSO**\n\n"
                                     f"👤 Nome: {reg_nome.value.upper()} ({reg_guerra.value.upper()})\n"
                                     f"📧 E-mail: {reg_email.value}\n"
-                                    f"⚡ Status: Aguardando aprovação administrativa no painel."
+                                    f"⚡ Papel Temporário: `aluno` (Acesso Liberado com limites).\n"
+                                    f"⚙️ Ação: O administrador pode alterar as permissões deste usuário no painel a qualquer momento."
                                 )
                                 notify_telegram(alert_txt, "new_user", role_required="admin")
                             except Exception as e_notif:
                                 print(f"[MAIN REG NOTIFY ERROR] {e_notif}")
                                 
-                            ui.notify('Solicitação enviada com sucesso! Aguarde aprovação.', color='success')
+                            ui.notify('Solicitação enviada e acesso inicial liberado! Efetue o login.', color='success')
                             reg_dialog.close()
                         else:
                             reg_error.text = 'Não foi possível registrar o usuário'
@@ -570,6 +596,54 @@ def login_page(request: Request):
             with ui.row().classes('w-full justify-end gap-2'):
                 ui.button('Cancelar', on_click=reg_dialog.close).props('flat color=grey')
                 ui.button('Enviar', on_click=submit_registration).props('unelevated color=amber-9 text-color=black')
+
+    # Dialog de Recuperação de Senha
+    with ui.dialog() as rec_pwd_dialog, ui.card().classes('w-96 q-pa-md').style(
+        f'background: {theme.colors["bg_panel"]}; border: {theme.colors["border"]};'
+    ):
+        with ui.column().classes('w-full items-center gap-4'):
+            ui.label('🔑 Recuperar Senha').classes('text-white text-lg font-bold')
+            ui.label('Insira seu e-mail cadastrado para solicitar a recuperação da senha.').classes('text-grey-5 text-xs text-center')
+            
+            rec_email = ui.input('E-mail').props('dark dense outlined w-full')
+            rec_error = ui.label('').classes('text-caption text-red')
+            
+            def submit_recovery():
+                if not rec_email.value:
+                    rec_error.text = 'Preencha o campo de e-mail'
+                    return
+                
+                from database import get_db_connection
+                db_conn = get_db_connection()
+                if db_conn:
+                    try:
+                        # 1. Envia link de recuperação pelo Supabase Auth
+                        db_conn.auth.reset_password_for_email(rec_email.value)
+                        
+                        # 2. Alerta o administrador no Telegram (para contingência caso o SMTP atinja limite)
+                        try:
+                            from notifications_manager import notify_telegram
+                            alert_txt = (
+                                f"🔑 **SOLICITAÇÃO DE RECUPERAÇÃO DE SENHA**\n\n"
+                                f"📧 E-mail: {rec_email.value}\n"
+                                f"⚡ Ação: Caso o e-mail automático não chegue devido a limites de SMTP do Supabase, "
+                                f"você pode redefinir a senha deste militar no painel web em *Usuários e Permissões*."
+                            )
+                            notify_telegram(alert_txt, "saude", role_required="admin")
+                        except Exception as e_notif:
+                            print(f"[RECOVERY NOTIFY ERROR] {e_notif}")
+                        
+                        ui.notify('Solicitação enviada! Verifique seu e-mail ou fale com o administrador.', color='success')
+                        rec_pwd_dialog.close()
+                    except Exception as err:
+                        rec_error.text = f'Erro: {err}'
+                else:
+                    ui.notify('Solicitação simulada com sucesso (modo offline)', color='warning')
+                    rec_pwd_dialog.close()
+            
+            with ui.row().classes('w-full justify-end gap-2'):
+                ui.button('Cancelar', on_click=rec_pwd_dialog.close).props('flat color=grey')
+                ui.button('Enviar', on_click=submit_recovery).props('unelevated color=amber-9 text-color=black')
 
     # Fundo do login
     with ui.column().classes('w-full h-screen items-center justify-center p-4 gap-4').style(
@@ -597,7 +671,7 @@ def login_page(request: Request):
                         ui.label('🔐 ACESSO AO SISTEMA').classes('text-white text-md font-bold cyber-title tracking-widest')
                         ui.label('Entre com suas credenciais').classes('text-grey-5 text-xs')
                     
-                    user = ui.input('E-mail', value=app.storage.user.get('last_username', '')).props('dark outlined w-full autocomplete=username name=username').classes('w-full text-sm')
+                    user = ui.input('E-mail ou Usuário', value=app.storage.user.get('last_username', '')).props('dark outlined w-full autocomplete=username name=username').classes('w-full text-sm')
                     pwd = ui.input('Senha', password=True).props('dark outlined w-full autocomplete=current-password name=password').classes('w-full text-sm')
                     
                     session_type = ui.radio(
@@ -629,8 +703,30 @@ def login_page(request: Request):
                             error_label.text = 'Sem conexão com o Supabase. Verifique sua rede.'
                             return
                         
+                        # Resolve o login para e-mail caso o usuário tenha inserido o username/nome de guerra
+                        login_email = user.value.strip()
+                        if '@' not in login_email:
+                            try:
+                                from database import get_service_db_connection
+                                svc_db = get_service_db_connection()
+                                if svc_db:
+                                    # Busca no efetivo pelo nome_guerra (case-insensitive)
+                                    res_ef = svc_db.table('efetivo').select('email').eq('nome_guerra', login_email.upper()).execute()
+                                    if res_ef.data and res_ef.data[0].get('email'):
+                                        login_email = res_ef.data[0]['email']
+                                    else:
+                                        # Tenta buscar pelo username em Users
+                                        res_u = svc_db.table('Users').select('nome').eq('username', login_email.lower()).execute()
+                                        if res_u.data:
+                                            guerra = res_u.data[0]['nome']
+                                            res_ef2 = svc_db.table('efetivo').select('email').eq('nome_guerra', guerra.upper()).execute()
+                                            if res_ef2.data and res_ef2.data[0].get('email'):
+                                                login_email = res_ef2.data[0]['email']
+                            except Exception as lookup_err:
+                                print(f"[LOGIN LOOKUP ERR] {lookup_err}")
+                        
                         try:
-                            auth_res = authenticate_user_supabase(user.value, pwd.value)
+                            auth_res = authenticate_user_supabase(login_email, pwd.value)
                         except Exception as e:
                             print(f"Erro ao autenticar no Supabase: {e}")
                             auth_res = None
@@ -649,7 +745,7 @@ def login_page(request: Request):
                                 'username': profile.get('username'),
                                 'nome_guerra': profile.get('nome', profile.get('username')),
                                 'role': profile.get('role', 'compel'),
-                                'email': user.value
+                                'email': login_email
                             }
                             app.storage.user['supabase_session'] = session_data
                             
@@ -665,13 +761,15 @@ def login_page(request: Request):
                             # Força redirecionamento físico de página via JS para o gerenciador de senhas do navegador salvar as credenciais
                             ui.run_javascript(f"window.location.href = '{target_path}'")
                         else:
-                            error_label.text = 'E-mail ou senha incorretos'
+                            error_label.text = 'E-mail, usuário ou senha incorretos'
                             import log_acessos
                             log_acessos.log_access(f"Falha de Login: {user.value}", "Autenticação", "FALHA")
- 
+  
                     ui.button('🚀 Entrar no Sistema').props('type=submit unelevated color=amber-9 text-color=black w-full bold').classes('q-py-sm font-bold text-sm cyber-title w-full')
                     
-                    ui.button('📝 Não tem uma conta? Solicite acesso', on_click=reg_dialog.open).props('flat color=grey no-caps').classes('w-full text-xs text-center')
+                    with ui.row().classes('w-full justify-between items-center q-mt-xs'):
+                        ui.button('📝 Solicitar acesso', on_click=reg_dialog.open).props('flat color=grey no-caps').classes('text-xs')
+                        ui.button('🔑 Esqueci a senha', on_click=rec_pwd_dialog.open).props('flat color=grey no-caps').classes('text-xs')
 
         # Rodapé (Footer) centralizado fora do card principal
         ui.label('🚀 Desenvolvido por Sargento Calaça 🇧🇷').classes('text-amber-5 text-xs font-bold tracking-wider opacity-80')

@@ -182,20 +182,16 @@ class TestTelegramBot:
 
 
 
-class TestWorkflow:
-    """Testes do workflow"""
+class TestSiscomcaDashboard:
+    """Testes do dashboard e programacao"""
     
-    def test_workflow_import(self):
-        import workflow
-        assert hasattr(workflow, 'render_page')
+    def test_dashboard_import(self):
+        import siscomca_dashboard
+        assert hasattr(siscomca_dashboard, 'render_page')
 
-
-class TestProducao:
-    """Testes de produção"""
-    
-    def test_producao_import(self):
-        import producao
-        assert hasattr(producao, 'render_page')
+    def test_programacao_import(self):
+        import programacao
+        assert hasattr(programacao, 'render_page')
 
 
 if __name__ == "__main__":
