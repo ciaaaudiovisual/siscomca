@@ -26,11 +26,15 @@ def render_page():
         novas_colunas = {
             'media_academica': 0.0, 'endereco': '', 'telefone_contato': '',
             'contato_emergencia_nome': '', 'contato_emergencia_numero': '', 'numero_armario': '',
-            'url_foto': '', 'nip': '', 'especialidade': ''
+            'url_foto': '', 'nip': '', 'especialidade': '', 'ano_letivo': '2025'
         }
         for col, default_value in novas_colunas.items():
             if col not in alunos_df.columns:
                 alunos_df[col] = default_value
+        
+        # Garante valores válidos para o ano letivo
+        alunos_df['ano_letivo'] = alunos_df['ano_letivo'].fillna('2025').astype(str).str.strip()
+        alunos_df['ano_letivo'] = alunos_df['ano_letivo'].replace('', '2025')
 
         config_dict = pd.Series(config_df.valor.values, index=config_df.chave).to_dict() if not config_df.empty else {}
         
@@ -100,13 +104,20 @@ def render_page():
         # Estado local de filtragem e paginação
         state = app.storage.user.get('alunos_state', {
             'search': '', 'pelotao': 'Todos', 'especialidade': 'Todas',
-            'sort': 'Padrão (Nº Interno)', 'page': 1
+            'sort': 'Padrão (Nº Interno)', 'page': 1, 'ano_letivo': '2026'
         })
+        # Garante retrocompatibilidade se já existir estado na sessão sem a chave
+        if 'ano_letivo' not in state:
+            state['ano_letivo'] = '2026'
         app.storage.user['alunos_state'] = state
 
         # --- LISTA FILTRADA ---
         def obter_alunos_filtrados():
             df = alunos_df.copy()
+            
+            # Filtro Ano Letivo
+            if state.get('ano_letivo', 'Todos') != 'Todos':
+                df = df[df['ano_letivo'] == state['ano_letivo']]
             
             # Filtro pelotão
             if state['pelotao'] != 'Todos':
@@ -158,11 +169,15 @@ def render_page():
                 
                 # Especialidade
                 especs = ['Todas'] + sorted(list(alunos_df['especialidade'].dropna().unique()))
-                ui.select(especs, label='Especialidade', value=state['especialidade'], on_change=lambda e: update_state('especialidade', e.value)).props('dark outlined dense').classes('w-48')
+                ui.select(especs, label='Especialidade', value=state['especialidade'], on_change=lambda e: update_state('especialidade', e.value)).props('dark outlined dense').classes('w-40')
+                
+                # Ano Letivo
+                anos_letivos = ['Todos'] + sorted(list(set(list(alunos_df['ano_letivo'].dropna().unique()) + ['2025', '2026'])))
+                ui.select(anos_letivos, label='Ano Letivo', value=state['ano_letivo'], on_change=lambda e: update_state('ano_letivo', e.value)).props('dark outlined dense').classes('w-40')
                 
                 # Ordenação
                 sorts = ['Padrão (Nº Interno)', 'Maior Conceito', 'Menor Conceito']
-                ui.select(sorts, label='Ordenar por', value=state['sort'], on_change=lambda e: update_state('sort', e.value)).props('dark outlined dense').classes('w-48')
+                ui.select(sorts, label='Ordenar por', value=state['sort'], on_change=lambda e: update_state('sort', e.value)).props('dark outlined dense').classes('w-40')
 
         # Container dos Alunos (Grade Responsiva: 3 colunas em desktop, 2 colunas em tablet, 1 coluna em celular)
         alunos_container = ui.element('div').classes('w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4')
@@ -270,6 +285,7 @@ def render_page():
                 pelo = ui.input('Pelotão*').props('dark outlined dense w-full')
                 nip_val = ui.input('NIP').props('dark outlined dense w-full')
                 espec_val = ui.input('Especialidade').props('dark outlined dense w-full')
+                ano_let = ui.input('Ano Letivo*', value='2026').props('dark outlined dense w-full')
                 foto_url = ui.input('URL da Foto (Opcional)').props('dark outlined dense w-full')
                 
                 async def handle_add_upload(e):
@@ -291,7 +307,7 @@ def render_page():
                 ui.upload(label='Enviar Foto para o Supabase', on_upload=handle_add_upload, auto_upload=True, max_files=1).props('dark dense').classes('w-full h-20')
                 
                 def salvar():
-                    if not num_int.value or not nome_g.value or not pelo.value:
+                    if not num_int.value or not nome_g.value or not pelo.value or not ano_let.value:
                         ui.notify('Por favor, preencha os campos obrigatórios (*)', color='warning')
                         return
                     try:
@@ -302,6 +318,7 @@ def render_page():
                             'nome_completo': nome_c.value or '',
                             'pelotao': pelo.value,
                             'especialidade': espec_val.value or '',
+                            'ano_letivo': ano_let.value,
                             'nip': nip_val.value or '',
                             'url_foto': foto_url.value or ''
                         }
@@ -527,6 +544,9 @@ def render_page():
             emerg_nome_val = sanitize_str(aluno.get('contato_emergencia_nome'))
             emerg_tel_val = sanitize_str(aluno.get('contato_emergencia_numero'))
             armario_val = sanitize_str(aluno.get('numero_armario'))
+            ano_letivo_val = sanitize_str(aluno.get('ano_letivo'))
+            if not ano_letivo_val:
+                ano_letivo_val = "2025"
             
             d = ui.dialog()
             with d, ui.card().classes('w-[560px] q-pa-lg rounded-2xl').style(
@@ -630,6 +650,7 @@ def render_page():
 
                     with ui.tab_panel(tab_acad).classes('q-pa-none gap-3 column'):
                         media_a = ui.number('Média Acadêmica Final', value=float(aluno.get('media_academica') or 0.0), min=0.0, max=10.0, format='%.2f').props('dark outlined dense').classes('w-full text-xs font-mono')
+                        ano_let = ui.input('Ano Letivo', value=ano_letivo_val).props('dark outlined dense').classes('w-full text-xs')
                         with ui.card().classes('w-full q-pa-sm border border-cyan-500/20 bg-cyan-950/20 rounded'):
                             ui.label('💡 A média acadêmica é integrada diretamente ao cálculo do conceito de comportamento final do militar no SisCOMCA.').classes('text-[11px] text-cyan-300 leading-tight')
 
@@ -648,6 +669,7 @@ def render_page():
                             'numero_interno': num_i.value or '',
                             'pelotao': pelo_val.value or '',
                             'especialidade': espec_val.value or '',
+                            'ano_letivo': ano_let.value or '2025',
                             'url_foto': foto_url.value or '',
                             'nip': nip_val.value or '',
                             'endereco': end.value or '',
