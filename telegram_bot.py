@@ -2709,6 +2709,26 @@ async def init_bot():
     try:
         print("[TELEGRAM BOT] Conectando ao Telegram...", flush=True)
         
+        # DIAGNOSTICO DE REDE
+        try:
+            import socket
+            print("[TELEGRAM DIAGNOSTIC] Iniciando teste de conexao...", flush=True)
+            for host in ["api.telegram.org", "telegram-proxy.pixdiostudio.workers.dev", "hjlvxxmeefjgymwerqmk.supabase.co"]:
+                try:
+                    ips = socket.getaddrinfo(host, 443)
+                    print(f"[TELEGRAM DIAGNOSTIC] Resolvido {host} para: {[ip[4][0] for ip in ips]}", flush=True)
+                except Exception as e_dns:
+                    print(f"[TELEGRAM DIAGNOSTIC] Erro de DNS para {host}: {e_dns}", flush=True)
+                    
+                try:
+                    s = socket.create_connection((host, 443), timeout=5)
+                    print(f"[TELEGRAM DIAGNOSTIC] Conexao TCP com {host}:443 realizada com SUCESSO!", flush=True)
+                    s.close()
+                except Exception as e_tcp:
+                    print(f"[TELEGRAM DIAGNOSTIC] Erro de conexao TCP com {host}:443 -> {e_tcp}", flush=True)
+        except Exception as e_diag:
+            print(f"[TELEGRAM DIAGNOSTIC] Falha ao executar diagnostico: {e_diag}", flush=True)
+            
         import telebot
         custom_api_url = os.getenv("TELEGRAM_API_URL")
         if custom_api_url:
