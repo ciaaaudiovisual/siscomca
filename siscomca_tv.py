@@ -610,6 +610,12 @@ def _carregar_dados_tv(prog_date: datetime = None):
         except Exception as e:
             print(f"[TV] Erro Pernoite: {e}")
 
+    # 8.1 Calcular alunos pendentes de chamada (sem registro de presença/ausência hoje)
+    alunos_todos_nis = set(alunos_df['numero_interno'].astype(str).str.upper()) if not alunos_df.empty else set()
+    respondidos_nis = set(presenca_df['numero_interno'].astype(str).str.upper()) if not presenca_df.empty else set()
+    pendentes_nis = alunos_todos_nis - respondidos_nis
+    dados['pendentes_count'] = len(pendentes_nis)
+
     # 9. Polling interval configurado
     dados['polling_interval'] = get_tv_polling_interval()
     return dados
@@ -1578,14 +1584,19 @@ def render_page():
                 # 2. Painel de Quantitativos (KPIs 4x2)
                 quant_container.clear()
                 with quant_container:
-                    def build_mini_kpi(val, label, color, icon):
-                        with ui.card().classes('items-center text-center border border-gray-900').style(
+                    def build_mini_kpi(val, label, color, icon, subtext=None):
+                        # Se houver pendentes na chamada, aplica uma borda pulsante âmbar no KPI de ausentes
+                        border_color = 'border-amber-500 animate-pulse' if subtext and label == 'Ausentes/Faltas' else 'border-gray-900'
+                        with ui.card().classes(f'items-center text-center border {border_color}').style(
                             f'background:#050505; border-top: 3px solid {color}; flex: 1 1 0; min-width: 60px; margin: 0; padding: 4px !important; display: flex; flex-direction: column; justify-content: center; min-height: 0; height: 100%;'
                         ):
                             with ui.row().classes('items-center justify-center gap-1 no-wrap w-full'):
                                 ui.icon(icon, color='grey-6', size='0.9rem')
                                 ui.label(label).classes('kpi-label')
-                            ui.label(str(val)).classes('kpi-value').style(f'color: {color}; margin-top: 2px;')
+                            with ui.row().classes('items-center justify-center gap-1 w-full no-wrap'):
+                                ui.label(str(val)).classes('kpi-value').style(f'color: {color}; margin-top: 2px;')
+                                if subtext:
+                                    ui.label(subtext).classes('text-amber-5 text-[11px] font-black animate-pulse ml-0.5')
                 
                     baixados_count = len([x for x in d['saude_ativos'] if x['categoria'] == 'enfermaria'])
                     dispensados_count = len([x for x in d['saude_ativos'] if x['categoria'] == 'dispensa'])
@@ -1597,12 +1608,13 @@ def render_page():
                     else:
                         ausentes_count = d.get('ausentes_hoje', 0)
                     pernoite_count = d.get('pernoite_count', 0)
+                    pendentes_val = d.get('pendentes_count', 0)
 
                     # Linha 1: Efetivo, Presentes, Ausentes/Faltas, Licenças Autorizadas
                     with ui.row().classes('w-full gap-1 justify-between no-wrap').style('flex: 1; min-height: 0;'):
                         build_mini_kpi(d['total_alunos'], 'Efetivo', '#D4AF37', 'groups')
                         build_mini_kpi(d['presentes_hoje'], 'Presentes', '#4CAF50', 'how_to_reg')
-                        build_mini_kpi(ausentes_count, 'Ausentes/Faltas', '#F44336', 'person_off')
+                        build_mini_kpi(ausentes_count, 'Ausentes/Faltas', '#F44336', 'person_off', subtext=f"(+{pendentes_val})" if pendentes_val > 0 else None)
                         build_mini_kpi(licenciados_count, 'Licenças Autorizadas', '#2196F3', 'flight_takeoff')
                 
                     # Linha 2: Enfermaria, Dispensados, Pernoite
