@@ -3078,7 +3078,7 @@ def setup_handlers(bot_instance):
                         await bot_instance.reply_to(message, f"⚠️ Você já está cadastrado e autorizado como {profile['nome']}!", reply_markup=get_settings_keyboard(True))
                         return
                     state['step'] = 'request_access_name'
-                    await bot_instance.reply_to(message, "📝 **Solicitação de Acesso**\n\nPor favor, digite seu **Nome Completo**:", reply_markup=get_cancel_keyboard(), parse_mode='Markdown')
+                    await bot_instance.reply_to(message, "📝 **Solicitação de Acesso**\n\nPor favor, informe seu **Posto ou Graduação** (ex: Sgt, Ten, Cap, etc.):", reply_markup=get_cancel_keyboard(), parse_mode='Markdown')
                 elif "notificações" in clean_opt or "notificacoes" in clean_opt:
                     profile = state['user']
                     if not profile:
@@ -3129,12 +3129,12 @@ def setup_handlers(bot_instance):
             elif step == 'request_access_name':
                 state['data']['reg_nome'] = text
                 state['step'] = 'request_access_guerra'
-                await bot_instance.reply_to(message, "👮 Digite seu **Nome de Guerra** (ex: Sgt Silva):", reply_markup=get_cancel_keyboard(), parse_mode='Markdown')
+                await bot_instance.reply_to(message, "👮 Digite seu **Nome de Guerra** (ex: Silva):", reply_markup=get_cancel_keyboard(), parse_mode='Markdown')
 
             elif step == 'request_access_guerra':
                 state['data']['reg_guerra'] = text
                 state['step'] = 'request_access_email'
-                await bot_instance.reply_to(message, "📧 Digite seu **E-mail de Serviço**:", reply_markup=get_cancel_keyboard(), parse_mode='Markdown')
+                await bot_instance.reply_to(message, "📧 Digite seu **E-mail cadastrado no sistema** (para vinculação):", reply_markup=get_cancel_keyboard(), parse_mode='Markdown')
 
             elif step == 'request_access_email':
                 state['data']['reg_email'] = text
@@ -3142,9 +3142,9 @@ def setup_handlers(bot_instance):
                     from notifications_manager import notify_telegram
                     alert_txt = (
                         f"🔔 **SOLICITAÇÃO DE NOVO ACESSO (TELEGRAM)**\n\n"
-                        f"👤 Nome: {state['data']['reg_nome'].upper()}\n"
+                        f"🎖️ Posto/Grad: {state['data']['reg_nome'].upper()}\n"
                         f"👮 Nome de Guerra: {state['data']['reg_guerra'].upper()}\n"
-                        f"📧 E-mail: {state['data']['reg_email']}\n"
+                        f"📧 E-mail cadastrado: {state['data']['reg_email']}\n"
                         f"⚡ Telegram ID: `{message.from_user.id}`\n\n"
                         f"Aprovação recomendada via painel Web vinculando o Telegram ID correspondente."
                     )
