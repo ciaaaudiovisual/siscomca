@@ -294,7 +294,8 @@ def render_page():
                     if inspect.isawaitable(file_bytes):
                         file_bytes = await file_bytes
                     ni = num_int.value or "temp"
-                    filename = f"alunos/{ni}.jpg"
+                    ano = ano_let.value or "2026"
+                    filename = f"alunos/{ano}_{ni}.jpg"
                     from database import upload_file_to_supabase_storage
                     public_url = await asyncio.to_thread(upload_file_to_supabase_storage, file_bytes, filename, e.file.content_type)
                     if public_url:
@@ -601,7 +602,8 @@ def render_page():
                             if inspect.isawaitable(file_bytes):
                                 file_bytes = await file_bytes
                             ni = num_i.value or aluno['numero_interno']
-                            filename = f"alunos/{ni}.jpg"
+                            ano = ano_let.value or aluno.get('ano_letivo', '2026')
+                            filename = f"alunos/{ano}_{ni}.jpg"
                             from database import upload_file_to_supabase_storage
                             public_url = await asyncio.to_thread(upload_file_to_supabase_storage, file_bytes, filename, e.file.content_type)
                             if public_url:
