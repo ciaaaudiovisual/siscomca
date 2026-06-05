@@ -101,9 +101,18 @@ def get_settings_keyboard(is_authorized=True):
         markup.row(types.KeyboardButton("📝 Solicitar Acesso"), types.KeyboardButton("⬅️ Voltar"))
     return markup
 
-def get_notifications_toggle_keyboard():
+def get_notifications_toggle_keyboard(user_prefs):
     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-    markup.row(types.KeyboardButton("🟢 Ativar Notificações"), types.KeyboardButton("🔴 Silenciar Notificações"))
+    
+    st_silence = "🔴 SIM" if user_prefs.get("silence_all", False) else "🟢 NÃO"
+    st_aviso = "🟢 ATIVADO" if user_prefs.get("notify_aviso", True) else "🔴 MUTADO"
+    st_saude = "🟢 ATIVADO" if user_prefs.get("notify_saude", True) else "🔴 MUTADO"
+    st_escala = "🟢 ATIVADO" if user_prefs.get("notify_escala", True) else "🔴 MUTADO"
+    st_new_user = "🟢 ATIVADO" if user_prefs.get("notify_new_user", True) else "🔴 MUTADO"
+    
+    markup.row(types.KeyboardButton(f"📢 Letreiro/Avisos: {st_aviso}"), types.KeyboardButton(f"🏥 Saúde: {st_saude}"))
+    markup.row(types.KeyboardButton(f"👮 Escalas: {st_escala}"), types.KeyboardButton(f"👥 Novos Acessos: {st_new_user}"))
+    markup.row(types.KeyboardButton(f"🔇 Silenciar Tudo: {st_silence}"))
     markup.row(types.KeyboardButton("⬅️ Voltar"))
     return markup
 
@@ -2836,7 +2845,7 @@ def setup_handlers(bot_instance):
                         f"Status atual: {status}\n\n"
                         f"Escolha uma opção abaixo para ativar ou silenciar todas as notificações:"
                     )
-                    await bot_instance.reply_to(message, prompt, reply_markup=get_notifications_toggle_keyboard(), parse_mode='Markdown')
+                    await bot_instance.reply_to(message, prompt, reply_markup=get_notifications_toggle_keyboard(user_prefs), parse_mode='Markdown')
                 elif "vincular conta" in clean_opt:
                     await bot_instance.reply_to(
                         message,
@@ -2882,25 +2891,44 @@ def setup_handlers(bot_instance):
             elif step == 'toggle_notifications':
                 profile = state['user']
                 if not profile:
-                    await bot_instance.reply_to(message, "⚠️ Você precisa vincular sua conta antes de configurar notificações.", reply_markup=get_settings_keyboard())
+                    await bot_instance.reply_to(message, "⚠️ Você precisa solicitar acesso e ter uma conta autorizada antes de configurar notificações.", reply_markup=get_settings_keyboard(False))
                     state['step'] = 'choose_option'
                     return
                 
                 from notifications_manager import get_user_preferences, save_user_preferences
                 user_prefs = get_user_preferences(profile['id'])
                 
-                if "ativar" in text.lower():
-                    user_prefs['silence_all'] = False
+                clean_text = text.lower()
+                if "letreiro/avisos" in clean_text:
+                    user_prefs['notify_aviso'] = not user_prefs.get('notify_aviso', True)
                     save_user_preferences(profile['id'], user_prefs)
-                    await bot_instance.reply_to(message, "🟢 Todas as notificações do sistema foram ATIVADAS com sucesso para você!", reply_markup=get_settings_keyboard())
-                    state['step'] = 'choose_option'
-                elif "silenciar" in text.lower():
-                    user_prefs['silence_all'] = True
+                    status = "🟢 ATIVADO" if user_prefs['notify_aviso'] else "🔴 MUTADO"
+                    await bot_instance.reply_to(message, f"📢 Notificações de Letreiro/Avisos alteradas para: {status}", reply_markup=get_notifications_toggle_keyboard(user_prefs))
+                elif "saúde" in clean_text or "saude" in clean_text:
+                    user_prefs['notify_saude'] = not user_prefs.get('notify_saude', True)
                     save_user_preferences(profile['id'], user_prefs)
-                    await bot_instance.reply_to(message, "🔴 Todas as notificações do sistema foram SILENCIADAS e não incomodarão mais você neste chat.", reply_markup=get_settings_keyboard())
+                    status = "🟢 ATIVADO" if user_prefs['notify_saude'] else "🔴 MUTADO"
+                    await bot_instance.reply_to(message, f"🏥 Notificações de Saúde alteradas para: {status}", reply_markup=get_notifications_toggle_keyboard(user_prefs))
+                elif "escalas" in clean_text:
+                    user_prefs['notify_escala'] = not user_prefs.get('notify_escala', True)
+                    save_user_preferences(profile['id'], user_prefs)
+                    status = "🟢 ATIVADO" if user_prefs['notify_escala'] else "🔴 MUTADO"
+                    await bot_instance.reply_to(message, f"👮 Notificações de Escalas alteradas para: {status}", reply_markup=get_notifications_toggle_keyboard(user_prefs))
+                elif "novos acessos" in clean_text:
+                    user_prefs['notify_new_user'] = not user_prefs.get('notify_new_user', True)
+                    save_user_preferences(profile['id'], user_prefs)
+                    status = "🟢 ATIVADO" if user_prefs['notify_new_user'] else "🔴 MUTADO"
+                    await bot_instance.reply_to(message, f"👥 Notificações de Novos Acessos alteradas para: {status}", reply_markup=get_notifications_toggle_keyboard(user_prefs))
+                elif "silenciar tudo" in clean_text:
+                    user_prefs['silence_all'] = not user_prefs.get('silence_all', False)
+                    save_user_preferences(profile['id'], user_prefs)
+                    status = "🔴 SILENCIADAS" if user_prefs['silence_all'] else "🟢 ATIVADAS"
+                    await bot_instance.reply_to(message, f"🔇 Status de Silêncio Geral alterado para: {status}", reply_markup=get_notifications_toggle_keyboard(user_prefs))
+                elif "voltar" in clean_text or "⬅️ voltar" in clean_text:
                     state['step'] = 'choose_option'
+                    await bot_instance.reply_to(message, "Configurações:", reply_markup=get_settings_keyboard(profile is not None))
                 else:
-                    await bot_instance.reply_to(message, "⚠️ Opção inválida. Selecione uma das opções do teclado:")
+                    await bot_instance.reply_to(message, "⚠️ Opção inválida. Selecione uma das opções do teclado:", reply_markup=get_notifications_toggle_keyboard(user_prefs))
 
             elif step == 'link_account_email':
                 username = text.split('@')[0] if '@' in text else text
