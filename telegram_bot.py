@@ -32,9 +32,9 @@ polling_task = None
 def get_main_menu_keyboard():
     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
     markup.row(types.KeyboardButton("📊 Resumo Diário"), types.KeyboardButton("👮 Escala de Serviço"))
-    markup.row(types.KeyboardButton("🔍 Consulta de Aluno"), types.KeyboardButton("📋 Lançar Ocorrência"))
-    markup.row(types.KeyboardButton("📞 Chamada Diária"), types.KeyboardButton("🏥 Lançar Saúde"))
-    markup.row(types.KeyboardButton("📢 Aviso na TV"), types.KeyboardButton("🛌 Lançar Pernoite"))
+    markup.row(types.KeyboardButton("🔍 Consulta de Aluno"), types.KeyboardButton("📋 Anotação"))
+    markup.row(types.KeyboardButton("📞 Presença"), types.KeyboardButton("🏥 Saúde"))
+    markup.row(types.KeyboardButton("📢 Quadro de Avisos"), types.KeyboardButton("🛌 Lançar Pernoite"))
     markup.row(types.KeyboardButton("❌ Cancelar"))
     return markup
 
@@ -90,6 +90,97 @@ async def check_authorized_user(from_user_id: int):
 def clear_state(chat_id):
     if chat_id in chat_states:
         del chat_states[chat_id]
+
+async def prompt_pelotao_selection(bot_instance, message, state):
+    conn = get_db_connection()
+    pelotoes = []
+    if conn:
+        try:
+            res = conn.table('Alunos').select('pelotao').execute()
+            if res.data:
+                pelotoes = sorted(list(set([r['pelotao'] for r in res.data if r.get('pelotao')])))
+        except Exception as e:
+            print(f"[Bot] Erro ao carregar pelotões: {e}")
+            
+    if not pelotoes:
+        pelotoes = ['1º Pelotão', '2º Pelotão', '3º Pelotão']
+        
+    state['step'] = 'choose_pelotao'
+    state['data']['pelotoes'] = pelotoes
+    
+    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+    # Adiciona pelotões em linhas de 2
+    for i in range(0, len(pelotoes), 2):
+        row = [types.KeyboardButton(p) for p in pelotoes[i:i+2]]
+        markup.row(*row)
+    markup.row(types.KeyboardButton("🔍 Digitar / Lote"), types.KeyboardButton("❌ Cancelar"))
+    
+    action_label = "Anotação" if state['action'] == 'anotacao' else "Saúde"
+    await bot_instance.reply_to(
+        message, 
+        f"📋 {action_label}: Selecione o Pelotão do aluno (ou escolha digitar/lote):", 
+        reply_markup=markup
+    )
+
+async def handle_pelotao_selection(bot_instance, message, state):
+    chat_id = message.chat.id
+    text = message.text.strip()
+    conn = get_db_connection()
+    if not conn:
+        await bot_instance.reply_to(message, "❌ Sem conexão com o banco de dados.", reply_markup=get_main_menu_keyboard())
+        clear_state(chat_id)
+        return
+        
+    try:
+        res = conn.table('Alunos').select('*').eq('pelotao', text).execute()
+        alunos_pelotao = res.data if res.data else []
+    except Exception as e:
+        await bot_instance.reply_to(message, f"❌ Erro ao ler alunos do pelotão: {e}", reply_markup=get_main_menu_keyboard())
+        clear_state(chat_id)
+        return
+        
+    if not alunos_pelotao:
+        await bot_instance.reply_to(
+            message, 
+            f"❌ Nenhum aluno cadastrado no pelotão '{text}'.\n"
+            "Escolha outro pelotão ou digite para buscar:",
+            reply_markup=get_cancel_keyboard()
+        )
+        return
+        
+    state['step'] = 'choose_student_button'
+    state['data']['alunos_pelotao'] = alunos_pelotao
+    
+    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+    # Ordena os alunos por número interno
+    alunos_pelotao_sorted = sorted(alunos_pelotao, key=lambda x: int(x.get('numero_interno', 0)) if str(x.get('numero_interno', '')).isdigit() else 999)
+    for i in range(0, len(alunos_pelotao_sorted), 2):
+        row = [types.KeyboardButton(f"MIKE {a['numero_interno']} - {a['nome_guerra']}") for a in alunos_pelotao_sorted[i:i+2]]
+        markup.row(*row)
+    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
+    await bot_instance.reply_to(message, f"📋 Alunos do {text}: Selecione o militar desejado abaixo:", reply_markup=markup)
+
+async def handle_student_button_selection(bot_instance, message, state):
+    chat_id = message.chat.id
+    text = message.text.strip()
+    
+    alunos = state['data'].get('alunos_pelotao', [])
+    selected = None
+    if "MIKE " in text:
+        try:
+            num_int = text.split("MIKE ")[1].split(" -")[0].strip()
+            selected = next((a for a in alunos if str(a.get('numero_interno')) == num_int), None)
+        except Exception:
+            pass
+            
+    if not selected:
+        await bot_instance.reply_to(message, "⚠️ Militar não encontrado na lista. Por favor, clique em um dos botões abaixo:")
+        return
+        
+    if state['action'] == 'anotacao':
+        await prompt_action_type(bot_instance, message, state, selected)
+    elif state['action'] == 'saude':
+        await prompt_health_status(bot_instance, message, state, selected)
 
 def setup_handlers(bot_instance):
     """Configura os ouvintes de mensagem no bot."""
@@ -358,11 +449,11 @@ def setup_handlers(bot_instance):
             
         chat_states[chat_id] = {
             'action': 'anotacao',
-            'step': 'search_student',
+            'step': 'choose_pelotao',
             'user': profile,
             'data': {}
         }
-        await bot_instance.reply_to(message, "📋 Ocorrência: Digite o nome de guerra ou número interno do aluno:", reply_markup=get_cancel_keyboard())
+        await prompt_pelotao_selection(bot_instance, message, chat_states[chat_id])
 
     @bot_instance.message_handler(commands=['pernoite'])
     async def register_pernoite_command(message):
@@ -1023,8 +1114,31 @@ def setup_handlers(bot_instance):
 
         # ── PROCESSAMENTO DA ANOTAÇÃO ─────────────────────────────────
         elif action == 'anotacao':
+            if step == 'choose_pelotao':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                if "digitar" in text.lower() or "lote" in text.lower() or "buscar" in text.lower():
+                    state['step'] = 'search_student'
+                    await bot_instance.reply_to(message, "🔍 Digite o nome de guerra ou número interno do aluno:", reply_markup=get_cancel_keyboard())
+                    return
+                await handle_pelotao_selection(bot_instance, message, state)
+                return
+                
+            elif step == 'choose_student_button':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                if "voltar" in text.lower() or "⬅️" in text:
+                    await prompt_pelotao_selection(bot_instance, message, state)
+                    return
+                await handle_student_button_selection(bot_instance, message, state)
+                return
+
             # Passo 1: Busca de Alunos
-            if step == 'search_student':
+            elif step == 'search_student':
                 if text.lower() in ['cancelar', '❌ cancelar']:
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
@@ -1593,8 +1707,8 @@ def setup_handlers(bot_instance):
                     return
                 
                 if "novo" in text.lower() or "lançamento" in text.lower() or "lancamento" in text.lower() or "🆕" in text:
-                    state['step'] = 'search_student'
-                    await bot_instance.reply_to(message, "🔍 Digite o Nome de Guerra ou Número Interno do aluno para registrar saúde:", reply_markup=get_cancel_keyboard())
+                    await prompt_pelotao_selection(bot_instance, message, state)
+                    return
                 elif "baixados" in text.lower() or "listar" in text.lower() or "🏥" in text:
                     await bot_instance.send_chat_action(chat_id, 'typing')
                     try:
@@ -1637,6 +1751,29 @@ def setup_handlers(bot_instance):
                         clear_state(chat_id)
                 else:
                     await bot_instance.reply_to(message, "⚠️ Escolha uma das opções: '🆕 Novo Lançamento' ou '🏥 Listar Baixados':")
+            
+            elif step == 'choose_pelotao':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                if "digitar" in text.lower() or "lote" in text.lower() or "buscar" in text.lower():
+                    state['step'] = 'search_student'
+                    await bot_instance.reply_to(message, "🔍 Digite o Nome de Guerra ou Número Interno do aluno para registrar saúde:", reply_markup=get_cancel_keyboard())
+                    return
+                await handle_pelotao_selection(bot_instance, message, state)
+                return
+                
+            elif step == 'choose_student_button':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                if "voltar" in text.lower() or "⬅️" in text:
+                    await prompt_pelotao_selection(bot_instance, message, state)
+                    return
+                await handle_student_button_selection(bot_instance, message, state)
+                return
             
             # Passo 1: Busca de Alunos
             elif step == 'search_student':
