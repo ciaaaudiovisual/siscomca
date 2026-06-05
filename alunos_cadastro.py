@@ -224,7 +224,12 @@ def render_page():
                         # 1. Top Section: Foto, Guerra, N°, Pelotão
                         with ui.row().classes('w-full gap-3 items-center no-wrap'):
                             foto_url = r.get('url_foto')
-                            image_src = foto_url if isinstance(foto_url, str) and foto_url.startswith('http') else f"https://res.cloudinary.com/comcia/image/upload/alunos_app/{r['numero_interno']}.jpg"
+                            from database import get_signed_url_from_supabase_storage
+                            ano_let_val = r.get('ano_letivo', '2026')
+                            ni_val = r.get('numero_interno')
+                            path_file = f"alunos/{ano_let_val}/{ni_val}.jpg"
+                            signed_url = get_signed_url_from_supabase_storage(path_file, "fotos-alunos")
+                            image_src = signed_url if signed_url else (foto_url if isinstance(foto_url, str) and foto_url.startswith('http') else f"https://res.cloudinary.com/comcia/image/upload/alunos_app/{r['numero_interno']}.jpg")
                             ui.element('div').classes('shadow border border-cyan-500/30 shrink-0').style(
                                 f"width: 75px; height: 75px; background-image: url('{image_src}'); "
                                 f"background-size: cover; background-repeat: no-repeat; "
@@ -297,7 +302,7 @@ def render_page():
                     ano = ano_let.value or "2026"
                     filename = f"alunos/{ano}/{ni}.jpg"
                     from database import upload_file_to_supabase_storage
-                    public_url = await asyncio.to_thread(upload_file_to_supabase_storage, file_bytes, filename, e.file.content_type)
+                    public_url = await asyncio.to_thread(upload_file_to_supabase_storage, file_bytes, filename, e.file.content_type, "fotos-alunos")
                     if public_url:
                         foto_url.value = public_url
                         ui.notify('Foto enviada com sucesso!', color='success')
@@ -578,7 +583,10 @@ def render_page():
                                 num_i = ui.input('Número Interno', value=num_i_val).props('dark outlined dense').classes('w-full text-xs font-mono')
                             
                             # Foto de Visualização Dinâmica
-                            image_src = foto_url_val if foto_url_val.startswith('http') else f"https://res.cloudinary.com/comcia/image/upload/alunos_app/{num_i_val}.jpg"
+                            from database import get_signed_url_from_supabase_storage
+                            path_file = f"alunos/{ano_letivo_val}/{num_i_val}.jpg"
+                            signed_url = get_signed_url_from_supabase_storage(path_file, "fotos-alunos")
+                            image_src = signed_url if signed_url else (foto_url_val if foto_url_val.startswith('http') else f"https://res.cloudinary.com/comcia/image/upload/alunos_app/{num_i_val}.jpg")
                             with ui.column().classes('items-center shrink-0 justify-center'):
                                 img_box = ui.element('div').classes('shadow border border-cyan-500/30').style(
                                     f"width: 90px; height: 90px; background-image: url('{image_src}'); "
@@ -605,7 +613,7 @@ def render_page():
                             ano = ano_let.value or aluno.get('ano_letivo', '2026')
                             filename = f"alunos/{ano}/{ni}.jpg"
                             from database import upload_file_to_supabase_storage
-                            public_url = await asyncio.to_thread(upload_file_to_supabase_storage, file_bytes, filename, e.file.content_type)
+                            public_url = await asyncio.to_thread(upload_file_to_supabase_storage, file_bytes, filename, e.file.content_type, "fotos-alunos")
                             if public_url:
                                 foto_url.value = public_url
                                 update_foto_preview()
@@ -617,7 +625,13 @@ def render_page():
                         
                         def update_foto_preview():
                             src = foto_url.value.strip() if foto_url.value else ''
-                            if not src.startswith('http'):
+                            if src.startswith('http') and 'fotos-alunos' in src:
+                                from database import get_signed_url_from_supabase_storage
+                                path_file = f"alunos/{ano_letivo_val}/{num_i_val}.jpg"
+                                signed_url = get_signed_url_from_supabase_storage(path_file, "fotos-alunos")
+                                if signed_url:
+                                    src = signed_url
+                            elif not src.startswith('http'):
                                 src = f"https://res.cloudinary.com/comcia/image/upload/alunos_app/{num_i_val}.jpg"
                             img_box.style(f"background-image: url('{src}');")
                         

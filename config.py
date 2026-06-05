@@ -1,7 +1,7 @@
 from nicegui import ui, app
 import theme
 import os
-from database import get_db_connection
+from database import get_db_connection, SUPABASE_URL
 from services import data_service
 from datetime import date
 
@@ -37,6 +37,7 @@ def render_page():
             ui.notify('Silencioso ativado para este som.', color='warning')
             return
             
+        supabase_base_url = (SUPABASE_URL.rstrip('/') if SUPABASE_URL else "")
         js_code = f"""
         try {{
             let ctx = window.globalAudioContext;
@@ -245,7 +246,7 @@ def render_page():
                     ctx.resume();
                 }}
                 const type = '{som_key}';
-                const customMp3Url = "/assets/sounds/" + type + ".mp3";
+                const customMp3Url = "{supabase_base_url}/storage/v1/object/public/sons/" + encodeURIComponent(type) + ".mp3";
                 
                 if (type.startsWith('naval_bell_')) {{
                     let count = 1;
@@ -257,8 +258,8 @@ def render_page():
                         count = parseInt(type.split('_')[2]) || 1;
                     }}
                     
-                    const singleMp3Url = "/assets/sounds/bell_single.mp3";
-                    const doubleMp3Url = "/assets/sounds/bell_double.mp3";
+                    const singleMp3Url = "{supabase_base_url}/storage/v1/object/public/sons/bell_single.mp3";
+                    const doubleMp3Url = "{supabase_base_url}/storage/v1/object/public/sons/bell_double.mp3";
                     
                     function playSynthesizedBells(ctx, count) {{
                         function playNavalBellStrike(ctx, time) {{
@@ -728,17 +729,21 @@ def render_page():
                                 'naval_bell_8': 'Sino da Marinha (8 Baladas / 4 Dobradas) ⚓',
                                 'silent': 'Silencioso 🔕'
                             }
-                            sounds_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', 'sounds')
-                            if os.path.exists(sounds_dir):
+                            db_conn = get_db_connection()
+                            if db_conn:
                                 try:
-                                    for f in os.listdir(sounds_dir):
-                                        if f.endswith('.mp3'):
-                                            key = f[:-4]
-                                            if key not in som_opcoes:
-                                                friendly_name = key.replace('_', ' ').replace('-', ' ').title()
-                                                som_opcoes[key] = f"Arquivo: {friendly_name} 🎵"
+                                    res = db_conn.storage.from_('sons').list()
+                                    if res:
+                                        for item in res:
+                                            f = item.get('name')
+                                            if f and f.endswith('.mp3'):
+                                                key = f[:-4]
+                                                if key not in som_opcoes:
+                                                    friendly_name = key.replace('_', ' ').replace('-', ' ').title()
+                                                    som_opcoes[key] = f"Arquivo: {friendly_name} 🎵"
                                 except Exception as e:
                                     print(f"[CONFIG] Erro ao listar sons: {e}")
+
                             
                             # Atualiza dropdowns de eventos
                             for o_name, d_el in sound_dropdowns.items():
@@ -757,18 +762,21 @@ def render_page():
                             except Exception:
                                 pass
 
-                        # Carrega dinamicamente arquivos MP3 na inicialização
-                        sounds_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', 'sounds')
-                        if os.path.exists(sounds_dir):
+                        # Carrega dinamicamente arquivos MP3 na inicialização do Supabase
+                        db_conn = get_db_connection()
+                        if db_conn:
                             try:
-                                for f in os.listdir(sounds_dir):
-                                    if f.endswith('.mp3'):
-                                        key = f[:-4]
-                                        if key not in som_opcoes:
-                                            friendly_name = key.replace('_', ' ').replace('-', ' ').title()
-                                            som_opcoes[key] = f"Arquivo: {friendly_name} 🎵"
+                                res = db_conn.storage.from_('sons').list()
+                                if res:
+                                    for item in res:
+                                        f = item.get('name')
+                                        if f and f.endswith('.mp3'):
+                                            key = f[:-4]
+                                            if key not in som_opcoes:
+                                                friendly_name = key.replace('_', ' ').replace('-', ' ').title()
+                                                som_opcoes[key] = f"Arquivo: {friendly_name} 🎵"
                             except Exception as e:
-                                print(f"[CONFIG] Erro ao listar sons: {e}")
+                                print(f"[CONFIG] Erro na inicialização ao listar sons do Supabase: {e}")
                         
                         for ocorrencia_nome, som_atual in sound_mappings.items():
                             with ui.row().classes('w-full items-center justify-between gap-2 border-b border-white/5 py-1'):
@@ -812,17 +820,26 @@ def render_page():
                                 
                             try:
                                 file_bytes = e.content.read()
-                                dest_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', 'sounds')
-                                os.makedirs(dest_dir, exist_ok=True)
-                                dest_path = os.path.join(dest_dir, filename)
+                                from database import upload_file_to_supabase_storage
+                                import asyncio
                                 
-                                with open(dest_path, 'wb') as f:
-                                    f.write(file_bytes)
+                                async def process_upload():
+                                    public_url = await asyncio.to_thread(
+                                        upload_file_to_supabase_storage,
+                                        file_bytes,
+                                        filename,
+                                        "audio/mpeg",
+                                        "sons"
+                                    )
+                                    if public_url:
+                                        ui.notify(f'Som "{filename}" enviado com sucesso!', color='success')
+                                        atualizar_opcoes_de_sons()
+                                        render_sound_files_list.refresh()
+                                        render_custom_alerts_list.refresh()
+                                    else:
+                                        ui.notify('Erro ao enviar som ao Supabase.', color='red')
                                 
-                                ui.notify(f'Som "{filename}" enviado com sucesso!', color='success')
-                                atualizar_opcoes_de_sons()
-                                render_sound_files_list.refresh()
-                                render_custom_alerts_list.refresh()
+                                asyncio.create_task(process_upload())
                             except Exception as ex:
                                 ui.notify(f'Erro ao salvar arquivo: {ex}', color='red')
                                 
@@ -874,16 +891,18 @@ def render_page():
                                             ui.notify('Não é permitido usar nomes de arquivos de sistema.', color='red')
                                             return
                                             
-                                        sounds_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', 'sounds')
-                                        old_path = os.path.join(sounds_dir, old_filename)
-                                        new_path = os.path.join(sounds_dir, new_filename)
-                                        
-                                        if os.path.exists(new_path):
-                                            ui.notify('Já existe um arquivo de som com este nome.', color='red')
+                                        db_conn = get_db_connection()
+                                        if not db_conn:
+                                            ui.notify('Sem conexão com o banco de dados.', color='red')
                                             return
                                             
                                         try:
-                                            os.rename(old_path, new_path)
+                                            existing = db_conn.storage.from_('sons').list()
+                                            if any(item.get('name') == new_filename for item in existing):
+                                                ui.notify('Já existe um arquivo de som com este nome.', color='red')
+                                                return
+                                                
+                                            db_conn.storage.from_('sons').move(old_filename, new_filename)
                                             old_key = old_filename[:-4]
                                             new_key = new_name
                                             renomear_som_no_config(old_key, new_key)
@@ -902,13 +921,16 @@ def render_page():
 
                         @ui.refreshable
                         def render_sound_files_list():
-                            sounds_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', 'sounds')
                             custom_files = []
-                            if os.path.exists(sounds_dir):
+                            db_conn = get_db_connection()
+                            if db_conn:
                                 try:
-                                    for f in os.listdir(sounds_dir):
-                                        if f.endswith('.mp3') and f not in ('bell_single.mp3', 'bell_double.mp3'):
-                                            custom_files.append(f)
+                                    res = db_conn.storage.from_('sons').list()
+                                    if res:
+                                        for item in res:
+                                            f = item.get('name')
+                                            if f and f.endswith('.mp3') and f not in ('bell_single.mp3', 'bell_double.mp3'):
+                                                custom_files.append(f)
                                 except Exception as e:
                                     print(f"[CONFIG] Erro ao listar arquivos de som: {e}")
                                     
@@ -930,11 +952,12 @@ def render_page():
                                                 
                                             def excluir_som(filename=f):
                                                 async def processar_exclusao():
-                                                    sounds_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets', 'sounds')
-                                                    file_path = os.path.join(sounds_dir, filename)
+                                                    db_conn = get_db_connection()
+                                                    if not db_conn:
+                                                        ui.notify('Sem conexão com o banco de dados.', color='red')
+                                                        return
                                                     try:
-                                                        if os.path.exists(file_path):
-                                                            os.remove(file_path)
+                                                        db_conn.storage.from_('sons').remove([filename])
                                                         remover_som_no_config(filename[:-4])
                                                         ui.notify(f'Som "{filename}" excluído com sucesso!', color='success')
                                                         atualizar_opcoes_de_sons()

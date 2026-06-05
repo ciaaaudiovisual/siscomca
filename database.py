@@ -888,9 +888,9 @@ def load_data(table_name: str, db_conn = None) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-def upload_file_to_supabase_storage(file_bytes: bytes, filename: str, content_type: str = "image/jpeg") -> Optional[str]:
+def upload_file_to_supabase_storage(file_bytes: bytes, filename: str, content_type: str = "image/jpeg", bucket_name: str = "fotos-efetivos") -> Optional[str]:
     """
-    Realiza o upload de um arquivo para o bucket 'fotos-efetivos' no Supabase Storage.
+    Realiza o upload de um arquivo para um bucket do Supabase Storage.
     Retorna a URL pública do arquivo ou None em caso de falha.
     """
     conn = get_bot_db_connection()
@@ -900,7 +900,6 @@ def upload_file_to_supabase_storage(file_bytes: bytes, filename: str, content_ty
         print("[STORAGE UPLOAD] Sem conexão com Supabase.")
         return None
     try:
-        bucket_name = "fotos-efetivos"
         # Realiza o upload (upsert=true permite substituir arquivos com o mesmo nome)
         conn.storage.from_(bucket_name).upload(
             path=filename,
@@ -915,3 +914,26 @@ def upload_file_to_supabase_storage(file_bytes: bytes, filename: str, content_ty
     except Exception as e:
         print(f"[STORAGE UPLOAD ERROR] {e}")
         return None
+
+
+def get_signed_url_from_supabase_storage(filename: str, bucket_name: str = "fotos-alunos", expires_in: int = 3600) -> Optional[str]:
+    """
+    Gera uma URL assinada temporária para acessar arquivos em buckets privados (ex: 'fotos-alunos').
+    """
+    if not filename:
+        return None
+    conn = get_bot_db_connection()
+    if not conn:
+        conn = get_db_connection()
+    if not conn:
+        print("[STORAGE SIGNED URL] Sem conexão com Supabase.")
+        return None
+    try:
+        res = conn.storage.from_(bucket_name).create_signed_url(filename, expires_in)
+        if isinstance(res, dict) and "signedURL" in res:
+            return res["signedURL"]
+        return res
+    except Exception as e:
+        # Se for erro 404 (arquivo não existe), silencia ou avisa com debug
+        print(f"[STORAGE SIGNED URL DEBUG] {filename} no bucket {bucket_name}: {e}")
+        return None
