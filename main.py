@@ -205,11 +205,17 @@ def build_layout(page_func):
                     # Seletor Global de Ano Letivo
                     active_year = app.storage.user.setdefault('ano_letivo_ativo', '2026')
                     
+                    # Notificação inicial de conexão ao Ano Letivo
+                    if not app.storage.user.get('year_notified'):
+                        ui.notify(f'🟢 Conectado ao Ano Letivo {active_year}', color='positive', position='top')
+                        app.storage.user['year_notified'] = True
+                    
                     def change_global_year(e):
                         app.storage.user['ano_letivo_ativo'] = e.value
                         c_state = app.storage.user.get('alunos_state', {})
                         c_state['ano_letivo'] = e.value
                         app.storage.user['alunos_state'] = c_state
+                        ui.notify(f'🔄 Carregando dados do Ano Letivo {e.value}...', color='primary', position='top')
                         # Força atualização/recarga da página atual
                         ui.navigate.to(app.storage.user.get('current_path', '/'))
                         
