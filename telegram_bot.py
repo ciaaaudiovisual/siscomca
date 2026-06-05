@@ -1,5 +1,6 @@
 import os
 import asyncio
+import contextvars
 from datetime import date, datetime, timedelta
 from telebot.async_telebot import AsyncTeleBot
 from telebot import types
@@ -8,6 +9,10 @@ from alerts_manager import AlertsManager
 
 # Estado global da conversação do bot por chat_id
 chat_states = {}
+
+# Caches e Contextos para permissões dinâmicas no menu do Telegram
+current_user_id = contextvars.ContextVar('current_user_id', default=None)
+USER_PERMISSIONS_CACHE = {}
 
 TIPOS_DISPENSA = [
     'Total (todas as atividades)',
@@ -29,12 +34,54 @@ TIPOS_LICENCA = [
 bot = None
 polling_task = None
 
-def get_main_menu_keyboard():
+def get_unauthorized_keyboard():
     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-    markup.row(types.KeyboardButton("📊 Resumo Diário"), types.KeyboardButton("👮 Escala de Serviço"))
-    markup.row(types.KeyboardButton("🔍 Consulta de Aluno"), types.KeyboardButton("📋 Anotação"))
-    markup.row(types.KeyboardButton("📞 Presença"), types.KeyboardButton("🏥 Saúde"))
-    markup.row(types.KeyboardButton("📢 Quadro de Avisos"), types.KeyboardButton("🛌 Lançar Pernoite"))
+    markup.row(types.KeyboardButton("📝 Solicitar Acesso"))
+    return markup
+
+def get_main_menu_keyboard():
+    uid = current_user_id.get()
+    allowed_features = USER_PERMISSIONS_CACHE.get(uid)
+    
+    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+    
+    if allowed_features is None:
+        # Se não carregou permissões ou não autorizado, mostra apenas Configurações e Cancelar
+        markup.row(types.KeyboardButton("⚙️ Configurações"), types.KeyboardButton("❌ Cancelar"))
+        return markup
+
+    row = []
+    if 'menu_siscomca_dashboard' in allowed_features:
+        row.append(types.KeyboardButton("📊 Resumo Diário"))
+    if 'menu_escalas' in allowed_features:
+        row.append(types.KeyboardButton("👮 Escala de Serviço"))
+    if row:
+        markup.row(*row)
+        
+    row = []
+    if 'menu_alunos' in allowed_features:
+        row.append(types.KeyboardButton("🔍 Consulta de Aluno"))
+    if 'menu_gestao_acoes' in allowed_features:
+        row.append(types.KeyboardButton("📋 Anotação"))
+    if row:
+        markup.row(*row)
+        
+    row = []
+    if 'menu_presenca' in allowed_features:
+        row.append(types.KeyboardButton("📞 Presença"))
+    if 'menu_saude' in allowed_features:
+        row.append(types.KeyboardButton("🏥 Saúde"))
+    if row:
+        markup.row(*row)
+        
+    row = []
+    if 'menu_avisos' in allowed_features:
+        row.append(types.KeyboardButton("📢 Quadro de Avisos"))
+    if 'menu_pernoite' in allowed_features:
+        row.append(types.KeyboardButton("🛌 Lançar Pernoite"))
+    if row:
+        markup.row(*row)
+        
     markup.row(types.KeyboardButton("⚙️ Configurações"), types.KeyboardButton("❌ Cancelar"))
     return markup
 
@@ -43,10 +90,12 @@ def get_cancel_keyboard():
     markup.add(types.KeyboardButton("❌ Cancelar"))
     return markup
 
-def get_settings_keyboard():
+def get_settings_keyboard(is_authorized=True):
     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-    markup.row(types.KeyboardButton("📝 Solicitar Acesso"), types.KeyboardButton("🔔 Notificações"))
-    markup.row(types.KeyboardButton("🔗 Vincular Conta"), types.KeyboardButton("⬅️ Voltar"))
+    if is_authorized:
+        markup.row(types.KeyboardButton("🔔 Notificações"), types.KeyboardButton("⬅️ Voltar"))
+    else:
+        markup.row(types.KeyboardButton("📝 Solicitar Acesso"), types.KeyboardButton("⬅️ Voltar"))
     return markup
 
 def get_notifications_toggle_keyboard():
@@ -86,15 +135,54 @@ def get_bot_token() -> str:
         token = os.getenv("TELEGRAM_TOKEN", "").strip()
     return token
 
+async def get_allowed_features_for_user(profile) -> set:
+    allowed_features = set()
+    if not profile:
+        return allowed_features
+    user_role = str(profile.get('role', 'compel')).strip().lower()
+    
+    defaults = {
+        'menu_siscomca_dashboard': ['admin', 'supervisor', 'operador', 'comcia', 'compel', 'aluno', 'ajosca'],
+        'menu_escalas': ['admin', 'supervisor', 'operador', 'comcia', 'ajosca'],
+        'menu_alunos': ['admin', 'supervisor', 'operador'],
+        'menu_gestao_acoes': ['admin', 'supervisor', 'operador', 'comcia'],
+        'menu_presenca': ['admin', 'supervisor', 'operador', 'comcia', 'ajosca', 'compel'],
+        'menu_saude': ['admin', 'supervisor', 'operador', 'comcia', 'ajosca'],
+        'menu_pernoite': ['admin', 'supervisor', 'operador', 'comcia', 'ajosca'],
+        'menu_avisos': ['admin', 'supervisor', 'comcia']
+    }
+    
+    conn = get_db_connection()
+    if conn:
+        try:
+            res = conn.table('Permissoes').select('*').execute()
+            if res.data:
+                for row in res.data:
+                    fk = row.get('feature_key')
+                    allowed = row.get('allowed_roles')
+                    if fk and allowed:
+                        defaults[fk] = [r.strip().lower() for r in allowed.split(',') if r.strip()]
+        except Exception as e:
+            print(f"[Bot] Erro ao ler Permissoes do banco: {e}")
+            
+    for fk, roles in defaults.items():
+        if user_role in roles:
+            allowed_features.add(fk)
+    return allowed_features
+
 async def check_authorized_user(from_user_id: int):
     """Verifica se o telegram_id está associado a um usuário autorizado no banco."""
+    current_user_id.set(from_user_id)
     conn = get_db_connection()
     if not conn:
         return None
     try:
         res = conn.table('Users').select('*').eq('telegram_id', str(from_user_id)).execute()
         if res.data:
-            return res.data[0]
+            profile = res.data[0]
+            allowed = await get_allowed_features_for_user(profile)
+            USER_PERMISSIONS_CACHE[from_user_id] = allowed
+            return profile
     except Exception as e:
         print(f"[Bot] Erro ao validar telegram_id {from_user_id}: {e}")
     return None
@@ -202,23 +290,24 @@ def setup_handlers(bot_instance):
         chat_id = message.chat.id
         clear_state(chat_id)
         
+        profile = await check_authorized_user(message.from_user.id)
+        
+        if not profile:
+            welcome_text = (
+                "⚓ **Comando Tático SisCOMCA** ⚓\n\n"
+                "Olá! Você está acessando o assistente oficial do SisCOMCA por Telegram.\n\n"
+                "⚠️ **Acesso Restrito / Não Autorizado**\n"
+                f"Seu Telegram ID (`{message.from_user.id}`) não está vinculado a nenhum operador ativo no sistema.\n\n"
+                "Para realizar qualquer tarefa, é necessário **solicitar acesso** para aprovação do Administrador.\n"
+                "Clique no botão abaixo para preencher sua solicitação."
+            )
+            await bot_instance.reply_to(message, welcome_text, reply_markup=get_unauthorized_keyboard(), parse_mode='Markdown')
+            return
+
         welcome_text = (
             "⚓ **Comando Tático SisCOMCA** ⚓\n\n"
-            "Olá! Eu sou o assistente oficial do SisCOMCA para lançamento de avisos, ocorrências, presença e saúde por Telegram.\n\n"
-            "**Comandos Disponíveis:**\n"
-            "🔹 `/menu` : Exibe este menu de comandos.\n"
-            "🔹 `/resumo` (ou `/parada`) : Exibe o resumo do efetivo e saúde de hoje.\n"
-            "🔹 `/escala` (ou `/servico`) : Consulta, adiciona e altera a escala (pessoal de serviço).\n"
-            "🔹 `/consulta` (ou `/aluno`) : Exibe a ficha de contatos e ocorrências de um aluno.\n"
-            "🔹 `/anotacao` : Inicia o lançamento guiado de comportamento de alunos.\n"
-            "🔹 `/presenca` (ou `/chamada`) : Realiza a chamada coletiva de uma turma.\n"
-            "🔹 `/atrasado` (ou `/atraso`) : Registra atrasado (retira falta e lança ocorrência).\n"
-            "🔹 `/enfermaria` (ou `/saude`) : Inicia o lançamento guiado de registros de saúde/baixas.\n"
-            "🔹 `/pernoite` : Lança autorização de pernoite para hoje.\n"
-            "🔹 `/aviso` : Adiciona um aviso corrido no letreiro da TV.\n"
-            "🔹 `/vincular <email>` : Vincula seu Telegram ID ao seu usuário cadastrado na Web.\n"
-            "🔹 `/cancelar` : Aborta qualquer operação em andamento.\n\n"
-            f"ℹ️ Seu Telegram ID atual é: `{message.from_user.id}`"
+            f"Olá, {profile['nome']}! Eu sou o assistente oficial do SisCOMCA para lançamento de avisos, ocorrências, presença e saúde por Telegram.\n\n"
+            "Use os botões do teclado abaixo para realizar as tarefas permitidas para o seu perfil."
         )
         
         await bot_instance.reply_to(message, welcome_text, reply_markup=get_main_menu_keyboard(), parse_mode='Markdown')
@@ -232,9 +321,14 @@ def setup_handlers(bot_instance):
         if not profile:
             await bot_instance.reply_to(
                 message, 
-                "⚠️ Acesso não autorizado!\n"
-                f"Associe seu Telegram ID ({message.from_user.id}) usando `/vincular <email>` ou com o Administrador."
+                f"⚠️ Acesso não autorizado!\nPor favor, utilize o botão abaixo para solicitar o acesso aos Administradores do sistema (Seu Telegram ID: {message.from_user.id}).",
+                reply_markup=get_unauthorized_keyboard()
             )
+            return
+            
+        allowed = USER_PERMISSIONS_CACHE.get(message.from_user.id, set())
+        if 'menu_presenca' not in allowed:
+            await bot_instance.reply_to(message, "⚠️ Seu perfil de usuário não tem permissão correlata no app para acessar o menu de Presença.")
             return
             
         chat_states[chat_id] = {
@@ -263,11 +357,12 @@ def setup_handlers(bot_instance):
             'data': {}
         }
         
+        is_authorized = profile is not None
         await bot_instance.reply_to(
             message,
             "⚙️ **CONFIGURAÇÕES DO SISTEMA**\n\n"
             "Escolha uma das opções de configuração abaixo:",
-            reply_markup=get_settings_keyboard(),
+            reply_markup=get_settings_keyboard(is_authorized),
             parse_mode='Markdown'
         )
 
@@ -284,9 +379,14 @@ def setup_handlers(bot_instance):
         if not profile:
             await bot_instance.reply_to(
                 message, 
-                "⚠️ Acesso não autorizado!\n"
-                f"Associe seu Telegram ID ({message.from_user.id}) usando `/vincular <email>` ou com o Administrador."
+                f"⚠️ Acesso não autorizado!\nPor favor, utilize o botão abaixo para solicitar o acesso aos Administradores do sistema (Seu Telegram ID: {message.from_user.id}).",
+                reply_markup=get_unauthorized_keyboard()
             )
+            return
+            
+        allowed = USER_PERMISSIONS_CACHE.get(message.from_user.id, set())
+        if 'menu_presenca' not in allowed:
+            await bot_instance.reply_to(message, "⚠️ Seu perfil de usuário não tem permissão correlata no app para registrar atrasos (Presença).")
             return
             
         conn = get_db_connection()
@@ -346,9 +446,14 @@ def setup_handlers(bot_instance):
         if not profile:
             await bot_instance.reply_to(
                 message, 
-                "⚠️ Acesso não autorizado!\n"
-                f"Associe seu Telegram ID ({message.from_user.id}) usando `/vincular <email>` ou com o Administrador."
+                f"⚠️ Acesso não autorizado!\nPor favor, utilize o botão abaixo para solicitar o acesso aos Administradores do sistema (Seu Telegram ID: {message.from_user.id}).",
+                reply_markup=get_unauthorized_keyboard()
             )
+            return
+            
+        allowed = USER_PERMISSIONS_CACHE.get(message.from_user.id, set())
+        if 'menu_saude' not in allowed:
+            await bot_instance.reply_to(message, "⚠️ Seu perfil de usuário não tem permissão correlata no app para acessar a Enfermaria/Saúde.")
             return
             
         chat_states[chat_id] = {
@@ -372,53 +477,13 @@ def setup_handlers(bot_instance):
 
     @bot_instance.message_handler(commands=['vincular'])
     async def link_user(message):
-        chat_id = message.chat.id
-        clear_state(chat_id)
-        
-        args = message.text.split()
-        if len(args) < 2:
-            await bot_instance.reply_to(
-                message, 
-                "⚠️ Uso correto: `/vincular <seu_email_ou_username>`\n"
-                "Ex: `/vincular joao.silva@marinha.mil.br` ou `/vincular joao.silva`"
-            )
-            return
-
-        user_input = args[1].strip()
-        username = user_input.split('@')[0] if '@' in user_input else user_input
-        
-        conn = get_db_connection()
-        if not conn:
-            await bot_instance.reply_to(message, "❌ Sem conexão com o banco de dados. Tente novamente mais tarde.")
-            return
-
-        try:
-            # Verifica se o usuário existe
-            res = conn.table('Users').select('*').eq('username', username).execute()
-            if not res.data:
-                await bot_instance.reply_to(
-                    message, 
-                    f"❌ Nenhum operador encontrado com o username/email '{username}'.\n"
-                    "Peça para o Administrador cadastrar você na Web primeiro."
-                )
-                return
-
-            user_profile = res.data[0]
-            # Faz a vinculação atualizando o telegram_id
-            conn.table('Users').update({'telegram_id': str(message.from_user.id)}).eq('id', user_profile['id']).execute()
-
-            await bot_instance.reply_to(
-                message, 
-                f"✅ Vinculação Concluída!\n"
-                f"Seu Telegram ID foi associado ao operador {user_profile['nome']}.\n"
-                "Agora você pode lançar avisos e anotações.",
-                reply_markup=get_main_menu_keyboard()
-            )
-        except Exception as e:
-            if 'column "telegram_id" of relation "Users" does not exist' in str(e):
-                await bot_instance.reply_to(message, "❌ Erro: Coluna 'telegram_id' não foi criada no banco de dados. Peça para o Administrador rodar a migração SQL.")
-            else:
-                await bot_instance.reply_to(message, f"❌ Erro ao vincular perfil: {e}")
+        await bot_instance.reply_to(
+            message,
+            "⚠️ O comando `/vincular` foi desativado por questões de segurança.\n"
+            "Por favor, solicite acesso usando o botão correspondente e um Administrador associará seu Telegram ID ao seu perfil.",
+            reply_markup=get_unauthorized_keyboard(),
+            parse_mode='Markdown'
+        )
 
     @bot_instance.message_handler(commands=['aviso'])
     async def register_aviso(message):
@@ -429,9 +494,14 @@ def setup_handlers(bot_instance):
         if not profile:
             await bot_instance.reply_to(
                 message, 
-                "⚠️ Acesso não autorizado!\n"
-                f"Associe seu Telegram ID ({message.from_user.id}) usando `/vincular <email>` ou com o Administrador."
+                f"⚠️ Acesso não autorizado!\nPor favor, utilize o botão abaixo para solicitar o acesso aos Administradores do sistema (Seu Telegram ID: {message.from_user.id}).",
+                reply_markup=get_unauthorized_keyboard()
             )
+            return
+            
+        allowed = USER_PERMISSIONS_CACHE.get(message.from_user.id, set())
+        if 'menu_avisos' not in allowed:
+            await bot_instance.reply_to(message, "⚠️ Seu perfil de usuário não tem permissão correlata no app para acessar a gestão de Avisos.")
             return
             
         chat_states[chat_id] = {
@@ -456,9 +526,14 @@ def setup_handlers(bot_instance):
         if not profile:
             await bot_instance.reply_to(
                 message, 
-                "⚠️ Acesso não autorizado!\n"
-                f"Associe seu Telegram ID ({message.from_user.id}) usando `/vincular <email>` ou com o Administrador."
+                f"⚠️ Acesso não autorizado!\nPor favor, utilize o botão abaixo para solicitar o acesso aos Administradores do sistema (Seu Telegram ID: {message.from_user.id}).",
+                reply_markup=get_unauthorized_keyboard()
             )
+            return
+            
+        allowed = USER_PERMISSIONS_CACHE.get(message.from_user.id, set())
+        if 'menu_gestao_acoes' not in allowed:
+            await bot_instance.reply_to(message, "⚠️ Seu perfil de usuário não tem permissão correlata no app para acessar o menu de Anotações.")
             return
             
         chat_states[chat_id] = {
@@ -478,9 +553,14 @@ def setup_handlers(bot_instance):
         if not profile:
             await bot_instance.reply_to(
                 message, 
-                "⚠️ Acesso não autorizado!\n"
-                f"Associe seu Telegram ID ({message.from_user.id}) usando `/vincular <email>` ou com o Administrador."
+                f"⚠️ Acesso não autorizado!\nPor favor, utilize o botão abaixo para solicitar o acesso aos Administradores do sistema (Seu Telegram ID: {message.from_user.id}).",
+                reply_markup=get_unauthorized_keyboard()
             )
+            return
+            
+        allowed = USER_PERMISSIONS_CACHE.get(message.from_user.id, set())
+        if 'menu_pernoite' not in allowed:
+            await bot_instance.reply_to(message, "⚠️ Seu perfil de usuário não tem permissão correlata no app para lançar Pernoite.")
             return
             
         chat_states[chat_id] = {
@@ -500,9 +580,14 @@ def setup_handlers(bot_instance):
         if not profile:
             await bot_instance.reply_to(
                 message, 
-                "⚠️ **Acesso não autorizado!**\n"
-                f"Associe seu Telegram ID (`{message.from_user.id}`) usando `/vincular <email>` ou com o Administrador."
+                f"⚠️ Acesso não autorizado!\nPor favor, utilize o botão abaixo para solicitar o acesso aos Administradores do sistema (Seu Telegram ID: {message.from_user.id}).",
+                reply_markup=get_unauthorized_keyboard()
             )
+            return
+            
+        allowed = USER_PERMISSIONS_CACHE.get(message.from_user.id, set())
+        if 'menu_siscomca_dashboard' not in allowed:
+            await bot_instance.reply_to(message, "⚠️ Seu perfil de usuário não tem permissão correlata no app para visualizar o Resumo Diário.")
             return
             
         conn = get_db_connection()
@@ -666,9 +751,14 @@ def setup_handlers(bot_instance):
         if not profile:
             await bot_instance.reply_to(
                 message, 
-                "⚠️ Acesso não autorizado!\n"
-                f"Associe seu Telegram ID ({message.from_user.id}) usando `/vincular <email>` ou com o Administrador."
+                f"⚠️ Acesso não autorizado!\nPor favor, utilize o botão abaixo para solicitar o acesso aos Administradores do sistema (Seu Telegram ID: {message.from_user.id}).",
+                reply_markup=get_unauthorized_keyboard()
             )
+            return
+            
+        allowed = USER_PERMISSIONS_CACHE.get(message.from_user.id, set())
+        if 'menu_escalas' not in allowed:
+            await bot_instance.reply_to(message, "⚠️ Seu perfil de usuário não tem permissão correlata no app para acessar a Escala de Serviço.")
             return
             
         markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
@@ -692,9 +782,14 @@ def setup_handlers(bot_instance):
         if not profile:
             await bot_instance.reply_to(
                 message, 
-                "⚠️ Acesso não autorizado!\n"
-                f"Associe seu Telegram ID ({message.from_user.id}) usando `/vincular <email>` ou com o Administrador."
+                f"⚠️ Acesso não autorizado!\nPor favor, utilize o botão abaixo para solicitar o acesso aos Administradores do sistema (Seu Telegram ID: {message.from_user.id}).",
+                reply_markup=get_unauthorized_keyboard()
             )
+            return
+            
+        allowed = USER_PERMISSIONS_CACHE.get(message.from_user.id, set())
+        if 'menu_alunos' not in allowed:
+            await bot_instance.reply_to(message, "⚠️ Seu perfil de usuário não tem permissão correlata no app para fazer Consulta de Aluno.")
             return
             
         args = message.text.split(maxsplit=1)
@@ -723,7 +818,34 @@ def setup_handlers(bot_instance):
             return
             
         if not state:
+            profile = await check_authorized_user(message.from_user.id)
             clean_text = text.lower()
+            
+            if not profile:
+                if "solicitar acesso" in clean_text:
+                    # Inicializa o estado de configurações e direciona para solicitação
+                    chat_states[chat_id] = {
+                        'action': 'settings',
+                        'step': 'request_access_name',
+                        'user': None,
+                        'data': {}
+                    }
+                    await bot_instance.reply_to(message, "📝 **Solicitação de Acesso**\n\nPor favor, digite seu **Nome Completo**:", reply_markup=get_cancel_keyboard(), parse_mode='Markdown')
+                    return
+                elif "configuracao" in clean_text or "configuração" in clean_text or "configurações" in clean_text or "configuracoes" in clean_text or "settings" in clean_text:
+                    await register_settings_command(message)
+                    return
+                
+                welcome_text = (
+                    "⚓ **Comando Tático SisCOMCA** ⚓\n\n"
+                    "⚠️ **Acesso Restrito / Não Autorizado**\n"
+                    f"Seu Telegram ID (`{message.from_user.id}`) não está vinculado a nenhum operador ativo no sistema.\n\n"
+                    "Para realizar qualquer tarefa, é necessário **solicitar acesso** para aprovação do Administrador.\n"
+                    "Clique no botão abaixo para preencher sua solicitação."
+                )
+                await bot_instance.reply_to(message, welcome_text, reply_markup=get_unauthorized_keyboard(), parse_mode='Markdown')
+                return
+
             if "resumo" in clean_text or "parada" in clean_text:
                 await register_resumo_command(message)
                 return
@@ -762,14 +884,13 @@ def setup_handlers(bot_instance):
                 "⚠️ Comando ou opção não reconhecida.\n\n"
                 "Para iniciar uma conversa ou operação, use os botões abaixo ou um dos comandos:\n"
                 "🔹 `/resumo` (ou `/parada`) : Exibe o resumo do efetivo e saúde de hoje.\n"
-                "🔹 `/escala` (ou `/servico`) : Consulta, adiciona e altera a escala (pessoal de serviço).\n"
-                "🔹 `/consulta` (ou `/aluno`) : Exibe a ficha de contatos e ocorrências de um aluno.\n"
+                "🔹 `/escala` (ou `/servico`) : Consulta, adiciona e altera a escala.\n"
+                "🔹 `/consulta` (ou `/aluno`) : Exibe a ficha e ocorrências de um aluno.\n"
                 "🔹 `/anotacao` : Inicia o lançamento de comportamento de alunos.\n"
                 "🔹 `/enfermaria` (ou `/saude`) : Inicia o lançamento de registros de saúde.\n"
                 "🔹 `/pernoite` : Lança autorização de pernoite para hoje.\n"
                 "🔹 `/aviso` : Adiciona um aviso no letreiro da TV.\n"
                 "🔹 `/menu` : Exibe o menu principal do SisCOMCA.\n"
-                "🔹 `/vincular <email>` : Vincula seu Telegram ID ao seu usuário.\n"
                 "🔹 `/cancelar` : Aborta qualquer operação em andamento."
             )
             
@@ -2669,18 +2790,23 @@ def setup_handlers(bot_instance):
         # ── PROCESSAMENTO DE CONFIGURAÇÕES DO BOT ───────────────────────
         elif action == 'settings':
             if text.lower() in ['cancelar', '❌ cancelar']:
-                await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                if state['user'] is not None:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                else:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_unauthorized_keyboard())
                 clear_state(chat_id)
                 return
             elif text.lower() in ['voltar', '⬅️ voltar']:
-                # Voltar para escolher opção ou menu principal dependendo do step
                 if step == 'choose_option':
-                    await bot_instance.reply_to(message, "Voltando ao menu principal...", reply_markup=get_main_menu_keyboard())
+                    if state['user'] is not None:
+                        await bot_instance.reply_to(message, "Voltando ao menu principal...", reply_markup=get_main_menu_keyboard())
+                    else:
+                        await bot_instance.reply_to(message, "Voltando...", reply_markup=get_unauthorized_keyboard())
                     clear_state(chat_id)
                     return
                 else:
                     state['step'] = 'choose_option'
-                    await bot_instance.reply_to(message, "Configurações:", reply_markup=get_settings_keyboard())
+                    await bot_instance.reply_to(message, "Configurações:", reply_markup=get_settings_keyboard(state['user'] is not None))
                     return
 
             if step == 'choose_option':
@@ -2688,17 +2814,18 @@ def setup_handlers(bot_instance):
                 if "solicitar acesso" in clean_opt:
                     profile = state['user']
                     if profile:
-                        await bot_instance.reply_to(message, f"⚠️ Você já está cadastrado e autorizado como {profile['nome']}!", reply_markup=get_settings_keyboard())
+                        await bot_instance.reply_to(message, f"⚠️ Você já está cadastrado e autorizado como {profile['nome']}!", reply_markup=get_settings_keyboard(True))
                         return
                     state['step'] = 'request_access_name'
                     await bot_instance.reply_to(message, "📝 **Solicitação de Acesso**\n\nPor favor, digite seu **Nome Completo**:", reply_markup=get_cancel_keyboard(), parse_mode='Markdown')
                 elif "notificações" in clean_opt or "notificacoes" in clean_opt:
                     profile = state['user']
-                    status = "⚠️ Sem conta vinculada (Não receberá alertas)"
-                    if profile:
-                        from notifications_manager import get_user_preferences
-                        user_prefs = get_user_preferences(profile['id'])
-                        status = "🔴 SILENCIADAS (Não está recebendo avisos da TV ou sistema)" if user_prefs.get("silence_all", False) else "🟢 ATIVADAS (Você receberá avisos da TV, saúde e escalas no chat)"
+                    if not profile:
+                        await bot_instance.reply_to(message, "⚠️ Você precisa solicitar acesso e ter uma conta autorizada antes de configurar notificações.", reply_markup=get_settings_keyboard(False))
+                        return
+                    from notifications_manager import get_user_preferences
+                    user_prefs = get_user_preferences(profile['id'])
+                    status = "🔴 SILENCIADAS (Não está recebendo avisos da TV ou sistema)" if user_prefs.get("silence_all", False) else "🟢 ATIVADAS (Você receberá avisos da TV, saúde e escalas no chat)"
                     
                     state['step'] = 'toggle_notifications'
                     prompt = (
@@ -2708,13 +2835,11 @@ def setup_handlers(bot_instance):
                     )
                     await bot_instance.reply_to(message, prompt, reply_markup=get_notifications_toggle_keyboard(), parse_mode='Markdown')
                 elif "vincular conta" in clean_opt:
-                    state['step'] = 'link_account_email'
                     await bot_instance.reply_to(
                         message,
-                        "🔗 **Vinculação de Conta**\n\n"
-                        "Por favor, digite o e-mail ou nome de usuário do seu perfil operador cadastrado no painel web:",
-                        reply_markup=get_cancel_keyboard(),
-                        parse_mode='Markdown'
+                        "⚠️ A vinculação manual está desativada por questões de segurança.\n"
+                        "Por favor, use a opção 'Solicitar Acesso' e os administradores farão a vinculação.",
+                        reply_markup=get_settings_keyboard(state['user'] is not None)
                     )
                 elif "voltar" in clean_opt or "⬅️ voltar" in clean_opt:
                     await bot_instance.reply_to(message, "Voltando ao menu principal...", reply_markup=get_main_menu_keyboard())
