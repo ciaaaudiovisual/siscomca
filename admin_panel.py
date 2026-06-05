@@ -231,6 +231,21 @@ def render_page():
 
         # 2. Diálogo de Edição de Operador
         def open_edit_dialog(user):
+            user_email = ""
+            db_conn = get_db_connection()
+            if db_conn:
+                try:
+                    res_ef = db_conn.table('efetivo').select('email').eq('nome_guerra', user.get('nome', '').upper()).execute()
+                    if res_ef.data and res_ef.data[0].get('email'):
+                        user_email = res_ef.data[0]['email']
+                    else:
+                        if user.get('telegram_id'):
+                            res_ef2 = db_conn.table('efetivo').select('email').eq('telegram_id', user['telegram_id']).execute()
+                            if res_ef2.data and res_ef2.data[0].get('email'):
+                                user_email = res_ef2.data[0]['email']
+                except Exception as ef_err:
+                    print(f"[EDIT EMAIL LOOKUP ERR] {ef_err}")
+
             with ui.dialog() as edit_dialog, ui.card().classes('w-[420px] q-pa-md bg-slate-900 border').style(f'border-color: {THEME["accent"]};'):
                 with ui.column().classes('w-full gap-4'):
                     with ui.row().classes('items-center gap-2 w-full justify-between'):
@@ -239,6 +254,7 @@ def render_page():
                     ui.separator().style('background-color: rgba(0, 229, 255, 0.15);')
 
                     e_nome = ui.input('Nome de Guerra', value=user.get('nome', '')).props('dark outlined dense w-full')
+                    e_email = ui.input('E-mail (Login)', value=user_email).props('dark outlined dense w-full')
                     e_unm = ui.input('Username (Login)', value=user.get('username', '')).props('dark outlined dense w-full')
                     e_tg = ui.input('Telegram ID', value=user.get('telegram_id', '') or '').props('dark outlined dense w-full')
                     
@@ -318,6 +334,21 @@ def render_page():
                             return
                         
                         try:
+                            # 1. Atualiza o e-mail no Supabase Auth se fornecido e alterado
+                            if e_email.value and e_email.value.strip() != user_email:
+                                from database import get_bot_db_connection
+                                admin_conn = None
+                                try:
+                                    admin_conn = get_bot_db_connection()
+                                except Exception:
+                                    pass
+                                if admin_conn and hasattr(admin_conn, 'auth') and hasattr(admin_conn.auth, 'admin'):
+                                    try:
+                                        admin_conn.auth.admin.update_user_by_id(user['id'], {"email": e_email.value.strip()})
+                                    except Exception as auth_email_err:
+                                        print(f"[AUTH EMAIL UPDATE ERR] {auth_email_err}")
+
+                            # 2. Atualiza a tabela Users
                             try:
                                 conn.table('Users').update({
                                     'nome': e_nome.value.upper(),
@@ -338,22 +369,33 @@ def render_page():
                                 else:
                                     raise db_err
                             
-                            # Tenta manter a integridade da tabela efetivo
+                            # 3. Tenta manter a integridade da tabela efetivo
                             try:
+                                update_fields = {
+                                    'nome_guerra': e_nome.value.upper(),
+                                    'telegram_id': e_tg.value or None,
+                                    'role': e_role.value,
+                                    'email': e_email.value or None,
+                                    'url_foto': e_foto.value or None
+                                }
                                 try:
-                                    conn.table('efetivo').update({
-                                        'nome_guerra': e_nome.value.upper(),
-                                        'telegram_id': e_tg.value or None,
-                                        'role': e_role.value,
-                                        'url_foto': e_foto.value or None
-                                    }).eq('telegram_id', user.get('telegram_id')).execute()
+                                    ef_query = conn.table('efetivo').update(update_fields)
+                                    if user_email:
+                                        ef_query.eq('email', user_email).execute()
+                                    elif user.get('telegram_id'):
+                                        ef_query.eq('telegram_id', user.get('telegram_id')).execute()
+                                    else:
+                                        ef_query.eq('nome_guerra', user.get('nome', '').upper()).execute()
                                 except Exception as db_err:
                                     if 'url_foto' in str(db_err):
-                                        conn.table('efetivo').update({
-                                            'nome_guerra': e_nome.value.upper(),
-                                            'telegram_id': e_tg.value or None,
-                                            'role': e_role.value
-                                        }).eq('telegram_id', user.get('telegram_id')).execute()
+                                        update_fields.pop('url_foto', None)
+                                        ef_query_alt = conn.table('efetivo').update(update_fields)
+                                        if user_email:
+                                            ef_query_alt.eq('email', user_email).execute()
+                                        elif user.get('telegram_id'):
+                                            ef_query_alt.eq('telegram_id', user.get('telegram_id')).execute()
+                                        else:
+                                            ef_query_alt.eq('nome_guerra', user.get('nome', '').upper()).execute()
                                     else:
                                         raise db_err
                             except Exception as sync_err:
