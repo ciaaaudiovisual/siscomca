@@ -10,6 +10,7 @@ def forced_ipv4_getaddrinfo(*args, **kwargs):
 socket.getaddrinfo = forced_ipv4_getaddrinfo
 
 from nicegui import ui, app
+from fastapi import Request
 from dotenv import load_dotenv
 
 
@@ -504,7 +505,7 @@ def siscomca_tv_page():
 
 
 @ui.page('/login')
-def login_page():
+def login_page(request: Request):
     theme.apply_global_styles()
     
     # Dialog de Solicitação de Acesso
@@ -611,6 +612,16 @@ def login_page():
                             error_label.text = 'Preencha todos os campos'
                             return
                         
+                        # Rate Limiting contra Brute-Force (A6)
+                        from rate_limit import rate_limiter, get_client_ip
+                        client_ip = get_client_ip()
+                        key = f"login_attempt:{client_ip}"
+                        if not rate_limiter.is_allowed(key, max_requests=5, window_seconds=600):
+                            error_label.text = 'Muitas tentativas. Login bloqueado por 10 minutos.'
+                            import log_acessos
+                            log_acessos.log_access(f"Tentativa de login bloqueada (Brute-force)", "Autenticação", "BLOQUEADO")
+                            return
+                        
                         from database import get_db_connection, authenticate_user_supabase
                         db_conn = get_db_connection()
                         
@@ -646,10 +657,17 @@ def login_page():
                             target_path = '/siscomca_tv' if role_user in ('tv', 'tv_comcia') else '/'
                             app.storage.user['current_path'] = target_path
                             ui.notify(f'Bem-vindo, {profile.get("nome", user.value)}!', color='success')
+                            
+                            # Registrar no log SQLite real (A8)
+                            import log_acessos
+                            log_acessos.log_access("Login", "Autenticação", "SUCESSO")
+                            
                             # Força redirecionamento físico de página via JS para o gerenciador de senhas do navegador salvar as credenciais
                             ui.run_javascript(f"window.location.href = '{target_path}'")
                         else:
                             error_label.text = 'E-mail ou senha incorretos'
+                            import log_acessos
+                            log_acessos.log_access(f"Falha de Login: {user.value}", "Autenticação", "FALHA")
  
                     ui.button('🚀 Entrar no Sistema').props('type=submit unelevated color=amber-9 text-color=black w-full bold').classes('q-py-sm font-bold text-sm cyber-title w-full')
                     

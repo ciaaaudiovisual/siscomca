@@ -66,7 +66,7 @@ def rate_limit(max_requests: int = 60, window_seconds: int = 60, key_func=None):
         def wrapper(*args, **kwargs):
             from nicegui import app
             
-            client_ip = app.storage.user.get('client_ip', 'anonymous')
+            client_ip = get_client_ip()
             if key_func:
                 key = f"{client_ip}:{key_func(*args, **kwargs)}"
             else:
@@ -156,7 +156,33 @@ def get_cache_stats():
     }
 
 
+def get_client_ip() -> str:
+    """Retorna o IP do cliente real a partir do contexto do NiceGUI/FastAPI, respeitando cabeçalhos de proxy."""
+    from nicegui import context
+    try:
+        client = context.get_client()
+        scope = client.environ.get('asgi.scope', {})
+        headers = {k.decode('utf-8').lower(): v.decode('utf-8') for k, v in scope.get('headers', [])}
+        
+        # Cabeçalhos de proxy (Render, HF, Cloudflare, etc.)
+        x_forwarded_for = headers.get('x-forwarded-for')
+        if x_forwarded_for:
+            return x_forwarded_for.split(',')[0].strip()
+            
+        x_real_ip = headers.get('x-real-ip')
+        if x_real_ip:
+            return x_real_ip.strip()
+            
+        client_tuple = scope.get('client')
+        if client_tuple:
+            return client_tuple[0]
+    except Exception as e:
+        print(f"[IP] Erro ao extrair IP: {e}")
+    return '127.0.0.1'
+
+
 def clear_cache():
     """Limpa todo o cache"""
+    from nicegui import ui
     cache.clear()
     ui.notify('Cache limpo', color='info')

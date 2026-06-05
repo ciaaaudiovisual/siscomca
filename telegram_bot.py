@@ -3228,19 +3228,16 @@ def setup_handlers(bot_instance):
                 return
 
             elif step == 'link_account_email':
-                username = text.split('@')[0] if '@' in text else text
-                try:
-                    res = conn.table('Users').select('*').eq('username', username).execute()
-                    if not res.data:
-                        await bot_instance.reply_to(message, f"❌ Nenhum operador encontrado com o username/email '{username}'. Digite novamente ou cancele:", reply_markup=get_cancel_keyboard())
-                        return
-                    user_profile = res.data[0]
-                    conn.table('Users').update({'telegram_id': str(message.from_user.id)}).eq('id', user_profile['id']).execute()
-                    await bot_instance.reply_to(message, f"✅ Vinculação Concluída com sucesso para o operador {user_profile['nome']}!", reply_markup=get_main_menu_keyboard())
-                except Exception as e:
-                    await bot_instance.reply_to(message, f"❌ Erro ao vincular conta: {e}", reply_markup=get_main_menu_keyboard())
-                finally:
-                    clear_state(chat_id)
+                await bot_instance.reply_to(
+                    message,
+                    "⚠️ **Recurso Desativado por Motivos de Segurança**\n\n"
+                    "A vinculação direta de conta via e-mail foi desativada para prevenir sequestro de contas.\n"
+                    "Por favor, peça ao administrador para vincular seu Telegram ID no painel administrativo web.",
+                    reply_markup=get_main_menu_keyboard(),
+                    parse_mode='Markdown'
+                )
+                clear_state(chat_id)
+                return
 
 async def prompt_pernoite_confirm(bot_instance, message, state, student):
     state['step'] = 'confirm_pernoite_submit'
@@ -3652,7 +3649,6 @@ async def init_bot():
                 types.BotCommand("enfermaria", "Lança saúde/baixas de alunos"),
                 types.BotCommand("pernoite", "Lança autorização de pernoite"),
                 types.BotCommand("aviso", "Adiciona aviso corrido letreiro na TV"),
-                types.BotCommand("vincular", "Associa Telegram ID ao usuário Web"),
                 types.BotCommand("cancelar", "Cancela a operação atual")
             ])
             print("[TELEGRAM BOT] Lista de comandos configurada com sucesso!", flush=True)
