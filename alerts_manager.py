@@ -16,6 +16,7 @@ ALERTS_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "c
 
 DEFAULT_ALERTS_CONFIG = {
     "bell_enabled": True,
+    "tv_alert_vocativo": "Atenção!",
     "sound_mappings": {
         "Registro de Ocorrência": "alert",
         "Novo Aviso": "info",

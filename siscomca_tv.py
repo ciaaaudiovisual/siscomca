@@ -1132,12 +1132,16 @@ def render_page():
             'warning': {'border': '#ff9100', 'bg': '#190a00', 'glow': 'rgba(255, 145, 0, 0.4)'}
         }
         cfg = color_theme.get(type_, color_theme['info'])
+        from alerts_manager import load_alerts_config
+        alerts_config = load_alerts_config()
+        vocativo = alerts_config.get('tv_alert_vocativo', 'Atenção!')
         
         import json
         escaped_title = json.dumps(title)
         escaped_msg = json.dumps(msg)
         escaped_jarvis = json.dumps(jarvis_text) if jarvis_text else "null"
         escaped_audio = json.dumps(jarvis_audio) if jarvis_audio else "null"
+        escaped_vocativo = json.dumps(vocativo)
         
         try:
             with client:
@@ -1419,127 +1423,8 @@ def render_page():
                         if (ctx.state === 'suspended') {{
                             ctx.resume();
                         }}
-                        const type = '{type_}';
-                        const customMp3Url = "/assets/sounds/" + type + ".mp3";
                         
-                        if (type.startsWith('naval_bell_')) {{
-                            let count = 1;
-                            if (type === 'naval_bell_singela') {{
-                                count = 1;
-                            }} else if (type === 'naval_bell_dobrada') {{
-                                count = 2;
-                            }} else {{
-                                count = parseInt(type.split('_')[2]) || 1;
-                            }}
-                            
-                            const singleMp3Url = "/assets/sounds/bell_single.mp3";
-                            const doubleMp3Url = "/assets/sounds/bell_double.mp3";
-                            
-                            function playSynthesizedBells(ctx, count) {{
-                                function playNavalBellStrike(ctx, time) {{
-                                    const frequencies = [240, 480, 576, 720, 960, 1200, 1440, 1920];
-                                    const gains = [0.35, 0.35, 0.25, 0.15, 0.15, 0.1, 0.08, 0.05];
-                                    const decays = [3.2, 2.6, 2.2, 1.8, 1.4, 1.0, 0.6, 0.4];
-
-                                    frequencies.forEach((f, idx) => {{
-                                        let osc = ctx.createOscillator();
-                                        let gainNode = ctx.createGain();
-                                        osc.connect(gainNode);
-                                        gainNode.connect(ctx.destination);
-                                        
-                                        osc.type = 'sine';
-                                        osc.frequency.setValueAtTime(f, time);
-                                        
-                                        gainNode.gain.setValueAtTime(0, time);
-                                        gainNode.gain.linearRampToValueAtTime(gains[idx], time + 0.005);
-                                        gainNode.gain.exponentialRampToValueAtTime(0.001, time + decays[idx]);
-                                        
-                                        osc.start(time);
-                                        osc.stop(time + decays[idx] + 0.1);
-                                    }});
-                                }}
-
-                                let now = ctx.currentTime;
-                                for (let i = 0; i < count; i++) {{
-                                    let pairIndex = Math.floor(i / 2);
-                                    let inPairIndex = i % 2;
-                                    let timeOffset = pairIndex * 2.0 + inPairIndex * 0.15;
-                                    playNavalBellStrike(ctx, now + timeOffset);
-                                }}
-                            }}
-
-                            fetch(singleMp3Url)
-                                .then(res => {{
-                                    if (res.ok) {{
-                                        let pairs = Math.floor(count / 2);
-                                        let remainder = count % 2;
-                                        
-                                        for (let p = 0; p < pairs; p++) {{
-                                            setTimeout(() => {{
-                                                let audio = new Audio(doubleMp3Url);
-                                                audio.volume = 1.0;
-                                                audio.play().catch(() => {{}});
-                                            }}, p * 2000);
-                                        }}
-                                        
-                                        if (remainder > 0) {{
-                                            setTimeout(() => {{
-                                                let audio = new Audio(singleMp3Url);
-                                                audio.volume = 1.0;
-                                                audio.play().catch(() => {{}});
-                                            }}, pairs * 2000);
-                                        }}
-                                    }} else {{
-                                        playSynthesizedBells(ctx, count);
-                                    }}
-                                }})
-                                .catch(() => {{
-                                    playSynthesizedBells(ctx, count);
-                                }});
-                        }} else if (type === 'silent') {{
-                            // Silencioso
-                        }} else {{
-                            fetch(customMp3Url)
-                                .then(res => {{
-                                    if (res.ok) {{
-                                        let audio = new Audio(customMp3Url);
-                                        audio.volume = 1.0;
-                                        audio.play().catch(() => {{}});
-                                    }} else {{
-                                        playDefaultSynthesized(type);
-                                    }}
-                                }})
-                                .catch(() => {{
-                                    playDefaultSynthesized(type);
-                                }});
-                        }}
-                    }}
-                    
-                    // Síntese de voz estilo Jarvis com Leitura Realista (ElevenLabs ou Web Speech API)
-                    const jarvisAudio = {escaped_audio};
-                    if (playVoice && jarvisAudio && jarvisAudio !== "null") {{
-                        try {{
-                            let audioSrc = "data:audio/mp3;base64," + jarvisAudio;
-                            let audioObj = new Audio(audioSrc);
-                            audioObj.volume = 1.0;
-                            setTimeout(() => {{
-                                audioObj.play().catch(err => console.error("[JARVIS AUDIO] Erro ao reproduzir ElevenLabs:", err));
-                            }}, 300);
-                        }} catch(err) {{
-                            console.error("[JARVIS AUDIO] Falha ao iniciar player de ElevenLabs:", err);
-                        }}
-                    }} else if (playVoice && 'speechSynthesis' in window) {{
-                        window.speechSynthesis.cancel();
-                        let rawTitle = {escaped_title};
-                        let rawMsg = {escaped_msg};
-                        let jarvisText = {escaped_jarvis};
-                        let cleanText = (jarvisText ? jarvisText : (rawTitle + ". " + rawMsg))
-                            .replace(/[\\u2700-\\u27BF]|[\\uE000-\\uF8FF]|\\uD83C[\\uDC00-\\uDFFF]|\\uD83D[\\uDC00-\\uDFFF]|[\\u2011-\\u26FF]|\\uD83E[\\uDC00-\\uDFFF]/g, '')
-                            .trim();
-                        let utterance = new SpeechSynthesisUtterance(cleanText);
-                        utterance.lang = 'pt-BR';
-                        
-                        // Função interna para obter a melhor voz natural e realista (estilo Jarvis)
+                        // Função para buscar a melhor voz em Português disponível no browser
                         let getBestVoice = () => {{
                             let voices = window.speechSynthesis.getVoices();
                             let ptVoices = voices.filter(v => {{
@@ -1547,7 +1432,6 @@ def render_page():
                                 return l.includes('pt-br') || l.includes('pt_br') || l === 'pt';
                             }});
                             
-                            // 1. Tenta vozes masculinas naturais premium (Ex: Microsoft Valerio/Fabio Natural)
                             let naturalMale = ptVoices.find(v => {{
                                 let name = v.name.toLowerCase();
                                 return (name.includes('natural') || name.includes('online') || name.includes('neural')) && 
@@ -1555,15 +1439,12 @@ def render_page():
                             }});
                             if (naturalMale) return naturalMale;
                             
-                            // 2. Tenta Google português (Muito superior e limpa no Chrome, ex: Google português do Brasil)
                             let googlePt = ptVoices.find(v => v.name.toLowerCase().includes('google'));
                             if (googlePt) return googlePt;
                             
-                            // 3. Tenta qualquer voz natural online pt-BR (qualquer gênero)
                             let anyNatural = ptVoices.find(v => v.name.toLowerCase().includes('natural') || v.name.toLowerCase().includes('online') || v.name.toLowerCase().includes('neural'));
                             if (anyNatural) return anyNatural;
                             
-                            // 4. Tenta vozes masculinas locais do Windows (Daniel, Antonio, Felipe)
                             let localMale = ptVoices.find(v => {{
                                 let name = v.name.toLowerCase();
                                 return name.includes('daniel') || name.includes('antonio') || name.includes('male') || name.includes('felipe');
@@ -1573,20 +1454,6 @@ def render_page():
                             return ptVoices.length > 0 ? ptVoices[0] : null;
                         }};
 
-                        let selectedVoice = getBestVoice();
-                        if (selectedVoice) {{
-                            utterance.voice = selectedVoice;
-                            let isNatural = selectedVoice.name.toLowerCase().includes('natural') || 
-                                            selectedVoice.name.toLowerCase().includes('online') || 
-                                            selectedVoice.name.toLowerCase().includes('neural');
-                            // Ajuste fino dinâmico de pitch e rate para sobriedade britânica (J.A.R.V.I.S.)
-                            utterance.pitch = isNatural ? 0.94 : 0.82; // Tom mais grave e autoritário
-                            utterance.rate = isNatural ? 0.90 : 0.93;  // Ritmo pausado, deliberado e formal
-                        }} else {{
-                            utterance.pitch = 0.82;
-                            utterance.rate = 0.93;
-                        }}
-                        
                         // Dispara a fala com um pequeno atraso após o chime
                         setTimeout(() => {{
                             window.speechSynthesis.speak(utterance);

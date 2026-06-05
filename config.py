@@ -976,6 +976,11 @@ def render_page():
                             value=alerts_config.get('bell_enabled', True)
                         ).props('dark').classes('text-xs font-bold text-white')
                         
+                        input_tv_vocativo = ui.input(
+                            'Vocativo Personalizado de Alerta (Modo TV)',
+                            value=alerts_config.get('tv_alert_vocativo', 'Atenção!')
+                        ).props('dark dense outlined').classes('w-full text-xs').style('max-width: 400px;')
+                        
                         ui.separator().style('background-color: rgba(255,255,255,0.05); height: 1px;')
                         ui.label('Agendar Novo Alerta Horário:').classes('text-xs font-bold text-white')
                         
@@ -1692,6 +1697,7 @@ def render_page():
                 # Salva as configurações de som e o switch do sino
                 new_alerts_config = load_alerts_config()
                 new_alerts_config['bell_enabled'] = bell_enabled_switch.value
+                new_alerts_config['tv_alert_vocativo'] = input_tv_vocativo.value
                 for key in sound_dropdowns:
                     new_alerts_config['sound_mappings'][key] = sound_dropdowns[key].value
                     
