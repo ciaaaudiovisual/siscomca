@@ -1348,6 +1348,69 @@ def render_page():
                                 f'background:{THEME["accent"]}; color:#000; font-weight:700;'
                             ).classes('w-full')
 
+                    # 4. Solicitações de Acesso Pendentes (Apenas para Admins e Supervisores)
+                    if role in ('admin', 'supervisor'):
+                        with theme.card_base().classes('w-full q-pa-md q-mt-4'):
+                            with ui.column().classes('w-full gap-4'):
+                                with ui.row().classes('items-center gap-2'):
+                                    ui.icon('assignment_ind', size='2rem').style(f'color: {THEME["accent"]}')
+                                    ui.label('Solicitações de Acesso Pendentes').classes('text-lg font-bold').style(f'color: {THEME["text_main"]}')
+                                ui.separator().style(f'background-color: rgba(0, 229, 255, 0.15);')
+                                
+                                @ui.refreshable
+                                def render_pending_requests_tab():
+                                    db_c = get_db_connection()
+                                    reqs = []
+                                    if db_c:
+                                        try:
+                                            res_req = db_c.table('RegistrationRequests').select('*').eq('status', 'pending').execute()
+                                            reqs = res_req.data or []
+                                        except Exception as e:
+                                            print(f"[CONFIG REQ ERR] {e}")
+                                    
+                                    if not reqs:
+                                        ui.label('Não há solicitações pendentes no momento.').classes('italic text-xs text-grey-5')
+                                    else:
+                                        with ui.column().classes('w-full gap-3'):
+                                            for r in reqs:
+                                                with ui.row().classes('w-full items-center justify-between border-b border-white/5 py-2 hover:bg-white/5 px-2 rounded'):
+                                                    with ui.column().classes('gap-0'):
+                                                        ui.label(r.get('nome_completo', '').upper()).classes('text-white text-xs font-bold')
+                                                        ui.label(f"Email: {r.get('email', '')} | Guerra: {r.get('nome_guerra', '').upper()}").classes('text-[10px] text-grey-5')
+                                                    
+                                                    # Ações rápidas
+                                                    with ui.row().classes('gap-2 items-center'):
+                                                        def make_approve_handler(req_id=r['id'], req_email=r['email'], req_guerra=r['nome_guerra']):
+                                                            def approve():
+                                                                try:
+                                                                    db_c.table('RegistrationRequests').update({'status': 'approved'}).eq('id', req_id).execute()
+                                                                    db_c.table('Users').upsert({
+                                                                        'id': req_id,
+                                                                        'username': req_email.split('@')[0],
+                                                                        'nome': req_guerra.upper(),
+                                                                        'role': 'compel'
+                                                                    }, on_conflict='id').execute()
+                                                                    ui.notify('Solicitação aprovada!', color='success')
+                                                                    render_pending_requests_tab.refresh()
+                                                                except Exception as ex:
+                                                                    ui.notify(f'Erro ao aprovar: {ex}', color='red')
+                                                            return approve
+                                                            
+                                                        def make_reject_handler(req_id=r['id']):
+                                                            def reject():
+                                                                try:
+                                                                    db_c.table('RegistrationRequests').update({'status': 'rejected'}).eq('id', req_id).execute()
+                                                                    ui.notify('Solicitação rejeitada.', color='warning')
+                                                                    render_pending_requests_tab.refresh()
+                                                                except Exception as ex:
+                                                                    ui.notify(f'Erro ao rejeitar: {ex}', color='red')
+                                                            return reject
+                                                        
+                                                        ui.button('Rejeitar', on_click=make_reject_handler()).props('outline dense color=red').classes('text-xs')
+                                                        ui.button('Aprovar', on_click=make_approve_handler()).props('unelevated dense color=green').classes('text-xs text-white')
+                                
+                                render_pending_requests_tab()
+
             # --- ABA 6: CONFIGURAÇÃO DE VOZ (TTS) ---
             with ui.tab_panel(tab_tts).classes('bg-transparent q-pa-none gap-6'):
                 with ui.column().classes('w-full gap-6'):
