@@ -133,8 +133,8 @@ def render_page():
                         aluno_id = aluno_encontrado['id']
                         nome_guerra = aluno_encontrado['nome_guerra']
                         
-                        # Formata o nome do arquivo para o bucket adicionando o ano na frente
-                        filename = f"alunos/{ano_destino}_{ni_aluno}{ext.lower()}"
+                        # Formata o nome do arquivo para o bucket adicionando em uma subpasta por ano
+                        filename = f"alunos/{ano_destino}/{ni_aluno}{ext.lower()}"
                         
                         # Realiza o upload para o Supabase Storage
                         from database import upload_file_to_supabase_storage
