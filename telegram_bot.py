@@ -3227,6 +3227,9 @@ def setup_handlers(bot_instance):
                         reply_markup=markup,
                         parse_mode='Markdown'
                     )
+                elif "pedidos de acesso" in clean_opt or "solicitações" in clean_opt:
+                    await register_solicitacoes_command(message)
+                    return
                 elif "vincular conta" in clean_opt:
                     await bot_instance.reply_to(
                         message,
