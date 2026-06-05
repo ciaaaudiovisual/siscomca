@@ -171,6 +171,32 @@ MARQUEE_CSS = """
 .flip-card-back {
     transform: rotateY(180deg);
 }
+.tv-main-container {
+    background: #000;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+@media (max-width: 1024px), (orientation: portrait) {
+    .tv-main-container {
+        height: auto !important;
+        overflow: auto !important;
+    }
+    .tv-main-row {
+        flex-direction: column !important;
+        height: auto !important;
+        overflow-y: auto !important;
+    }
+    .tv-left-col, .tv-center-col, .tv-right-col {
+        width: 100% !important;
+        height: auto !important;
+        min-height: 400px !important;
+    }
+    body {
+        overflow: auto !important;
+    }
+}
 </style>
 """
 
@@ -791,7 +817,7 @@ def render_page():
             ui.notify('Anotações ocultadas com sucesso!', color='warning')
 
     # Container Principal
-    with ui.column().classes('w-full q-pa-sm gap-2').style('background:#000; height:100vh; overflow:hidden; display:flex; flex-direction:column;'):
+    with ui.column().classes('w-full q-pa-sm gap-2 tv-main-container'):
         
         # ── CABEÇALHO TÁTICO ─────────────────────────────────────────────────────────
         with ui.row().classes('w-full items-center justify-between border-b-2 border-gray-900 q-pb-xs'):
