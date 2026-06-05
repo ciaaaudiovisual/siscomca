@@ -213,10 +213,10 @@ def build_layout(page_func):
             with ui.row().classes('w-full items-center justify-between'):
                 with ui.row().classes('items-center gap-2'):
                     ui.button(on_click=lambda: left_drawer.toggle(), icon='menu').props('flat color=white dense')
-                    ui.image(LOGO_BASE64).style('width: 32px; height: 32px;').classes('drop-shadow-[0_0_8px_rgba(0,229,255,0.4)]')
+                    ui.image(LOGO_BASE64).style('width: 46px; height: 46px; box-shadow: 0 0 15px rgba(0, 229, 255, 0.5); border-radius: 50%; border: 1px solid rgba(0, 229, 255, 0.3);').classes('drop-shadow-[0_0_10px_rgba(0,229,255,0.4)]')
                     with ui.column().classes('gap-0'):
-                        ui.label(system_title).style(f'color: {theme.colors["primary"]}; font-weight: bold; line-height: 1; letter-spacing: 1px;').classes('cyber-title')
-                        ui.label('Corpo de Alunos • 1º Batalhão').style('font-size: 0.65rem; color: #64748b;')
+                        ui.label(system_title).style(f'color: {theme.colors["primary"]}; font-weight: bold; line-height: 1; letter-spacing: 1.5px; font-size: 1.2rem;').classes('cyber-title')
+                        ui.label('Corpo de Alunos • 1º Batalhão').style('font-size: 0.75rem; color: #64748b;')
                 
                 with ui.row().classes('items-center gap-3 no-wrap'):
                     # Seletor Global de Ano Letivo
@@ -547,7 +547,7 @@ def login_page():
             with ui.column().classes('w-full items-center gap-4'):
                 
                 # ── TOPO: LOGO E IDENTIFICAÇÃO ──
-                ui.image(LOGO_BASE64).style('width: 120px; height: 120px;').classes('drop-shadow-[0_0_15px_rgba(212,175,55,0.4)]')
+                ui.image(LOGO_BASE64).style('width: 180px; height: 180px; box-shadow: 0 0 35px rgba(0, 229, 255, 0.65); border-radius: 50%; border: 2px solid rgba(0, 229, 255, 0.4);').classes('drop-shadow-[0_0_20px_rgba(0,229,255,0.5)]')
                 ui.label('SisCOMCA').classes('cyber-title').style(
                     f'color: {theme.colors["primary"]}; font-size: 2.8rem; font-weight: 700; letter-spacing: 2px; line-height: 1;'
                 )
