@@ -34,8 +34,8 @@ SESSION_STATE = {
 MARQUEE_CSS = """
 <style>
 @keyframes marquee-vertical {
-    0% { transform: translateY(0); }
-    100% { transform: translateY(-50%); }
+    0%, 10% { transform: translateY(0); }
+    90%, 100% { transform: translateY(-50%); }
 }
 @keyframes ticker-scroll {
     0% { transform: translateX(0); }
@@ -44,7 +44,7 @@ MARQUEE_CSS = """
 .health-marquee-container {
     display: flex;
     flex-direction: column;
-    animation: marquee-vertical 30s linear infinite;
+    animation: marquee-vertical 30s ease-in-out infinite alternate;
 }
 .health-marquee-container:hover {
     animation-play-state: paused;
@@ -52,7 +52,7 @@ MARQUEE_CSS = """
 .notes-marquee-container {
     display: flex;
     flex-direction: column;
-    animation: marquee-vertical 45s linear infinite;
+    animation: marquee-vertical 45s ease-in-out infinite alternate;
 }
 .notes-marquee-container:hover {
     animation-play-state: paused;
@@ -60,7 +60,7 @@ MARQUEE_CSS = """
 .activities-marquee-container {
     display: flex;
     flex-direction: column;
-    animation: marquee-vertical 300s linear infinite;
+    animation: marquee-vertical 300s ease-in-out infinite alternate;
 }
 .activities-marquee-container:hover {
     animation-play-state: paused;
@@ -1598,18 +1598,17 @@ def render_page():
                         ausentes_count = d.get('ausentes_hoje', 0)
                     pernoite_count = d.get('pernoite_count', 0)
 
-                    # Linha 1: Efetivo, Presentes, Ausentes, Licenciados
+                    # Linha 1: Efetivo, Presentes, Ausentes/Faltas, Licenças Autorizadas
                     with ui.row().classes('w-full gap-1 justify-between no-wrap').style('flex: 1; min-height: 0;'):
                         build_mini_kpi(d['total_alunos'], 'Efetivo', '#D4AF37', 'groups')
                         build_mini_kpi(d['presentes_hoje'], 'Presentes', '#4CAF50', 'how_to_reg')
-                        build_mini_kpi(ausentes_count, 'Ausentes', '#F44336', 'person_off')
-                        build_mini_kpi(licenciados_count, 'Licenciados', '#2196F3', 'flight_takeoff')
+                        build_mini_kpi(ausentes_count, 'Ausentes/Faltas', '#F44336', 'person_off')
+                        build_mini_kpi(licenciados_count, 'Licenças Autorizadas', '#2196F3', 'flight_takeoff')
                 
-                    # Linha 2: Baixados, Dispensados, Hospital, Pernoite
+                    # Linha 2: Enfermaria, Dispensados, Pernoite
                     with ui.row().classes('w-full gap-1 justify-between no-wrap').style('flex: 1; min-height: 0;'):
-                        build_mini_kpi(baixados_count, 'Baixados', '#E91E63', 'local_hospital')
+                        build_mini_kpi(baixados_count + hospital_count, 'Enfermaria', '#E91E63', 'local_hospital')
                         build_mini_kpi(dispensados_count, 'Dispensados', '#FF9800', 'event_busy')
-                        build_mini_kpi(hospital_count, 'Hospital', '#9C27B0', 'apartment')
                         build_mini_kpi(pernoite_count, 'Pernoite', '#00BCD4', 'nightlight')
 
                 # 3. Anotações do Dia (Ações dos Alunos com cores positivo/negativo/neutro)
@@ -1622,7 +1621,7 @@ def render_page():
                     else:
                         use_marquee = len(anotacoes_list) > 3
                         classes_inner = 'notes-marquee-container w-full gap-1' if use_marquee else 'w-full gap-1'
-                        items_marquee = anotacoes_list * 2 if use_marquee else anotacoes_list
+                        items_marquee = anotacoes_list # Removido duplicação * 2 para permitir ir e voltar real
                         
                         with ui.column().classes(classes_inner):
                             for anot in items_marquee:
@@ -1708,7 +1707,7 @@ def render_page():
                     else:
                         use_marquee = len(baixados_efetivos) > 2
                         classes_inner = 'health-marquee-container w-full gap-1' if use_marquee else 'w-full gap-1'
-                        items_marquee = baixados_efetivos * 2 if use_marquee else baixados_efetivos
+                        items_marquee = baixados_efetivos # Removido duplicação * 2 para permitir ir e voltar real
                         
                         with ui.column().classes(classes_inner):
                             for item in items_marquee:
@@ -1748,7 +1747,7 @@ def render_page():
                                         ui.label(label_cat).classes(f'font-bold text-[14px] tracking-wider').style(text_cat_color_style)
                                 
                                     with ui.row().classes('w-full justify-between items-baseline px-1 text-[16px] text-grey-3'):
-                                        ui.label(motivo).classes('font-semibold italic ellipsis').style('max-width: 60%')
+                                        ui.label(f"MOTIVO: {motivo}").classes('font-semibold italic ellipsis').style('max-width: 60%')
                                         if desc_extra:
                                             ui.label(desc_extra).classes('text-white font-bold text-[16px]')
 
@@ -1807,7 +1806,7 @@ def render_page():
                     else:
                         use_marquee = len(lic_disp_list) > 2
                         classes_inner = 'health-marquee-container w-full gap-1' if use_marquee else 'w-full gap-1'
-                        items_marquee = lic_disp_list * 2 if use_marquee else lic_disp_list
+                        items_marquee = lic_disp_list
 
                         with ui.column().classes(classes_inner):
                             for item in items_marquee:
@@ -1821,7 +1820,7 @@ def render_page():
                                         ui.label(item['tipo']).classes(f"px-1 py-0.2 rounded border text-[13px] font-bold").style(item['color_tag'])
                                     
                                     with ui.row().classes('w-full justify-between items-baseline px-1 text-[16px] text-grey-3'):
-                                        ui.label(item['motivo']).classes('font-semibold italic ellipsis').style('max-width: 60%')
+                                        ui.label(f"MOTIVO: {item['motivo']}").classes('font-semibold italic ellipsis').style('max-width: 60%')
                                         ui.label(f"TÉRMINO: {item['retorno']}").style(item['color_tag'].split(';')[0])
 
                 # 6. Programação do Dia (Atividades) - Lado direito (1/3 width)
