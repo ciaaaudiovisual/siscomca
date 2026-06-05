@@ -1,4 +1,4 @@
-from nicegui import ui
+from nicegui import ui, app
 import theme
 from database import get_db_connection
 from services import data_service
