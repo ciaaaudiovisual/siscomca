@@ -98,6 +98,18 @@ def _carregar_dados_gerais():
         if not config_df.empty else {}
     )
 
+    # Filtra dados de presenca, saude e pernoite pelo ano letivo ativo
+    if not alunos_df.empty:
+        valid_nis = set(alunos_df['numero_interno'].astype(str).str.strip().str.upper())
+        valid_aluno_ids = set(alunos_df['id'].astype(str))
+        
+        if not presenca_df.empty and 'numero_interno' in presenca_df.columns:
+            presenca_df = presenca_df[presenca_df['numero_interno'].astype(str).str.strip().str.upper().isin(valid_nis)]
+            
+        health_ativos = [x for x in health_ativos if str(x.get('numero_interno', '')).strip().upper() in valid_nis]
+        licencas_ativas = [x for x in licencas_ativas if str(x.get('numero_interno', '')).strip().upper() in valid_nis]
+        pernoite_hoje_ids = [x for x in pernoite_hoje_ids if str(x) in valid_aluno_ids]
+
     # --- Pontos por aluno ---
     soma_pontos = pd.Series(dtype=float)
     if not acoes_df.empty and not tipos_df.empty:
@@ -171,7 +183,7 @@ def _carregar_dados_gerais():
         try:
             ac2 = acoes_df.copy()
             ac2['aluno_id'] = ac2['aluno_id'].astype(str)
-            merged = pd.merge(ac2, alunos_df[['id', 'numero_interno', 'nome_guerra', 'pelotao']], left_on='aluno_id', right_on='id', how='left')
+            merged = pd.merge(ac2, alunos_df[['id', 'numero_interno', 'nome_guerra', 'pelotao']], left_on='aluno_id', right_on='id', how='inner')
             if not tipos_df.empty:
                 tc2 = tipos_df.copy()
                 tc2['id'] = tc2['id'].astype(str)

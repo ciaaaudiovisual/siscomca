@@ -6,7 +6,7 @@ Otimizado para leitura a 5 metros de distância (fontes massivas, contraste extr
 
 from nicegui import ui, app
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import asyncio
 import theme
 from database import get_db_connection, load_data
@@ -225,7 +225,7 @@ def sanitize_text(val) -> str:
     return s.strip()
 
 
-def _carregar_dados_tv(prog_date: datetime = None):
+def _carregar_dados_tv(prog_date: datetime = None, active_year: str = '2026'):
     """Carrega dados consolidados do Supabase para o Modo TV com fallbacks offline robustos."""
     db_conn = get_db_connection()
     hoje_str = datetime.now().strftime('%Y-%m-%d')
@@ -262,7 +262,7 @@ def _carregar_dados_tv(prog_date: datetime = None):
     alunos_df = pd.DataFrame()
     if db_conn:
         try:
-            res_al = db_conn.table('Alunos').select('id,numero_interno,nome_guerra,pelotao').execute()
+            res_al = db_conn.table('Alunos').select('id,numero_interno,nome_guerra,pelotao').eq('ano_letivo', active_year).execute()
             alunos_df = pd.DataFrame(res_al.data) if res_al.data else pd.DataFrame()
         except Exception as e:
             print(f"[TV] Erro Alunos: {e}")
@@ -300,6 +300,10 @@ def _carregar_dados_tv(prog_date: datetime = None):
         presenca_df = pd.DataFrame(presenca_data)
 
     # Cálculo dos KPIs de Presença
+    if not presenca_df.empty and not alunos_df.empty:
+        valid_nis = set(alunos_df['numero_interno'].astype(str).str.upper())
+        presenca_df = presenca_df[presenca_df['numero_interno'].astype(str).str.upper().isin(valid_nis)]
+
     presentes_hoje = len(presenca_df[presenca_df['presente'] == True]) if not presenca_df.empty else 0
     ausentes_hoje = len(presenca_df[presenca_df['presente'] == False]) if not presenca_df.empty else 0
     dados['presentes_hoje'] = presentes_hoje
@@ -313,6 +317,9 @@ def _carregar_dados_tv(prog_date: datetime = None):
         try:
             res_enf = db_conn.table('enfermaria').select('*').neq('status', 'Alta').execute()
             enfermaria_df = pd.DataFrame(res_enf.data) if res_enf.data else pd.DataFrame()
+            if not enfermaria_df.empty and not alunos_df.empty:
+                valid_nis = set(alunos_df['numero_interno'].astype(str).str.upper())
+                enfermaria_df = enfermaria_df[enfermaria_df['numero_interno'].astype(str).str.upper().isin(valid_nis)]
         except Exception as e:
             print(f"[TV] Erro Enfermaria: {e}")
 
@@ -534,6 +541,8 @@ def _carregar_dados_tv(prog_date: datetime = None):
         for ac in acoes_list:
             aid = str(ac.get('aluno_id'))
             aluno = align_map.get(aid)
+            if not aluno:
+                continue
             tipo = str(ac.get('tipo', 'Anotação')).upper()
             desc = ac.get('descricao', 'Sem descrição')
             tipo_acao_id = str(ac.get('tipo_acao_id', ''))
@@ -604,11 +613,14 @@ def _carregar_dados_tv(prog_date: datetime = None):
             prog_list = []
     dados['atividades_dia'] = prog_list
 
-    # 8. Pernoite (Alunos que dormiram a bordo autorizados)
     if db_conn:
         try:
-            res_pn = db_conn.table('pernoite').select('*', count='exact').eq('data', hoje_str).eq('presente', True).execute()
-            dados['pernoite_count'] = res_pn.count if res_pn.count else (len(res_pn.data) if res_pn.data else 0)
+            res_pn = db_conn.table('pernoite').select('*').eq('data', hoje_str).eq('presente', True).execute()
+            pn_data = res_pn.data if res_pn.data else []
+            if pn_data and not alunos_df.empty:
+                valid_nis = set(alunos_df['numero_interno'].astype(str).str.upper())
+                pn_data = [row for row in pn_data if str(row.get('numero_interno', '')).upper() in valid_nis]
+            dados['pernoite_count'] = len(pn_data)
         except Exception as e:
             print(f"[TV] Erro Pernoite: {e}")
 
@@ -618,23 +630,24 @@ def _carregar_dados_tv(prog_date: datetime = None):
     pendentes_nis = alunos_todos_nis - respondidos_nis
     dados['pendentes_count'] = len(pendentes_nis)
 
-    # 8.2 Atletas Ativos (Alunos com anotação ATLETA ativa, sem limite de data)
     atletas_count = 0
     if db_conn:
         try:
             res_at = db_conn.table('Acoes').select('aluno_id,tipo,tipo_acao_id').in_('status', ['Lançado', 'Pendente']).execute()
             if res_at.data:
                 atletas_ids = set()
+                valid_aluno_ids = set(alunos_df['id'].astype(str)) if not alunos_df.empty else set()
                 for ac in res_at.data:
-                    tipo_str = str(ac.get('tipo', '')).upper()
-                    if 'ATLETA' in tipo_str or str(ac.get('tipo_acao_id')) == '52':
-                        atletas_ids.add(ac.get('aluno_id'))
+                    aluno_id_str = str(ac.get('aluno_id', ''))
+                    if aluno_id_str in valid_aluno_ids:
+                        tipo_str = str(ac.get('tipo', '')).upper()
+                        if 'ATLETA' in tipo_str or str(ac.get('tipo_acao_id')) == '52':
+                            atletas_ids.add(ac.get('aluno_id'))
                 atletas_count = len(atletas_ids)
         except Exception as e:
             print(f"[TV] Erro Atletas: {e}")
     dados['atletas_count'] = atletas_count
 
-    # 8.3 Fora de Sede da Semana (Alunos com anotação de FORA DE SEDE ou PAPELETA na semana corrente)
     fora_sede_count = 0
     if db_conn:
         try:
@@ -646,11 +659,14 @@ def _carregar_dados_tv(prog_date: datetime = None):
             res_fs = db_conn.table('Acoes').select('aluno_id,tipo,descricao').gte('data', t_start).in_('status', ['Lançado', 'Pendente']).execute()
             if res_fs.data:
                 fora_sede_ids = set()
+                valid_aluno_ids = set(alunos_df['id'].astype(str)) if not alunos_df.empty else set()
                 for ac in res_fs.data:
-                    tipo_str = str(ac.get('tipo', '')).upper()
-                    desc_str = str(ac.get('descricao', '')).upper()
-                    if 'FORA DE SEDE' in tipo_str or 'FORA DE SEDE' in desc_str or 'PAPELETA' in desc_str:
-                        fora_sede_ids.add(ac.get('aluno_id'))
+                    aluno_id_str = str(ac.get('aluno_id', ''))
+                    if aluno_id_str in valid_aluno_ids:
+                        tipo_str = str(ac.get('tipo', '')).upper()
+                        desc_str = str(ac.get('descricao', '')).upper()
+                        if 'FORA DE SEDE' in tipo_str or 'FORA DE SEDE' in desc_str or 'PAPELETA' in desc_str:
+                            fora_sede_ids.add(ac.get('aluno_id'))
                 fora_sede_count = len(fora_sede_ids)
         except Exception as e:
             print(f"[TV] Erro Fora de Sede: {e}")
@@ -1554,8 +1570,9 @@ def render_page():
 
     async def _refresh():
         try:
+            active_year = app.storage.user.get('ano_letivo_ativo', '2026')
             # Executa a busca no banco em outra thread para evitar o travamento da thread principal (WebSocket heartbeat)
-            d = await asyncio.to_thread(_carregar_dados_tv)
+            d = await asyncio.to_thread(_carregar_dados_tv, None, active_year)
             with client:
 
                 # Atualiza título do cabeçalho
