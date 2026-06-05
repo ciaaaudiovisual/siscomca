@@ -105,38 +105,38 @@ def render_page():
                     c_error = ui.label('').classes('text-xs text-red w-full text-center')
                     
                     def handle_create():
-                        # SEGURANÇA: Verificação de privilégios server-side
-                        user_role = str(app.storage.user.get('user_data', {}).get('role', '')).upper()
-                        if user_role not in ('ADMIN', 'SUPERVISOR'):
-                            ui.notify("⛔ Acesso negado. Apenas administradores ou supervisores.", color='negative')
-                            return
-                        if not c_email.value or not c_pwd.value or not c_nome.value:
-                            c_error.text = 'E-mail, Senha e Nome de Guerra são obrigatórios.'
-                            return
-                        
-                        import bcrypt
-                        pwd_hash = bcrypt.hashpw(c_pwd.value.encode('utf-8'), bcrypt.gensalt(rounds=12)).decode('utf-8')
-                        
-                        if is_offline:
-                            ui.notify(f"[OFFLINE] Novo operador {c_nome.value.upper()} cadastrado!", color='success')
-                            users_data.append({
-                                'id': f'mock-uid-{len(users_data)+1}',
-                                'username': c_email.value.split('@')[0],
-                                'nome': c_nome.value.upper(),
-                                'role': c_role.value,
-                                'telegram_id': c_tg.value or '',
-                                'url_foto': c_foto.value or ''
-                            })
-                            create_dialog.close()
-                            reload_admin_data()
-                            return
-                        
-                        conn = get_db_connection()
-                        if not conn:
-                            ui.notify('Sem conexão com banco de dados', color='red')
-                            return
-                        
                         try:
+                            # SEGURANÇA: Verificação de privilégios server-side
+                            user_role = str(app.storage.user.get('user_data', {}).get('role', '')).upper()
+                            if user_role not in ('ADMIN', 'SUPERVISOR'):
+                                ui.notify("⛔ Acesso negado. Apenas administradores ou supervisores.", color='negative')
+                                return
+                            if not c_email.value or not c_pwd.value or not c_nome.value:
+                                c_error.text = 'E-mail, Senha e Nome de Guerra são obrigatórios.'
+                                return
+                            
+                            import bcrypt
+                            pwd_hash = bcrypt.hashpw(c_pwd.value.encode('utf-8'), bcrypt.gensalt(rounds=12)).decode('utf-8')
+                            
+                            if is_offline:
+                                ui.notify(f"[OFFLINE] Novo operador {c_nome.value.upper()} cadastrado!", color='success')
+                                users_data.append({
+                                    'id': f'mock-uid-{len(users_data)+1}',
+                                    'username': c_email.value.split('@')[0],
+                                    'nome': c_nome.value.upper(),
+                                    'role': c_role.value,
+                                    'telegram_id': c_tg.value or '',
+                                    'url_foto': c_foto.value or ''
+                                })
+                                create_dialog.close()
+                                reload_admin_data()
+                                return
+                            
+                            conn = get_db_connection()
+                            if not conn:
+                                ui.notify('Sem conexão com banco de dados', color='red')
+                                return
+                            
                             auth_id = None
                             admin_conn = None
                             from database import get_bot_db_connection
