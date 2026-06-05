@@ -821,9 +821,42 @@ def login_page(request: Request):
                             # Força redirecionamento físico de página via JS para o gerenciador de senhas do navegador salvar as credenciais
                             ui.run_javascript(f"window.location.href = '{target_path}'")
                         else:
-                            error_label.text = 'E-mail, usuário ou senha incorretos'
-                            import log_acessos
-                            log_acessos.log_access(f"Falha de Login: {user.value}", "Autenticação", "FALHA")
+                            # Fallback para autenticação local no banco efetivo (caso tenha sido criado sem Auth por rate limits)
+                            from database import authenticate_user
+                            local_user = authenticate_user(login_email, pwd.value)
+                            if local_user:
+                                profile = {
+                                    'id': local_user.get('id') or local_user.get('telegram_id') or 'local-fallback',
+                                    'username': local_user.get('email', '').split('@')[0] if local_user.get('email') else local_user.get('nome_guerra', 'militar'),
+                                    'nome': local_user.get('nome_guerra', 'militar'),
+                                    'role': local_user.get('role', 'compel')
+                                }
+                                import time
+                                app.storage.user['authenticated'] = True
+                                app.storage.user['login_time'] = time.time()
+                                app.storage.user['session_duration'] = session_type.value
+                                app.storage.user['last_username'] = user.value
+                                app.storage.user['user_data'] = {
+                                    'id': profile.get('id'),
+                                    'username': profile.get('username'),
+                                    'nome_guerra': profile.get('nome', profile.get('username')),
+                                    'role': profile.get('role', 'compel'),
+                                    'email': login_email
+                                }
+                                app.storage.user['supabase_session'] = None
+                                
+                                role_user = str(profile.get('role', 'compel')).strip().lower()
+                                target_path = '/siscomca_tv' if role_user in ('tv', 'tv_comcia') else '/'
+                                app.storage.user['current_path'] = target_path
+                                ui.notify(f'Bem-vindo (Autenticação Direta), {profile.get("nome", user.value)}!', color='success')
+                                
+                                import log_acessos
+                                log_acessos.log_access("Login", "Autenticação Local", "SUCESSO")
+                                ui.run_javascript(f"window.location.href = '{target_path}'")
+                            else:
+                                error_label.text = 'E-mail, usuário ou senha incorretos'
+                                import log_acessos
+                                log_acessos.log_access(f"Falha de Login: {user.value}", "Autenticação", "FALHA")
   
                     ui.button('🚀 Entrar no Sistema').props('type=submit unelevated color=amber-9 text-color=black w-full bold').classes('q-py-sm font-bold text-sm cyber-title w-full')
                     

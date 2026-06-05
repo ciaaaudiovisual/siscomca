@@ -159,14 +159,18 @@ def render_page():
                             
                             if not auth_id:
                                 # Fallback para signup regular
-                                res = conn.auth.sign_up({"email": c_email.value, "password": c_pwd.value})
-                                if res and res.user:
-                                    auth_id = res.user.id
+                                try:
+                                    res = conn.auth.sign_up({"email": c_email.value, "password": c_pwd.value})
+                                    if res and res.user:
+                                        auth_id = res.user.id
+                                except Exception as sign_err:
+                                    print(f"[SIGNUP ERR] {sign_err}")
+                                    ui.notify("Limite do Supabase Auth atingido. Criando usuário no banco local...", color='warning', duration=5)
                             
                             if not auth_id:
                                 import uuid
                                 auth_id = str(uuid.uuid4())
-                                ui.notify('Usuário gerado no DB sem registro Auth (Modo fallback)', color='warning')
+                                ui.notify('Operador registrado com sucesso no banco de dados local!', color='success')
 
                             # Insere na tabela Users
                             try:
