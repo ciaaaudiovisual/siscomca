@@ -2743,15 +2743,19 @@ async def init_bot():
             print(f"[TELEGRAM DIAGNOSTIC] Falha ao executar diagnostico: {e_diag}", flush=True)
             
         import telebot
+        from telebot import asyncio_helper
+        
         custom_api_url = os.getenv("TELEGRAM_API_URL")
         if custom_api_url:
             print(f"[TELEGRAM BOT] Usando URL de API personalizada: {custom_api_url}", flush=True)
             telebot.apihelper.API_URL = custom_api_url
+            asyncio_helper.API_URL = custom_api_url
             
         custom_proxy = os.getenv("TELEGRAM_PROXY")
         if custom_proxy:
             print(f"[TELEGRAM BOT] Usando proxy de conexao: {custom_proxy}", flush=True)
             telebot.apihelper.proxy = {'https': custom_proxy, 'http': custom_proxy}
+            asyncio_helper.proxy = {'https': custom_proxy, 'http': custom_proxy}
 
         bot = AsyncTeleBot(token)
         setup_handlers(bot)
