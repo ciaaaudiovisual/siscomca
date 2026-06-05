@@ -71,20 +71,20 @@ siscomca_menu_categories = [
         'category': 'CONTROLE DIÁRIO',
         'items': [
             {'name': 'Chamada Diária', 'icon': 'fact_check', 'path': '/presenca'},
-            {'name': 'Enfermaria (Saúde)', 'icon': 'local_hospital', 'path': '/saude'},
+            {'name': 'Enfermaria (Saúde)', 'icon': 'local_hospital', 'path': '/saude', 'roles': ['admin', 'supervisor', 'operador', 'comcia', 'ajosca']},
         ]
     },
     {
         'category': 'CADASTROS E EFETIVO',
         'items': [
-            {'name': 'Alunos (Cadastro)', 'icon': 'person_search', 'path': '/alunos'},
-            {'name': 'Gestão de Efetivo', 'icon': 'manage_accounts', 'path': '/admin'},
+            {'name': 'Alunos (Cadastro)', 'icon': 'person_search', 'path': '/alunos', 'roles': ['admin', 'supervisor', 'operador']},
+            {'name': 'Gestão de Efetivo', 'icon': 'manage_accounts', 'path': '/admin', 'roles': ['admin', 'supervisor']},
         ]
     },
     {
         'category': 'APOIO LOGÍSTICO',
         'items': [
-            {'name': 'Controle de Pernoite', 'icon': 'bed', 'path': '/pernoite'},
+            {'name': 'Controle de Pernoite', 'icon': 'bed', 'path': '/pernoite', 'roles': ['admin', 'supervisor', 'operador', 'comcia', 'ajosca']},
             {'name': 'Prévia de Rancho', 'icon': 'restaurant', 'path': '/rancho'},
             {'name': 'Auxílio Transporte', 'icon': 'directions_bus', 'path': '/transporte'},
         ]
@@ -92,33 +92,33 @@ siscomca_menu_categories = [
     {
         'category': 'HISTÓRICO E DISCIPLINAR',
         'items': [
-            {'name': 'Gestão de Ações', 'icon': 'gavel', 'path': '/gestao_acoes'},
-            {'name': 'Revisão de Ocorrências', 'icon': 'rate_review', 'path': '/revisao_geral'},
-            {'name': 'Conselho de Avaliação', 'icon': 'gavel', 'path': '/conselho_avaliacao'},
+            {'name': 'Gestão de Ações', 'icon': 'gavel', 'path': '/gestao_acoes', 'roles': ['admin', 'supervisor', 'operador', 'comcia']},
+            {'name': 'Revisão de Ocorrências', 'icon': 'rate_review', 'path': '/revisao_geral', 'roles': ['admin', 'supervisor', 'comcia']},
+            {'name': 'Conselho de Avaliação', 'icon': 'gavel', 'path': '/conselho_avaliacao', 'roles': ['admin', 'supervisor', 'comcia']},
         ]
     },
     {
         'category': 'ENSINO E RELATÓRIOS',
         'items': [
-            {'name': 'Programação de Instrução', 'icon': 'schedule', 'path': '/programacao'},
-            {'name': 'Relatórios de Ensino', 'icon': 'analytics', 'path': '/relatorios'},
-            {'name': 'Relatório Geral', 'icon': 'assessment', 'path': '/relatorio_geral'},
+            {'name': 'Programação de Instrução', 'icon': 'schedule', 'path': '/programacao', 'roles': ['admin', 'supervisor', 'comcia']},
+            {'name': 'Relatórios de Ensino', 'icon': 'analytics', 'path': '/relatorios', 'roles': ['admin', 'supervisor', 'comcia']},
+            {'name': 'Relatório Geral', 'icon': 'assessment', 'path': '/relatorio_geral', 'roles': ['admin', 'supervisor', 'comcia']},
         ]
     },
     {
         'category': 'FERRAMENTAS E ARQUIVOS',
         'items': [
             {'name': 'Assistente de IA', 'icon': 'psychology', 'path': '/assistente_ia'},
-            {'name': 'Geração de Documentos', 'icon': 'summarize', 'path': '/geracao_documentos'},
-            {'name': 'Importação de Dados', 'icon': 'upload_file', 'path': '/importacao_documentos'},
-            {'name': 'Controle Financeiro', 'icon': 'payments', 'path': '/pagamentos'},
+            {'name': 'Geração de Documentos', 'icon': 'summarize', 'path': '/geracao_documentos', 'roles': ['admin', 'supervisor', 'comcia']},
+            {'name': 'Importação de Dados', 'icon': 'upload_file', 'path': '/importacao_documentos', 'roles': ['admin']},
+            {'name': 'Controle Financeiro', 'icon': 'payments', 'path': '/pagamentos', 'roles': ['admin']},
         ]
     },
     {
         'category': 'ADMINISTRAÇÃO',
         'items': [
-            {'name': 'Configurações', 'icon': 'settings', 'path': '/config'},
-            {'name': 'Usuários e Permissões', 'icon': 'admin_panel_settings', 'path': '/admin_panel'},
+            {'name': 'Configurações', 'icon': 'settings', 'path': '/config', 'roles': ['admin', 'supervisor']},
+            {'name': 'Usuários e Permissões', 'icon': 'admin_panel_settings', 'path': '/admin_panel', 'roles': ['admin']},
         ]
     }
 ]
@@ -200,11 +200,24 @@ def build_layout(page_func):
         with left_drawer:
             with ui.column().classes('w-full q-py-md gap-1'):
                 def render_menu_list(categories):
+                    user_role = role
                     for cat in categories:
+                        # Filtrar itens que o papel do usuário tem acesso
+                        allowed_items = []
+                        for item in cat['items']:
+                            if 'roles' in item:
+                                if user_role in item['roles']:
+                                    allowed_items.append(item)
+                            else:
+                                allowed_items.append(item)
+                        
+                        if not allowed_items:
+                            continue
+                            
                         with ui.row().classes('w-full q-px-md q-pt-sm q-pb-xs items-center gap-2'):
                             ui.label(cat['category']).classes('text-[9px] text-primary/80 text-weight-bold tracking-widest cyber-title')
                         
-                        for item in cat['items']:
+                        for item in allowed_items:
                             is_active = app.storage.user.get('current_path') == item['path']
                             bg_active = 'bg-primary/10 border-l-2 border-primary' if is_active else 'hover:bg-white/5'
                             text_active = theme.colors['primary'] if is_active else 'text-grey-4'

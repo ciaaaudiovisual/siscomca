@@ -1440,73 +1440,88 @@ def render_page():
                             query = busca_tipos.value.strip().upper() if busca_tipos.value else ''
                             filtered_tipos = [t for t in tipos_data if query in str(t.get('nome','')).upper()] if query else tipos_data
                             
-                            with ui.column().classes('w-full gap-2').style('max-height: 400px; overflow-y: auto;'):
+                            # Separar por grupos e ordenar em ordem alfabética
+                            positivas = sorted([t for t in filtered_tipos if t.get('pontuacao', 0.0) > 0], key=lambda x: x.get('nome', ''))
+                            neutras = sorted([t for t in filtered_tipos if t.get('pontuacao', 0.0) == 0], key=lambda x: x.get('nome', ''))
+                            negativas = sorted([t for t in filtered_tipos if t.get('pontuacao', 0.0) < 0], key=lambda x: x.get('nome', ''))
+                            
+                            with ui.column().classes('w-full gap-4').style('max-height: 500px; overflow-y: auto;'):
                                 if not filtered_tipos:
                                     ui.label('Nenhum tipo de ação encontrado.').classes('text-xs italic text-grey-5 text-center w-full py-4')
                                 else:
-                                    for t in filtered_tipos:
-                                        t_nome = t['nome']
-                                        t_pts = t.get('pontuacao', 0.0)
-                                        pts_color = 'text-green-400' if t_pts > 0 else ('text-red-400' if t_pts < 0 else 'text-grey-4')
-                                        pts_sign = f"+{t_pts}" if t_pts > 0 else str(t_pts)
-                                        
-                                        with ui.row().classes('w-full justify-between items-center py-2 px-2 border-b border-white/5 bg-white/[0.01] hover:bg-white/[0.03] rounded no-wrap'):
-                                            ui.label(t_nome).classes('text-xs font-bold text-white truncate col-grow')
-                                            
-                                            with ui.row().classes('items-center gap-4 shrink-0'):
-                                                ui.label(pts_sign).classes(f'text-xs font-mono font-bold {pts_color} min-w-[50px] text-right')
+                                    def render_grupo(titulo, cor, lista):
+                                        if not lista:
+                                            return
+                                        with ui.column().classes('w-full gap-1 q-mb-md'):
+                                            with ui.row().classes('items-center gap-2 q-mb-xs'):
+                                                ui.badge(text=titulo, color=cor).classes('text-[10px] font-bold')
+                                            for t in lista:
+                                                t_nome = t['nome']
+                                                t_pts = t.get('pontuacao', 0.0)
+                                                pts_color = 'text-green-400' if t_pts > 0 else ('text-red-400' if t_pts < 0 else 'text-grey-4')
+                                                pts_sign = f"+{t_pts}" if t_pts > 0 else str(t_pts)
                                                 
-                                                def abrir_dialogo_editar(item=t):
-                                                    d_edit = ui.dialog()
-                                                    with d_edit, ui.card().classes('w-[380px] q-pa-md bg-slate-900 border border-cyan-5'):
-                                                        ui.label('✏️ EDITAR TIPO DE AÇÃO').classes('text-white text-sm font-black cyber-title q-mb-xs')
-                                                        nome_inp = ui.input('Nome do Tipo de Ação', value=item['nome']).props('dark outlined dense w-full').classes('w-full')
-                                                        pontos_inp = ui.input('Pontuação / Peso', value=str(item.get('pontuacao', 0.0))).props('dark outlined dense w-full').classes('w-full q-mt-xs')
+                                                with ui.row().classes('w-full justify-between items-center py-2 px-2 border-b border-white/5 bg-white/[0.01] hover:bg-white/[0.03] rounded no-wrap'):
+                                                    ui.label(t_nome).classes('text-xs font-bold text-white truncate col-grow')
+                                                    
+                                                    with ui.row().classes('items-center gap-4 shrink-0'):
+                                                        ui.label(pts_sign).classes(f'text-xs font-mono font-bold {pts_color} min-w-[50px] text-right')
                                                         
-                                                        def salvar_edicao():
-                                                            name = nome_inp.value.strip().upper()
-                                                            if not name:
-                                                                ui.notify('Nome é obrigatório.', color='red')
-                                                                return
-                                                            try:
-                                                                pts = float(pontos_inp.value)
-                                                            except ValueError:
-                                                                ui.notify('Pontuação deve ser um número decimal válido.', color='red')
-                                                                return
+                                                        def abrir_dialogo_editar(item=t):
+                                                            d_edit = ui.dialog()
+                                                            with d_edit, ui.card().classes('w-[380px] q-pa-md bg-slate-900 border border-cyan-5'):
+                                                                ui.label('✏️ EDITAR TIPO DE AÇÃO').classes('text-white text-sm font-black cyber-title q-mb-xs')
+                                                                nome_inp = ui.input('Nome do Tipo de Ação', value=item['nome']).props('dark outlined dense w-full').classes('w-full')
+                                                                pontos_inp = ui.input('Pontuação / Peso', value=str(item.get('pontuacao', 0.0))).props('dark outlined dense w-full').classes('w-full q-mt-xs')
+                                                                
+                                                                def salvar_edicao():
+                                                                    name = nome_inp.value.strip().upper()
+                                                                    if not name:
+                                                                        ui.notify('Nome é obrigatório.', color='red')
+                                                                        return
+                                                                    try:
+                                                                        pts = float(pontos_inp.value)
+                                                                    except ValueError:
+                                                                        ui.notify('Pontuação deve ser um número decimal válido.', color='red')
+                                                                        return
+                                                                    
+                                                                    db_u = get_db_connection()
+                                                                    if db_u:
+                                                                        try:
+                                                                            db_u.table('Tipos_Acao').update({'nome': name, 'pontuacao': pts}).eq('id', item['id']).execute()
+                                                                            ui.notify('Tipo de ação editado com sucesso!', color='success')
+                                                                            d_edit.close()
+                                                                            render_tipos_list.refresh()
+                                                                            data_service.clear_cache()
+                                                                        except Exception as err:
+                                                                            ui.notify(f'Erro ao salvar: {err}', color='red')
+                                                                    else:
+                                                                            ui.notify('Offline: Operação indisponível.', color='warning')
+                                                                            
+                                                                with ui.row().classes('w-full justify-end gap-2 q-mt-md'):
+                                                                    ui.button('Cancelar', on_click=d_edit.close).props('flat color=grey no-caps')
+                                                                    ui.button('Salvar', on_click=salvar_edicao).props('unelevated color=cyan-9 text-color=white no-caps')
+                                                            d_edit.open()
                                                             
-                                                            db_u = get_db_connection()
-                                                            if db_u:
+                                                        def excluir_tipo(item=t):
+                                                            db_d = get_db_connection()
+                                                            if db_d:
                                                                 try:
-                                                                    db_u.table('Tipos_Acao').update({'nome': name, 'pontuacao': pts}).eq('id', item['id']).execute()
-                                                                    ui.notify('Tipo de ação editado com sucesso!', color='success')
-                                                                    d_edit.close()
+                                                                    db_d.table('Tipos_Acao').delete().eq('id', item['id']).execute()
+                                                                    ui.notify('Tipo de ação excluído!', color='success')
                                                                     render_tipos_list.refresh()
                                                                     data_service.clear_cache()
                                                                 except Exception as err:
-                                                                    ui.notify(f'Erro ao salvar: {err}', color='red')
+                                                                    ui.notify(f'Erro ao excluir: {err}', color='red')
                                                             else:
-                                                                    ui.notify('Offline: Operação indisponível.', color='warning')
-                                                                    
-                                                        with ui.row().classes('w-full justify-end gap-2 q-mt-md'):
-                                                            ui.button('Cancelar', on_click=d_edit.close).props('flat color=grey no-caps')
-                                                            ui.button('Salvar', on_click=salvar_edicao).props('unelevated color=cyan-9 text-color=white no-caps')
-                                                    d_edit.open()
-                                                    
-                                                def excluir_tipo(item=t):
-                                                    db_d = get_db_connection()
-                                                    if db_d:
-                                                        try:
-                                                            db_d.table('Tipos_Acao').delete().eq('id', item['id']).execute()
-                                                            ui.notify('Tipo de ação excluído!', color='success')
-                                                            render_tipos_list.refresh()
-                                                            data_service.clear_cache()
-                                                        except Exception as err:
-                                                            ui.notify(f'Erro ao excluir: {err}', color='red')
-                                                    else:
-                                                        ui.notify('Offline: Operação indisponível.', color='warning')
-                                                        
-                                                ui.button(icon='edit', on_click=abrir_dialogo_editar).props('flat round dense color=cyan').classes('text-xs')
-                                                ui.button(icon='delete', on_click=excluir_tipo).props('flat round dense color=red').classes('text-xs')
+                                                                ui.notify('Offline: Operação indisponível.', color='warning')
+                                                                
+                                                        ui.button(icon='edit', on_click=abrir_dialogo_editar).props('flat round dense color=cyan').classes('text-xs')
+                                                        ui.button(icon='delete', on_click=excluir_tipo).props('flat round dense color=red').classes('text-xs')
+                                    
+                                    render_grupo('🟢 POSITIVAS', 'green', positivas)
+                                    render_grupo('⚪ NEUTRAS', 'grey', neutras)
+                                    render_grupo('🔴 NEGATIVAS', 'red', negativas)
                         
                         busca_tipos.on('input', render_tipos_list.refresh)
                         render_tipos_list()
