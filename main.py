@@ -284,6 +284,8 @@ def build_layout(page_func):
                     user_photo = user.get('url_foto') if user else None
                     user_avatar_src = user_photo if isinstance(user_photo, str) and user_photo.startswith('http') else 'https://cdn.quasar.dev/img/boy-avatar.png'
                     ui.avatar().props('size=32px').style(f"background-image: url('{user_avatar_src}'); background-size: cover; background-position: center; border: 1px solid rgba(255, 255, 255, 0.2);")
+                    with ui.button(on_click=lambda: open_change_password_dialog(user), icon='vpn_key').props('flat round color=amber-9 dense'):
+                        ui.tooltip('Alterar Minha Senha')
                     with ui.button(on_click=logout, icon='logout').props('flat round color=red dense'):
                         ui.tooltip('Sair do Sistema')
         left_drawer = ui.left_drawer(value=True).classes('no-shadow').style(f'background: {theme.colors["bg_panel"]}; border-right: {theme.colors["border"]}')
@@ -336,6 +338,64 @@ def build_layout(page_func):
             page_func()
 
     return wrapper
+
+
+def open_change_password_dialog(user):
+    with ui.dialog() as pwd_dialog, ui.card().classes('w-96 q-pa-md').style(
+        f'background: {theme.colors["bg_panel"]}; border: {theme.colors["border"]};'
+    ):
+        with ui.column().classes('w-full gap-4'):
+            with ui.row().classes('items-center gap-2 w-full justify-between'):
+                ui.label('🔑 ALTERAR MINHA SENHA').classes('text-white text-md font-black cyber-title')
+                ui.icon('lock_reset', size='1.5rem').style('color: #ffb300;')
+            ui.separator().style('background-color: rgba(255, 179, 0, 0.15);')
+            
+            ui.label(f"Militar: {user.get('nome_guerra', '').upper()}").classes('text-xs text-grey-4')
+            new_pwd = ui.input('Nova Senha', password=True).props('dark outlined dense w-full')
+            confirm_pwd = ui.input('Confirmar Nova Senha', password=True).props('dark outlined dense w-full')
+            pwd_error = ui.label('').classes('text-xs text-red w-full text-center')
+            
+            def handle_password_change():
+                if not new_pwd.value or len(new_pwd.value) < 6:
+                    pwd_error.text = 'A senha deve conter no mínimo 6 caracteres.'
+                    return
+                if new_pwd.value != confirm_pwd.value:
+                    pwd_error.text = 'As senhas digitadas não coincidem.'
+                    return
+                
+                from database import get_db_connection, get_service_db_connection
+                db_conn = get_db_connection()
+                if not db_conn:
+                    ui.notify('Sem conexão com banco de dados', color='red')
+                    return
+                
+                try:
+                    # 1. Atualiza no Supabase Auth
+                    db_conn.auth.update_user({"password": new_pwd.value})
+                    
+                    # 2. Atualiza a tabela efetivo se houver e-mail
+                    user_email = user.get('email')
+                    if user_email:
+                        import bcrypt
+                        pwd_hash = bcrypt.hashpw(new_pwd.value.encode('utf-8'), bcrypt.gensalt(rounds=12)).decode('utf-8')
+                        
+                        # Usa conexão de serviço para contornar RLS
+                        svc_conn = get_service_db_connection()
+                        if svc_conn:
+                            try:
+                                svc_conn.table('efetivo').update({'senha_hash': pwd_hash}).eq('email', user_email).execute()
+                            except Exception as db_err:
+                                print(f"[DB ERR SYNC PASSWORD] {db_err}")
+                    
+                    ui.notify('Sua senha foi alterada com sucesso!', color='success')
+                    pwd_dialog.close()
+                except Exception as err:
+                    pwd_error.text = f"Erro ao atualizar: {err}"
+            
+            with ui.row().classes('w-full justify-end gap-2 q-mt-md'):
+                ui.button('Cancelar', on_click=pwd_dialog.close).props('flat color=grey')
+                ui.button('Salvar Senha', on_click=handle_password_change).props('unelevated color=amber-9 text-color=black')
+    pwd_dialog.open()
 
 
 def logout():
