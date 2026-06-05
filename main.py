@@ -160,9 +160,25 @@ def build_layout(page_func):
             import time
             app.storage.user['login_time'] = time.time()
             
-        user = get_current_user()
+        user_cached = get_current_user()
+        user = user_cached
+        if user_cached and 'id' in user_cached:
+            import pandas as pd
+            users_df = data_service.get_core_data().get('users', pd.DataFrame())
+            if not users_df.empty:
+                user_row = users_df[users_df['id'].astype(str) == str(user_cached['id'])]
+                if not user_row.empty:
+                    p_row = user_row.iloc[0]
+                    user = {
+                        'id': p_row.get('id'),
+                        'username': p_row.get('username'),
+                        'nome_guerra': p_row.get('nome', p_row.get('username')),
+                        'role': p_row.get('role', 'compel'),
+                        'email': user_cached.get('email', '')
+                    }
+        
         user_name = user.get('nome_guerra') if user else 'Operador'
-        role = user.get('role', 'compel') if user else 'compel'
+        role = str(user.get('role', 'compel')).strip().lower() if user else 'compel'
         role_map = {
             'admin': 'Administrador',
             'supervisor': 'Supervisor',
