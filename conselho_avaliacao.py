@@ -71,6 +71,9 @@ def calcular_conceito_final(soma_pontos_acoes: float, media_academica_aluno: flo
 
 def process_turma_data(pelotao_selecionado, sort_order):
     alunos_df_orig = data_service.get_alunos_data()
+    active_year = app.storage.user.get('ano_letivo_ativo', '2026')
+    if 'ano_letivo' in alunos_df_orig.columns:
+        alunos_df_orig = alunos_df_orig[alunos_df_orig['ano_letivo'].fillna('2025').astype(str).str.strip() == active_year]
     acoes_df = data_service.get_acoes_data()
     tipos_acao_df = data_service.get_tipos_acao_data()
     config_df = data_service.get_config_data()
@@ -147,6 +150,9 @@ def render_conselho_content():
 
     # Recarrega dados essenciais
     alunos_df_geral = data_service.get_alunos_data()
+    active_year = app.storage.user.get('ano_letivo_ativo', '2026')
+    if 'ano_letivo' in alunos_df_geral.columns:
+        alunos_df_geral = alunos_df_geral[alunos_df_geral['ano_letivo'].fillna('2025').astype(str).str.strip() == active_year]
     if alunos_df_geral.empty:
         with ui.column().classes('w-full q-pa-lg items-center justify-center'):
             ui.icon('warning', color='warning', size='4rem')

@@ -202,6 +202,23 @@ def build_layout(page_func):
                         ui.label('Corpo de Alunos • 1º Batalhão').style('font-size: 0.65rem; color: #64748b;')
                 
                 with ui.row().classes('items-center gap-3 no-wrap'):
+                    # Seletor Global de Ano Letivo
+                    active_year = app.storage.user.setdefault('ano_letivo_ativo', '2026')
+                    
+                    def change_global_year(e):
+                        app.storage.user['ano_letivo_ativo'] = e.value
+                        c_state = app.storage.user.get('alunos_state', {})
+                        c_state['ano_letivo'] = e.value
+                        app.storage.user['alunos_state'] = c_state
+                        # Força atualização/recarga da página atual
+                        ui.navigate.to(app.storage.user.get('current_path', '/'))
+                        
+                    ui.select(
+                        ['2025', '2026'], 
+                        value=active_year, 
+                        on_change=change_global_year
+                    ).props('dark outlined dense options-dark').classes('w-24 text-xs font-bold').style('max-height: 32px;')
+
                     theme_toggle.render_theme_toggle()
                     notifications.render_notification_bell()
                     with ui.column().classes('items-end gap-0 gt-xs'):

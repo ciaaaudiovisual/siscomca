@@ -42,6 +42,9 @@ def _calc_conceito(soma_pts: float, config_dict: dict) -> float:
 def _carregar_dados_gerais():
     """Carrega e processa todos os dados necessários para o dashboard."""
     alunos_df   = data_service.get_alunos_data()
+    active_year = app.storage.user.get('ano_letivo_ativo', '2026')
+    if 'ano_letivo' in alunos_df.columns:
+        alunos_df = alunos_df[alunos_df['ano_letivo'].fillna('2025').astype(str).str.strip() == active_year]
     acoes_df    = data_service.get_acoes_data()
     tipos_df    = data_service.get_tipos_acao_data()
     config_df   = data_service.get_config_data()
@@ -899,6 +902,9 @@ def _build_escala_semanal_dialog():
 def _build_anotacao_rapida_card():
     """Card de anotação rápida de aluno no dashboard."""
     alunos_df = data_service.get_alunos_data()
+    active_year = app.storage.user.get('ano_letivo_ativo', '2026')
+    if 'ano_letivo' in alunos_df.columns:
+        alunos_df = alunos_df[alunos_df['ano_letivo'].fillna('2025').astype(str).str.strip() == active_year]
     tipos_df  = data_service.get_tipos_acao_data()
 
     with ui.card().classes('w-full no-shadow').style(
@@ -1163,6 +1169,9 @@ def _build_aviso_rapido_card():
 def _build_pernoite_dashboard_card(pernoite_ids: list):
     """Card para controle rápido de pernoite do dia no dashboard."""
     alunos_df = data_service.get_alunos_data()
+    active_year = app.storage.user.get('ano_letivo_ativo', '2026')
+    if 'ano_letivo' in alunos_df.columns:
+        alunos_df = alunos_df[alunos_df['ano_letivo'].fillna('2025').astype(str).str.strip() == active_year]
     hoje_str = datetime.now().strftime('%Y-%m-%d')
     
     with ui.card().classes('w-full no-shadow').style(

@@ -22,6 +22,9 @@ def render_page():
 
     # Carrega dados essenciais
     alunos_df = data_service.get_alunos_data()
+    active_year = app.storage.user.get('ano_letivo_ativo', '2026')
+    if 'ano_letivo' in alunos_df.columns:
+        alunos_df = alunos_df[alunos_df['ano_letivo'].fillna('2025').astype(str).str.strip() == active_year]
     acoes_df = data_service.get_acoes_data()
     tipos_acao_df = data_service.get_tipos_acao_data()
     config_df = data_service.get_config_data()

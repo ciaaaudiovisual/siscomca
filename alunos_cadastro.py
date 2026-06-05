@@ -106,9 +106,8 @@ def render_page():
             'search': '', 'pelotao': 'Todos', 'especialidade': 'Todas',
             'sort': 'Padrão (Nº Interno)', 'page': 1, 'ano_letivo': '2026'
         })
-        # Garante retrocompatibilidade se já existir estado na sessão sem a chave
-        if 'ano_letivo' not in state:
-            state['ano_letivo'] = '2026'
+        # Força o ano do estado local a ser o mesmo do seletor global do cabeçalho
+        state['ano_letivo'] = app.storage.user.get('ano_letivo_ativo', '2026')
         app.storage.user['alunos_state'] = state
 
         # --- LISTA FILTRADA ---
