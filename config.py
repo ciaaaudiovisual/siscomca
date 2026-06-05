@@ -1413,6 +1413,11 @@ def render_page():
                                                                         'nome': req_guerra.upper(),
                                                                         'role': 'compel'
                                                                     }, on_conflict='id').execute()
+                                                                    try:
+                                                                        from database import confirm_supabase_user
+                                                                        confirm_supabase_user(req_id)
+                                                                    except Exception as conf_err:
+                                                                        print(f"[CONFIRM ERR] {conf_err}")
                                                                     ui.notify('Solicitação aprovada!', color='success')
                                                                     render_pending_requests_tab.refresh()
                                                                 except Exception as ex:

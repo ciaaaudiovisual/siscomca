@@ -963,6 +963,11 @@ def setup_handlers(bot_instance):
                     'nome': guerra,
                     'role': 'compel'
                 }, on_conflict='id').execute()
+                try:
+                    from database import confirm_supabase_user
+                    confirm_supabase_user(req_id)
+                except Exception as conf_err:
+                    print(f"[TELEGRAM CONFIRM ERR] {conf_err}")
                 
                 status_text = f"✅ **Aprovado por {admin_nome}**"
                 await bot_instance.answer_callback_query(call.id, "Aprovado com sucesso!", show_alert=False)

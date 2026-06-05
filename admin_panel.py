@@ -706,6 +706,11 @@ def render_page():
                                                             'nome': req_guerra,
                                                             'role': s['role']
                                                         }, on_conflict='id').execute()
+                                                        try:
+                                                            from database import confirm_supabase_user
+                                                            confirm_supabase_user(req_id)
+                                                        except Exception as conf_err:
+                                                            print(f"[CONFIRM ERR] {conf_err}")
                                                         ui.notify(f"Usuário {req_guerra} aprovado como {s['role'].upper()}!", color='success')
                                                     else:
                                                         conn.table('RegistrationRequests').update({'status': 'rejected'}).eq('id', req_id).execute()

@@ -936,4 +936,24 @@ def get_signed_url_from_supabase_storage(filename: str, bucket_name: str = "foto
     except Exception as e:
         # Se for erro 404 (arquivo não existe), silencia ou avisa com debug
         print(f"[STORAGE SIGNED URL DEBUG] {filename} no bucket {bucket_name}: {e}")
-        return None
+        return None
+
+
+def confirm_supabase_user(user_id: str) -> bool:
+    """
+    Confirma o e-mail de um usuário pendente no Supabase Auth usando o client service_role.
+    """
+    if not user_id:
+        return False
+    conn = get_service_db_connection()
+    if not conn:
+        conn = get_bot_db_connection()
+    if conn and hasattr(conn, 'auth') and hasattr(conn.auth, 'admin'):
+        try:
+            conn.auth.admin.update_user_by_id(user_id, {"email_confirm": True})
+            print(f"[AUTH CONFIRMATION] Confirmado email do usuário {user_id}")
+            return True
+        except Exception as e:
+            print(f"[AUTH CONFIRMATION ERROR] Erro ao confirmar usuário {user_id}: {e}")
+    return False
+
