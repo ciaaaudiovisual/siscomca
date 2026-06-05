@@ -131,6 +131,16 @@ siscomca_menu_categories = [
     }
 ]
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Mapeamento de rotas → roles permitidos (construído a partir do menu)
+# Rotas sem restrição de role ficam abertas a qualquer usuário autenticado.
+# ─────────────────────────────────────────────────────────────────────────────
+ROUTE_ROLES: dict[str, list[str]] = {}
+for _cat in siscomca_menu_categories:
+    for _item in _cat['items']:
+        if 'roles' in _item:
+            ROUTE_ROLES[_item['path']] = _item['roles']
+
 
 def is_authenticated() -> bool:
     authenticated = app.storage.user.get('authenticated', False)
@@ -168,7 +178,16 @@ def build_layout(page_func):
         if app.storage.user.get('tv_lock_active', False) and app.storage.user.get('current_path') != '/siscomca_tv':
             ui.navigate.to('/siscomca_tv')
             return
-            
+
+        # ── AUTORIZAÇÃO SERVER-SIDE: verifica role contra rotas protegidas ──
+        current_path = app.storage.user.get('current_path', '/')
+        if current_path in ROUTE_ROLES:
+            if role_user not in ROUTE_ROLES[current_path]:
+                ui.notify('⛔ Acesso não autorizado para esta página.', color='negative')
+                app.storage.user['current_path'] = '/'
+                ui.navigate.to('/')
+                return
+
         theme.apply_global_styles()
         
         # Se for sessão temporária, atualiza o timestamp de atividade para renovar as 2h
@@ -684,7 +703,12 @@ app.on_shutdown(telegram_bot.stop_bot)
 # Configuração dinâmica para deploy na nuvem (Render, Railway, Hugging Face, etc.)
 port_env = int(os.environ.get('PORT', 7860))
 host_env = os.environ.get('HOST', '0.0.0.0')
-secret_env = os.environ.get('STORAGE_SECRET', 'CHAVE_SECRETA_ALEATORIA')
+# SEGURANÇA: Gera um secret aleatório forte se não definido (mas avisa no log)
+_default_secret = os.urandom(32).hex()
+if not os.environ.get('STORAGE_SECRET'):
+    print('\n⚠️  [SEGURANÇA] STORAGE_SECRET não definida no .env! Usando chave temporária aleatória.')
+    print('    Defina STORAGE_SECRET no seu .env com: python -c "import os; print(os.urandom(32).hex())"\n')
+secret_env = os.environ.get('STORAGE_SECRET', _default_secret)
 
 # Desativamos o 'reload' por padrão para rodar em Modo Produção super leve, veloz, estável e sem reinícios.
 ui.run(

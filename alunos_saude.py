@@ -66,7 +66,7 @@ TIPO_CATEGORIA = {
 
 def _get_user_role_info():
     user = app.storage.user.get('user_data', {})
-    role = user.get('role', 'admin')
+    role = user.get('role', 'viewer')
     pelotao = user.get('pelotao') if role not in ('admin', 'supervisor') else None
     return role, pelotao
 
@@ -202,7 +202,7 @@ def _upsert_registro(
             elif status in ['Internado', 'baixado', 'Hospital', 'Em Observação']:
                 AlertsManager.trigger_alert(
                     "Aviso de Saúde",
-                    f"Militar {militar_lbl} está {str(status).upper()}: {motivo}! (Registrado por: {usuario})",
+                    f"Militar {militar_lbl} está {str(status).upper()}. Consulte o sistema para detalhes. (Registrado por: {usuario})",
                     "warning"
                 )
                 
@@ -213,7 +213,7 @@ def _upsert_registro(
                             f"🏥 **ALERTA: INTERNAÇÃO HOSPITALAR**\n\n"
                             f"👤 Aluno: {str(nome_guerra).upper()} ({numero_interno})\n"
                             f"🩺 Status: HOSPITALIZADO\n"
-                            f"🔬 Motivo: {motivo}\n"
+                            f"📋 Consulte o sistema para detalhes clínicos.\n"
                             f"👮 Registrado por: {usuario}"
                         )
                         notify_telegram(alert_txt, "saude")
@@ -222,19 +222,19 @@ def _upsert_registro(
             elif status == 'Dispensado':
                 AlertsManager.trigger_alert(
                     "Dispensa Médica",
-                    f"Militar {militar_lbl} está DISPENSADO ({detalhe}): {motivo}! (Registrado por: {usuario})",
+                    f"Militar {militar_lbl} está DISPENSADO ({detalhe}). Consulte o sistema para detalhes. (Registrado por: {usuario})",
                     "warning"
                 )
             elif status == 'Licença':
                 AlertsManager.trigger_alert(
                     "Licença Médica",
-                    f"Militar {militar_lbl} está em LICENÇA: {motivo}! (Registrado por: {usuario})",
+                    f"Militar {militar_lbl} está em LICENÇA. Consulte o sistema para detalhes. (Registrado por: {usuario})",
                     "warning"
                 )
             else:
                 AlertsManager.trigger_alert(
                     "Atualização de Saúde",
-                    f"Militar {militar_lbl} atualizado para {status}: {motivo} por {usuario}",
+                    f"Militar {militar_lbl} atualizado para {status}. Consulte o sistema para detalhes. (Registrado por: {usuario})",
                     "warning"
                 )
         except Exception as e_alert:
