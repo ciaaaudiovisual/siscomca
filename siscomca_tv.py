@@ -1595,8 +1595,8 @@ def render_page():
                                 ui.label(label).classes('kpi-label')
                             with ui.row().classes('items-center justify-center gap-1 w-full no-wrap'):
                                 ui.label(str(val)).classes('kpi-value').style(f'color: {color}; margin-top: 2px;')
-                                if subtext:
-                                    ui.label(subtext).classes('text-amber-5 text-[11px] font-black animate-pulse ml-0.5')
+                            if subtext:
+                                ui.label(subtext).classes('text-amber-5 text-[10px] font-black animate-pulse mt-0.5')
                 
                     baixados_count = len([x for x in d['saude_ativos'] if x['categoria'] == 'enfermaria'])
                     dispensados_count = len([x for x in d['saude_ativos'] if x['categoria'] == 'dispensa'])
@@ -1614,7 +1614,7 @@ def render_page():
                     with ui.row().classes('w-full gap-1 justify-between no-wrap').style('flex: 1; min-height: 0;'):
                         build_mini_kpi(d['total_alunos'], 'Efetivo', '#D4AF37', 'groups')
                         build_mini_kpi(d['presentes_hoje'], 'Presentes', '#4CAF50', 'how_to_reg')
-                        build_mini_kpi(ausentes_count, 'Ausentes/Faltas', '#F44336', 'person_off', subtext=f"(+{pendentes_val})" if pendentes_val > 0 else None)
+                        build_mini_kpi(ausentes_count, 'Ausentes/Faltas', '#F44336', 'person_off', subtext=f"{pendentes_val} SEM CHAMADA" if pendentes_val > 0 else None)
                         build_mini_kpi(licenciados_count, 'Licenças Autorizadas', '#2196F3', 'flight_takeoff')
                 
                     # Linha 2: Enfermaria, Dispensados, Pernoite
