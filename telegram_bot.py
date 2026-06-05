@@ -2726,6 +2726,19 @@ async def init_bot():
                     s.close()
                 except Exception as e_tcp:
                     print(f"[TELEGRAM DIAGNOSTIC] Erro de conexao TCP com {host}:443 -> {e_tcp}", flush=True)
+                    
+            # Teste de requisicao aiohttp assincrona com dump de erro
+            import aiohttp
+            print("[TELEGRAM DIAGNOSTIC] Testando requisicao HTTP assincrona com aiohttp...", flush=True)
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get("https://telegram-proxy.pixdiostudio.workers.dev/", timeout=5) as resp:
+                        body = await resp.text()
+                        print(f"[TELEGRAM DIAGNOSTIC] aiohttp com sucesso! Status: {resp.status}, Body length: {len(body)}", flush=True)
+            except Exception as e_aio:
+                import traceback
+                print(f"[TELEGRAM DIAGNOSTIC] Erro detalhado no aiohttp: {e_aio}", flush=True)
+                traceback.print_exc()
         except Exception as e_diag:
             print(f"[TELEGRAM DIAGNOSTIC] Falha ao executar diagnostico: {e_diag}", flush=True)
             
