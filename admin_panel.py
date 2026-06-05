@@ -472,9 +472,12 @@ def render_page():
                             
                             # Atualiza também a tabela efetivo
                             try:
-                                conn.table('efetivo').update({'senha_hash': pwd_hash}).eq('telegram_id', user.get('telegram_id')).execute()
-                            except Exception:
-                                pass
+                                if user.get('telegram_id'):
+                                    conn.table('efetivo').update({'senha_hash': pwd_hash}).or_(f"telegram_id.eq.{user['telegram_id']},nome_guerra.eq.{user.get('nome', '').upper()}").execute()
+                                else:
+                                    conn.table('efetivo').update({'senha_hash': pwd_hash}).eq('nome_guerra', user.get('nome', '').upper()).execute()
+                            except Exception as db_err:
+                                print(f"[DB PASSWORD UPDATE ERR] {db_err}")
                             
                             if auth_updated:
                                 ui.notify(f"Senha de {user['nome']} alterada com sucesso!", color='success')
