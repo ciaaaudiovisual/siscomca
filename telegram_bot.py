@@ -109,10 +109,11 @@ def get_notifications_toggle_keyboard(user_prefs):
     st_saude = "🟢 ATIVADO" if user_prefs.get("notify_saude", True) else "🔴 MUTADO"
     st_escala = "🟢 ATIVADO" if user_prefs.get("notify_escala", True) else "🔴 MUTADO"
     st_new_user = "🟢 ATIVADO" if user_prefs.get("notify_new_user", True) else "🔴 MUTADO"
+    st_anotacao = "🟢 ATIVADO" if user_prefs.get("notify_anotacao", True) else "🔴 MUTADO"
     
     markup.row(types.KeyboardButton(f"📢 Letreiro/Avisos: {st_aviso}"), types.KeyboardButton(f"🏥 Saúde: {st_saude}"))
-    markup.row(types.KeyboardButton(f"👮 Escalas: {st_escala}"), types.KeyboardButton(f"👥 Novos Acessos: {st_new_user}"))
-    markup.row(types.KeyboardButton(f"🔇 Silenciar Tudo: {st_silence}"))
+    markup.row(types.KeyboardButton(f"👮 Escalas: {st_escala}"), types.KeyboardButton(f"📋 Anotações: {st_anotacao}"))
+    markup.row(types.KeyboardButton(f"👥 Novos Acessos: {st_new_user}"), types.KeyboardButton(f"🔇 Silenciar Tudo: {st_silence}"))
     markup.row(types.KeyboardButton("⬅️ Voltar"))
     return markup
 
@@ -1572,7 +1573,6 @@ def setup_handlers(bot_instance):
                 selected = state['data']['selected_student']
                 if "dar presença" in text.lower() or "dar presenca" in text.lower():
                     try:
-                        from database import salvar_presenca_supabase
                         salvar_presenca_supabase(
                             numero_interno=selected['numero_interno'],
                             nome_guerra=selected['nome_guerra'],
@@ -2919,6 +2919,11 @@ def setup_handlers(bot_instance):
                     save_user_preferences(profile['id'], user_prefs)
                     status = "🟢 ATIVADO" if user_prefs['notify_new_user'] else "🔴 MUTADO"
                     await bot_instance.reply_to(message, f"👥 Notificações de Novos Acessos alteradas para: {status}", reply_markup=get_notifications_toggle_keyboard(user_prefs))
+                elif "anotações" in clean_text or "anotacoes" in clean_text or "anotação" in clean_text:
+                    user_prefs['notify_anotacao'] = not user_prefs.get('notify_anotacao', True)
+                    save_user_preferences(profile['id'], user_prefs)
+                    status = "🟢 ATIVADO" if user_prefs['notify_anotacao'] else "🔴 MUTADO"
+                    await bot_instance.reply_to(message, f"📋 Notificações de Anotações alteradas para: {status}", reply_markup=get_notifications_toggle_keyboard(user_prefs))
                 elif "silenciar tudo" in clean_text:
                     user_prefs['silence_all'] = not user_prefs.get('silence_all', False)
                     save_user_preferences(profile['id'], user_prefs)

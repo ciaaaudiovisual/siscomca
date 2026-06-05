@@ -12,7 +12,8 @@ DEFAULT_PREFERENCES = {
     "notify_new_user": True,
     "notify_aviso": True,
     "notify_saude": True,
-    "notify_escala": True
+    "notify_escala": True,
+    "notify_anotacao": True
 }
 
 def load_preferences() -> dict:

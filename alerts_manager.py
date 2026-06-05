@@ -228,6 +228,25 @@ class AlertsManager:
                 jarvis_text = f"{title}."
                 jarvis_audio = ""
 
+            # Envia notificação por Telegram
+            tg_category = None
+            title_upper = title.upper()
+            if any(x in title_upper for x in ["AVISO DE SAÚDE", "AVISO DE SAUDE", "DISPENSA", "LICENÇA", "LICENCA", "ALTA MÉDICA", "ALTA MEDICA"]):
+                tg_category = "saude"
+            elif any(x in title_upper for x in ["NOVO AVISO", "LETREIRO"]):
+                tg_category = "aviso"
+            elif any(x in title_upper for x in ["ESCALA"]):
+                tg_category = "escala"
+            elif any(x in title_upper for x in ["REGISTRO DE OCORRÊNCIA", "REGISTRO DE OCORRENCIA", "ANOTAÇÃO", "ANOTACAO", "ATRASO", "CHAMADA"]):
+                tg_category = "anotacao"
+                
+            if tg_category:
+                try:
+                    from notifications_manager import broadcast_notification
+                    asyncio.create_task(broadcast_notification(f"🔔 **{title.upper()}**\n\n{message}", tg_category))
+                except Exception as e_tg:
+                    print(f"[ALERTA] Falha ao enviar broadcast Telegram para {tg_category}: {e_tg}")
+
             # Faz cópia segura dos callbacks ativos e repassa o som mapeado
             active_entries = list(cls._tv_callbacks.values())
             for entry in active_entries:
