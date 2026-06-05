@@ -99,6 +99,69 @@ def render_page():
                     max_files=1
                 ).props('dark dense accept=".xlsx,.csv"').classes('w-full h-24')
 
+            # --- CARD IMPORTAÇÃO EM LOTE DE FOTOS ---
+            with theme.card_base().classes('w-full p-6'):
+                ui.label('IMPORTAÇÃO EM LOTE DE FOTOS').classes('cyber-title text-sm font-bold text-white q-mb-xs')
+                ui.label('Selecione ou arraste várias fotos de uma vez (ex: M-1-101.jpg, M-1-102.png). O sistema fará o upload para o Supabase Storage vinculando o ano letivo selecionado e atualizará o perfil de cada aluno automaticamente.').classes('text-xs text-grey-4 q-mb-md')
+                
+                async def handle_image_batch_upload(e):
+                    import inspect
+                    import asyncio
+                    import os
+                    
+                    file_bytes = e.content.read()
+                    if inspect.isawaitable(file_bytes):
+                        file_bytes = await file_bytes
+                        
+                    raw_name, ext = os.path.splitext(e.name)
+                    ni_aluno = raw_name.strip()
+                    ano_destino = import_state['ano_letivo']
+                    
+                    db = get_db_connection()
+                    if not db:
+                        ui.notify("❌ Sem conexão com o banco de dados.", color='negative')
+                        return
+                        
+                    try:
+                        # Busca o aluno correspondente pelo número interno e ano letivo
+                        res_al = db.table('Alunos').select('id,nome_guerra').eq('numero_interno', ni_aluno).eq('ano_letivo', ano_destino).execute()
+                        if not res_al.data:
+                            ui.notify(f"⚠️ Aluno Nº {ni_aluno} não encontrado no ano {ano_destino}.", color='warning')
+                            return
+                            
+                        aluno_encontrado = res_al.data[0]
+                        aluno_id = aluno_encontrado['id']
+                        nome_guerra = aluno_encontrado['nome_guerra']
+                        
+                        # Formata o nome do arquivo para o bucket adicionando o ano na frente
+                        filename = f"alunos/{ano_destino}_{ni_aluno}{ext.lower()}"
+                        
+                        # Realiza o upload para o Supabase Storage
+                        from database import upload_file_to_supabase_storage
+                        public_url = await asyncio.to_thread(
+                            upload_file_to_supabase_storage, 
+                            file_bytes, 
+                            filename, 
+                            e.type or "image/jpeg"
+                        )
+                        
+                        if public_url:
+                            # Vincula a URL ao registro correspondente do aluno
+                            db.table('Alunos').update({'url_foto': public_url}).eq('id', aluno_id).execute()
+                            ui.notify(f"📸 Foto vinculada a {nome_guerra} ({ni_aluno})!", color='positive')
+                        else:
+                            ui.notify(f"❌ Erro ao enviar foto de {ni_aluno} para o storage.", color='negative')
+                            
+                    except Exception as err:
+                        ui.notify(f"❌ Erro no processamento de {ni_aluno}: {err}", color='negative')
+
+                ui.upload(
+                    label='Enviar Fotos (Selecione Várias)', 
+                    on_upload=handle_image_batch_upload, 
+                    auto_upload=True,
+                    multiple=True
+                ).props('dark dense accept="image/jpeg,image/png"').classes('w-full h-32')
+
             # --- PRÉVIA E INGESTÃO ---
             if import_state['dados_novos']:
                 with theme.card_base().classes('w-full p-6'):
