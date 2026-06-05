@@ -84,8 +84,8 @@ def get_main_menu_keyboard():
     if row:
         markup.row(*row)
         
-    # Linha 5: Configurações e Cancelar
-    markup.row(types.KeyboardButton("⚙️ Configurações"), types.KeyboardButton("❌ Cancelar"))
+    # Linha 5: Configurações, Ajuda e Cancelar
+    markup.row(types.KeyboardButton("⚙️ Configurações"), types.KeyboardButton("ℹ️ Ajuda"), types.KeyboardButton("❌ Cancelar"))
     return markup
 
 def get_cancel_keyboard():
@@ -96,7 +96,8 @@ def get_cancel_keyboard():
 def get_settings_keyboard(is_authorized=True):
     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
     if is_authorized:
-        markup.row(types.KeyboardButton("🔔 Notificações"), types.KeyboardButton("⬅️ Voltar"))
+        markup.row(types.KeyboardButton("📅 Ano Letivo"), types.KeyboardButton("🔔 Notificações"))
+        markup.row(types.KeyboardButton("⬅️ Voltar"))
     else:
         markup.row(types.KeyboardButton("📝 Solicitar Acesso"), types.KeyboardButton("⬅️ Voltar"))
     return markup
@@ -295,6 +296,31 @@ async def handle_student_button_selection(bot_instance, message, state):
     elif state['action'] == 'saude':
         await prompt_health_status(bot_instance, message, state, selected)
 
+async def check_and_prompt_ano_letivo(bot_instance, message, profile):
+    chat_id = message.chat.id
+    from notifications_manager import get_user_preferences
+    user_prefs = get_user_preferences(profile['id'])
+    
+    if not user_prefs.get('ano_letivo_ativo'):
+        chat_states[chat_id] = {
+            'action': 'select_initial_ano_letivo',
+            'step': 'choose_year',
+            'user': profile,
+            'data': {}
+        }
+        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+        markup.row(types.KeyboardButton("2025"), types.KeyboardButton("2026"))
+        await bot_instance.send_message(
+            chat_id,
+            "📅 **Configuração Inicial: Ano Letivo**\n\n"
+            "Antes de prosseguir, por favor escolha o **Ano Letivo Ativo** padrão para suas consultas e lançamentos de alunos:\n\n"
+            "*(Você poderá alterar esta opção nas Configurações a qualquer momento)*",
+            reply_markup=markup,
+            parse_mode='Markdown'
+        )
+        return True
+    return False
+
 def setup_handlers(bot_instance):
     """Configura os ouvintes de mensagem no bot."""
     
@@ -315,6 +341,9 @@ def setup_handlers(bot_instance):
                 "Clique no botão abaixo para preencher sua solicitação."
             )
             await bot_instance.reply_to(message, welcome_text, reply_markup=get_unauthorized_keyboard(), parse_mode='Markdown')
+            return
+
+        if await check_and_prompt_ano_letivo(bot_instance, message, profile):
             return
 
         welcome_text = (
@@ -371,9 +400,16 @@ def setup_handlers(bot_instance):
         }
         
         is_authorized = profile is not None
+        ano_letivo = "Não Definido"
+        if is_authorized:
+            from notifications_manager import get_user_preferences
+            user_prefs = get_user_preferences(profile['id'])
+            ano_letivo = user_prefs.get('ano_letivo_ativo', '2026')
+            
         await bot_instance.reply_to(
             message,
             "⚙️ **CONFIGURAÇÕES DO SISTEMA**\n\n"
+            f"📅 **Ano Letivo Ativo:** `{ano_letivo}`\n\n"
             "Escolha uma das opções de configuração abaixo:",
             reply_markup=get_settings_keyboard(is_authorized),
             parse_mode='Markdown'
@@ -818,6 +854,26 @@ def setup_handlers(bot_instance):
             }
             await bot_instance.reply_to(message, "🔍 Consulta de Aluno: Digite o nome de guerra ou número interno do aluno:", reply_markup=get_cancel_keyboard())
 
+    @bot_instance.message_handler(commands=['ajuda', 'help'])
+    async def register_ajuda_command(message):
+        chat_id = message.chat.id
+        clear_state(chat_id)
+        
+        help_text = (
+            "ℹ️ **MANUAL DE AJUDA — SisCOMCA BOT**\n\n"
+            "Este assistente permite gerenciar o efetivo de alunos diretamente do Telegram. Veja abaixo os menus e funções disponíveis:\n\n"
+            "📋 **Anotação**: Lança ocorrências disciplinares ou elogios para os alunos. Permite selecionar o aluno e o tipo de ação (positiva, neutra ou negativa).\n\n"
+            "📊 **Resumo Diário**: Exibe um sumário geral do efetivo de hoje, incluindo contagem de presentes, baixados na enfermaria, internados no hospital e licenciados.\n\n"
+            "📞 **Presença**: Permite realizar a chamada diária de um pelotão específico (marcando todos presentes ou definindo ausentes com justificativa) e listar os faltosos do dia.\n\n"
+            "🏥 **Saúde**: Lança alterações de saúde dos alunos (Enfermaria, Hospital, Dispensa Médica, NAS), definindo o status de saúde e datas de dispensa correspondentes.\n\n"
+            "📢 **Quadro de Avisos**: Adiciona, edita, remove ou exibe avisos na TV e no painel do letreiro digital.\n\n"
+            "🛌 **Lançar Pernoite**: Registra autorizações de pernoite para alunos hoje. Permite digitar múltiplos números internos separados por vírgula para inserção em massa.\n\n"
+            "🔍 **Consulta de Aluno**: Busca a ficha cadastral de um aluno, histórico recente de pontuações, ocorrências e pendências administrativas. Você pode digitar o nome ou o **número interno** do aluno diretamente.\n\n"
+            "📅 **Ano Letivo**: Todo o aplicativo e as consultas referem-se ao ano letivo selecionado nas suas configurações. Inicialmente, ao iniciar o bot, você define o ano letivo padrão (ex: 2026), e este pode ser alterado a qualquer momento em Configurações.\n\n"
+            "⚙️ **Configurações**: Permite alterar o ano letivo ativo do bot, solicitar acesso de novos operadores, gerenciar toggles de notificações específicas ou vincular sua conta web."
+        )
+        await bot_instance.reply_to(message, help_text, reply_markup=get_main_menu_keyboard(), parse_mode='Markdown')
+
     @bot_instance.message_handler(func=lambda msg: True)
     async def handle_normal_message(message):
         chat_id = message.chat.id
@@ -859,6 +915,9 @@ def setup_handlers(bot_instance):
                 await bot_instance.reply_to(message, welcome_text, reply_markup=get_unauthorized_keyboard(), parse_mode='Markdown')
                 return
 
+            if await check_and_prompt_ano_letivo(bot_instance, message, profile):
+                return
+
             if "resumo" in clean_text or "parada" in clean_text:
                 await register_resumo_command(message)
                 return
@@ -888,6 +947,9 @@ def setup_handlers(bot_instance):
                 return
             elif "configuração" in clean_text or "configuracao" in clean_text or "configurações" in clean_text or "configuracoes" in clean_text or "settings" in clean_text:
                 await register_settings_command(message)
+                return
+            elif "ajuda" in clean_text or "help" in clean_text or "ℹ️ ajuda" in clean_text:
+                await register_ajuda_command(message)
                 return
             elif "cancelar" in clean_text:
                 await cancel_action(message)
@@ -919,6 +981,31 @@ def setup_handlers(bot_instance):
             await bot_instance.reply_to(message, "❌ Sem conexão com o banco de dados. Operação abortada.")
             clear_state(chat_id)
             return
+
+        # ── CONFIGURAÇÃO DE ANO LETIVO INICIAL ─────────────────────────
+        if action == 'select_initial_ano_letivo':
+            if step == 'choose_year':
+                ano_escolhido = text.strip()
+                if ano_escolhido not in ['2025', '2026']:
+                    await bot_instance.reply_to(message, "⚠️ Escolha inválida. Por favor, clique em um dos botões: 2025 ou 2026")
+                    return
+                
+                from notifications_manager import get_user_preferences, save_user_preferences
+                profile = state['user']
+                user_prefs = get_user_preferences(profile['id'])
+                user_prefs['ano_letivo_ativo'] = ano_escolhido
+                save_user_preferences(profile['id'], user_prefs)
+                
+                await bot_instance.reply_to(
+                    message,
+                    f"✅ **Ano Letivo configurado com sucesso!**\n\n"
+                    f"Seu ano letivo ativo agora é **{ano_escolhido}**.\n"
+                    f"Você pode iniciar suas atividades usando o menu principal.",
+                    reply_markup=get_main_menu_keyboard(),
+                    parse_mode='Markdown'
+                )
+                clear_state(chat_id)
+                return
 
         # ── PROCESSAMENTO DO AVISO ────────────────────────────────────
         if action == 'aviso':
@@ -2683,8 +2770,67 @@ def setup_handlers(bot_instance):
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
                     return
+
+                # Obter o ano letivo do usuário (para filtrar)
                 try:
-                    res = conn.table('Alunos').select('*').execute()
+                    from notifications_manager import get_user_preferences
+                    user_prefs = get_user_preferences(state['user']['id'])
+                    active_year = user_prefs.get('ano_letivo_ativo', '2026')
+                except Exception:
+                    active_year = '2026'
+
+                # Verificar se é lançamento em massa (com vírgulas)
+                if "," in text:
+                    parts = [p.strip() for p in text.split(',') if p.strip()]
+                    invalid_parts = []
+                    found_alunos = []
+                    
+                    try:
+                        res = conn.table('Alunos').select('*').eq('ano_letivo', active_year).execute()
+                        alunos = res.data if res.data else []
+                    except Exception as e:
+                        await bot_instance.reply_to(message, f"❌ Erro ao ler alunos: {e}")
+                        clear_state(chat_id)
+                        return
+                    
+                    for part in parts:
+                        match = None
+                        for al in alunos:
+                            if str(al.get('numero_interno', '')).strip() == part:
+                                match = al
+                                break
+                        if match:
+                            found_alunos.append(match)
+                        else:
+                            invalid_parts.append(part)
+                    
+                    if invalid_parts:
+                        await bot_instance.reply_to(
+                            message,
+                            f"⚠️ Os seguintes números internos não foram encontrados no ano letivo {active_year}:\n"
+                            f"❌ `{', '.join(invalid_parts)}`\n\n"
+                            "Por favor, verifique os números e digite novamente ou cancele:",
+                            reply_markup=get_cancel_keyboard(),
+                            parse_mode='Markdown'
+                        )
+                        return
+                    
+                    state['step'] = 'confirm_mass_pernoite'
+                    state['data']['mass_students'] = found_alunos
+                    
+                    student_list_str = "\n".join([f"• NI {al['numero_interno']}: {al['nome_guerra']} ({al['pelotao']})" for al in found_alunos])
+                    prompt = (
+                        f"🛌 **Confirmar Autorização de Pernoite em Massa?**\n\n"
+                        f"Os seguintes alunos serão autorizados:\n{student_list_str}\n\n"
+                        f"Clique em um dos botões abaixo para confirmar:"
+                    )
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    markup.row(types.KeyboardButton("🟢 CONFIRMAR LANÇAMENTO"), types.KeyboardButton("❌ Cancelar"))
+                    await bot_instance.reply_to(message, prompt, reply_markup=markup, parse_mode='Markdown')
+                    return
+
+                try:
+                    res = conn.table('Alunos').select('*').eq('ano_letivo', active_year).execute()
                     alunos = res.data if res.data else []
                 except Exception as e:
                     await bot_instance.reply_to(message, f"❌ Erro ao ler alunos: {e}")
@@ -2700,7 +2846,7 @@ def setup_handlers(bot_instance):
                         matches.append(al)
                 
                 if not matches:
-                    await bot_instance.reply_to(message, f"⚠️ Nenhum aluno encontrado com '{text}'. Digite novamente ou selecione Cancelar:", reply_markup=get_cancel_keyboard())
+                    await bot_instance.reply_to(message, f"⚠️ Nenhum aluno encontrado com '{text}' no ano letivo {active_year}. Digite novamente ou selecione Cancelar:", reply_markup=get_cancel_keyboard())
                     return
                 
                 # Ordena os resultados da busca por ordem alfabética do nome de guerra
@@ -2776,6 +2922,46 @@ def setup_handlers(bot_instance):
                     clear_state(chat_id)
                 else:
                     await bot_instance.reply_to(message, "⚠️ Responda apenas com S (Sim) ou N (Não):")
+
+            elif step == 'confirm_mass_pernoite':
+                ans = text.strip().lower()
+                if "confirmar" in ans or ans == 's' or ans == 'sim' or ans == '🟢 confirmar lançamento':
+                    try:
+                        mass_students = state['data'].get('mass_students', [])
+                        usuario = state['user'].get('nome', 'TELEGRAM').upper()
+                        hoje_str = date.today().strftime('%Y-%m-%d')
+                        
+                        success_count = 0
+                        for student in mass_students:
+                            conn.table('pernoite').upsert({
+                                'aluno_id': int(student['id']),
+                                'data': hoje_str,
+                                'presente': True
+                            }, on_conflict='aluno_id,data').execute()
+                            
+                            aluno_lbl = f"{student.get('numero_interno', '')} — {str(student.get('nome_guerra', '')).upper()} ({str(student.get('pelotao', '')).upper()})"
+                            AlertsManager.trigger_alert(
+                                "Pernoite Autorizado",
+                                f"Pernoite de {aluno_lbl} autorizado por {usuario}!",
+                                "success"
+                            )
+                            success_count += 1
+                        
+                        await bot_instance.reply_to(
+                            message,
+                            f"✅ **Lançamento em Massa Concluído!**\n\n"
+                            f"• Total de pernoites autorizados: `{success_count}` militar(es).\n"
+                            f"• Data: {date.today().strftime('%d/%m')}.",
+                            reply_markup=get_main_menu_keyboard(),
+                            parse_mode='Markdown'
+                        )
+                    except Exception as e:
+                        await bot_instance.reply_to(message, f"❌ Erro ao salvar pernoites em massa: {e}", reply_markup=get_main_menu_keyboard())
+                    finally:
+                        clear_state(chat_id)
+                else:
+                    await bot_instance.reply_to(message, "❌ Lançamento de pernoite em massa abortado.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
         
         # ── PROCESSAMENTO DA CONSULTA DE ALUNO ────────────────────────
         elif action == 'consulta':
@@ -2846,6 +3032,24 @@ def setup_handlers(bot_instance):
                         f"Escolha uma opção abaixo para ativar ou silenciar todas as notificações:"
                     )
                     await bot_instance.reply_to(message, prompt, reply_markup=get_notifications_toggle_keyboard(user_prefs), parse_mode='Markdown')
+                elif "ano letivo" in clean_opt:
+                    profile = state['user']
+                    if not profile:
+                        await bot_instance.reply_to(message, "⚠️ Acesso restrito. Solicite acesso primeiro.", reply_markup=get_settings_keyboard(False))
+                        return
+                    
+                    state['step'] = 'change_year'
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    markup.row(types.KeyboardButton("2025"), types.KeyboardButton("2026"))
+                    markup.row(types.KeyboardButton("⬅️ Voltar"))
+                    
+                    await bot_instance.reply_to(
+                        message,
+                        "📅 **Alterar Ano Letivo Ativo**\n\n"
+                        "Escolha o ano letivo que deseja usar para suas operações no bot:",
+                        reply_markup=markup,
+                        parse_mode='Markdown'
+                    )
                 elif "vincular conta" in clean_opt:
                     await bot_instance.reply_to(
                         message,
@@ -2934,6 +3138,32 @@ def setup_handlers(bot_instance):
                     await bot_instance.reply_to(message, "Configurações:", reply_markup=get_settings_keyboard(profile is not None))
                 else:
                     await bot_instance.reply_to(message, "⚠️ Opção inválida. Selecione uma das opções do teclado:", reply_markup=get_notifications_toggle_keyboard(user_prefs))
+
+            elif step == 'change_year':
+                clean_opt = text.lower()
+                if "voltar" in clean_opt or "⬅️ voltar" in clean_opt:
+                    state['step'] = 'choose_option'
+                    await bot_instance.reply_to(message, "Configurações:", reply_markup=get_settings_keyboard(state['user'] is not None))
+                    return
+                
+                if text.strip() not in ['2025', '2026']:
+                    await bot_instance.reply_to(message, "⚠️ Escolha inválida. Escolha 2025 ou 2026:")
+                    return
+                
+                from notifications_manager import get_user_preferences, save_user_preferences
+                profile = state['user']
+                user_prefs = get_user_preferences(profile['id'])
+                user_prefs['ano_letivo_ativo'] = text.strip()
+                save_user_preferences(profile['id'], user_prefs)
+                
+                await bot_instance.reply_to(
+                    message,
+                    f"✅ **Ano Letivo alterado com sucesso!**\n\nSeu ano letivo ativo agora é **{text.strip()}**.",
+                    reply_markup=get_main_menu_keyboard(),
+                    parse_mode='Markdown'
+                )
+                clear_state(chat_id)
+                return
 
             elif step == 'link_account_email':
                 username = text.split('@')[0] if '@' in text else text
@@ -3126,7 +3356,10 @@ async def perform_consulta_search(bot_instance, message, profile, term):
         return
         
     try:
-        res = conn.table('Alunos').select('*').execute()
+        from notifications_manager import get_user_preferences
+        user_prefs = get_user_preferences(profile['id'])
+        active_year = user_prefs.get('ano_letivo_ativo', '2026')
+        res = conn.table('Alunos').select('*').eq('ano_letivo', active_year).execute()
         alunos = res.data if res.data else []
     except Exception as e:
         await bot_instance.reply_to(message, f"❌ Erro ao ler alunos: {e}")

@@ -224,6 +224,49 @@ def _carregar_dados_gerais():
                 })
         aniversariantes.sort(key=lambda x: x['diff'])
 
+    # --- Cálculos extras estilo TV ---
+    alunos_todos_nis = set(alunos_df['numero_interno'].astype(str).str.upper()) if not alunos_df.empty else set()
+    respondidos_nis = set(presenca_df['numero_interno'].astype(str).str.upper()) if not presenca_df.empty else set()
+    pendentes_count = len(alunos_todos_nis - respondidos_nis)
+
+    atletas_count = 0
+    if db_conn:
+        try:
+            res_at = db_conn.table('Acoes').select('aluno_id,tipo,tipo_acao_id').in_('status', ['Lançado', 'Pendente']).execute()
+            if res_at.data:
+                atletas_ids = set()
+                valid_aluno_ids = set(alunos_df['id'].astype(str)) if not alunos_df.empty else set()
+                for ac in res_at.data:
+                    aluno_id_str = str(ac.get('aluno_id', ''))
+                    if aluno_id_str in valid_aluno_ids:
+                        tipo_str = str(ac.get('tipo', '')).upper()
+                        if 'ATLETA' in tipo_str or str(ac.get('tipo_acao_id')) == '52':
+                            atletas_ids.add(ac.get('aluno_id'))
+                atletas_count = len(atletas_ids)
+        except Exception as e:
+            print("Erro ao carregar atletas no dashboard:", e)
+
+    fora_sede_count = 0
+    if db_conn:
+        try:
+            hoje = datetime.now()
+            inicio_semana = hoje - timedelta(days=hoje.weekday())
+            t_start = inicio_semana.strftime('%Y-%m-%d 00:00:00')
+            res_fs = db_conn.table('Acoes').select('aluno_id,tipo,descricao').gte('data', t_start).in_('status', ['Lançado', 'Pendente']).execute()
+            if res_fs.data:
+                fora_sede_ids = set()
+                valid_aluno_ids = set(alunos_df['id'].astype(str)) if not alunos_df.empty else set()
+                for ac in res_fs.data:
+                    aluno_id_str = str(ac.get('aluno_id', ''))
+                    if aluno_id_str in valid_aluno_ids:
+                        tipo_str = str(ac.get('tipo', '')).upper()
+                        desc_str = str(ac.get('descricao', '')).upper()
+                        if 'FORA DE SEDE' in tipo_str or 'FORA DE SEDE' in desc_str or 'PAPELETA' in desc_str:
+                            fora_sede_ids.add(ac.get('aluno_id'))
+                fora_sede_count = len(fora_sede_ids)
+        except Exception as e:
+            print("Erro ao carregar fora de sede no dashboard:", e)
+
     return {
         'turmas': sorted(turmas, key=lambda x: x['turma']),
         'total_alunos': total_alunos,
@@ -237,6 +280,9 @@ def _carregar_dados_gerais():
         'pernoite_hoje_ids': pernoite_hoje_ids,
         'ultimas_anot': ultimas_anot,
         'aniversariantes': aniversariantes,
+        'pendentes_count': pendentes_count,
+        'atletas_count': atletas_count,
+        'fora_sede_count': fora_sede_count,
     }
 
 
@@ -301,24 +347,29 @@ def render_dashboard_content():
                     on_click=lambda: (data_service.clear_cache(), render_dashboard_content.refresh())
                 ).props('outline no-caps color=grey')
 
-        # ── KPIs GERAIS (TV STYLE - 8 CARDS RESPONSIVOS) ───────────────────
-        with ui.element('div').classes('grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 w-full gap-3'):
-            def _kpi(val, label, icon, cor):
-                with ui.card().classes('no-shadow q-pa-sm items-center text-center').style(
-                    f'background:{THEME["bg_panel"]}; border:{THEME["border"]}; border-top:3px solid {cor}; margin:0;'
+        # ── KPIs GERAIS (TV STYLE - 9 CARDS RESPONSIVOS) ───────────────────
+        with ui.element('div').classes('grid grid-cols-2 sm:grid-cols-5 lg:grid-cols-9 w-full gap-3'):
+            def _kpi(val, label, icon, cor, subtext=None):
+                border_anim = 'border-amber-500 animate-pulse' if subtext and label == 'AUSENTES/FALTAS' else 'border-gray-900'
+                with ui.card().classes(f'no-shadow q-pa-sm items-center text-center border {border_anim}').style(
+                    f'background:{THEME["bg_panel"]}; border-top:3px solid {cor}; margin:0;'
                 ):
                     ui.icon(icon, color='grey-5').classes('text-lg q-mb-xs')
                     ui.label(str(val)).style(f'color:{cor}; font-size:1.8rem; font-weight:900; line-height:1;')
                     ui.label(label).classes('text-grey text-[9px] font-bold tracking-wider q-mt-xs')
+                    if subtext:
+                        ui.label(subtext).classes('text-amber-5 text-[9px] font-black animate-pulse q-mt-xs')
 
+            pendentes_val = dados.get('pendentes_count', 0)
             _kpi(dados['total_alunos'],   'EFETIVO TOTAL', 'groups', '#D4AF37')
             _kpi(dados['total_pres'],     'PRESENTES',     'how_to_reg', '#4CAF50')
-            _kpi(dados['total_aus'],      'AUSENTES',      'person_off',  '#F44336')
-            _kpi(dados['total_lic'],      'LICENCIADOS',   'flight_takeoff', '#2196F3')
-            _kpi(dados['total_bx'],       'BAIXADOS',      'local_hospital', '#E91E63')
+            _kpi(dados['total_aus'],      'AUSENTES/FALTAS', 'person_off',  '#F44336', subtext=f"{pendentes_val} SEM CHAMADA" if pendentes_val > 0 else None)
+            _kpi(dados['total_lic'],      'LICENÇAS AUTORIZADAS', 'flight_takeoff', '#2196F3')
+            _kpi(dados['total_bx'] + dados['total_hosp'], 'ENFERMARIA', 'local_hospital', '#E91E63')
             _kpi(dados['total_disp'],     'DISPENSADOS',   'event_busy',  '#FF9800')
-            _kpi(dados['total_hosp'],     'HOSPITAL',      'apartment',  '#9C27B0')
             _kpi(dados['total_pernoite'], 'PERNOITE',      'nightlight',  '#00BCD4')
+            _kpi(dados['atletas_count'],  'ATLETAS',       'directions_run', '#9C27B0')
+            _kpi(dados['fora_sede_count'],'FORA DE S. SEM.', 'explore',     '#FFEB3B')
 
         # ── SEÇÃO 1: ACÕES E AVISOS (3 Colunas) ────────────────────────────
         with ui.element('div').classes('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 w-full gap-4 items-start'):
@@ -493,20 +544,63 @@ def render_dashboard_content():
                         f'color:{THEME["primary"]}; font-weight:800; letter-spacing:2px; font-size:0.85rem;'
                     )
 
-                with ui.column().classes('w-full q-pa-md gap-3'):
+                with ui.column().classes('w-full q-pa-md justify-center items-center'):
                     if not dados['turmas']:
-                        ui.label('Sem dados.').classes('text-grey italic text-xs')
+                        ui.label('Sem dados de desempenho.').classes('text-grey italic text-xs q-pa-md')
                     else:
-                        for t in sorted(dados['turmas'], key=lambda x: x['media_conceito'], reverse=True):
-                            mc = t['media_conceito']
-                            cor = '#4CAF50' if mc >= 8.5 else '#FF9800' if mc >= 7.0 else '#F44336'
-                            with ui.column().classes('w-full gap-1'):
-                                with ui.row().classes('w-full justify-between items-center'):
-                                    ui.label(f"Pelotão {t['turma']}").classes('text-white text-xs font-bold')
-                                    ui.label(f"{mc:.2f} / 10.00").style(
-                                        f'color:{cor}; font-weight:900; font-size:0.8rem;'
-                                    )
-                                ui.linear_progress(value=mc / 10.0).props('stripe').classes('h-2 rounded')
+                        # Ordena de forma crescente para que no gráfico horizontal o melhor fique no topo
+                        sorted_turmas = sorted(dados['turmas'], key=lambda x: x['media_conceito'], reverse=False)
+                        turs = [f"Pelotão {x['turma']}" for x in sorted_turmas]
+                        vals = [round(x['media_conceito'], 2) for x in sorted_turmas]
+                        
+                        # Definição dinâmica de cores
+                        colors = []
+                        for v in vals:
+                            if v >= 8.5:
+                                colors.append('#4CAF50') # Verde
+                            elif v >= 7.0:
+                                colors.append('#FF9800') # Laranja
+                            else:
+                                colors.append('#F44336') # Vermelho
+                        
+                        chart_config = {
+                            'backgroundColor': 'transparent',
+                            'tooltip': {
+                                'trigger': 'axis',
+                                'axisPointer': {'type': 'shadow'},
+                                'formatter': '{b}: {c} / 10.00'
+                            },
+                            'grid': {'left': '3%', 'right': '15%', 'bottom': '3%', 'top': '3%', 'containLabel': True},
+                            'xAxis': {
+                                'type': 'value',
+                                'max': 10.0,
+                                'axisLabel': {'color': '#94a3b8'},
+                                'splitLine': {'lineStyle': {'color': 'rgba(255,255,255,0.05)'}}
+                            },
+                            'yAxis': {
+                                'type': 'category',
+                                'data': turs,
+                                'axisLabel': {'color': '#fff', 'fontWeight': 'bold', 'fontSize': 11},
+                                'axisLine': {'lineStyle': {'color': 'rgba(255,255,255,0.1)'}}
+                            },
+                            'series': [{
+                                'name': 'Conceito Médio',
+                                'type': 'bar',
+                                'data': [{'value': v, 'itemStyle': {'color': col}} for v, col in zip(vals, colors)],
+                                'barWidth': '55%',
+                                'label': {
+                                    'show': True,
+                                    'position': 'right',
+                                    'color': '#fff',
+                                    'fontWeight': 'bold',
+                                    'formatter': '{c}'
+                                },
+                                'itemStyle': {
+                                    'borderRadius': [0, 4, 4, 0]
+                                }
+                            }]
+                        }
+                        ui.echart(chart_config).classes('w-full h-64')
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -933,57 +1027,136 @@ def _build_anotacao_rapida_card():
                 ui.label('Dados de alunos/ações não carregados.').classes('text-grey italic text-xs')
                 return
 
-            # Selects
+            # Alunos ordenados alfabeticamente para a listagem
+            alunos_df_sorted = alunos_df.sort_values('nome_guerra')
             opcoes_alunos = {
                 str(r['id']): f"{r.get('numero_interno', '?')} – {r.get('nome_guerra', '?')} ({r.get('pelotao', '?')})"
-                for _, r in alunos_df.iterrows()
+                for _, r in alunos_df_sorted.iterrows()
             }
-            opcoes_tipo = {str(r['id']): r['nome'] for _, r in tipos_df.iterrows()}
 
-            sel_aluno = ui.select(
-                opcoes_alunos, label='Aluno'
+            # Estado local do formulário
+            state = {
+                'lote': False,
+                'aluno_selecionado': None,
+                'alunos_selecionados': [],
+                'categoria': 'todas',
+                'tipo_selecionado': None
+            }
+
+            # Seletor Reativo de Alunos (Individual com busca por número ou Multi-seleção em lote)
+            @ui.refreshable
+            def render_student_selector():
+                if state['lote']:
+                    ui.select(
+                        opcoes_alunos, label='Alunos Selecionados (Lote)', multiple=True, with_input=True
+                    ).props('dark dense outlined use-chips').classes('w-full').bind_value(state, 'alunos_selecionados')
+                else:
+                    ui.select(
+                        opcoes_alunos, label='Militar (Busque por Nº Interno ou Nome)', with_input=True
+                    ).props('dark dense outlined').classes('w-full').bind_value(state, 'aluno_selecionado')
+
+            # Seletor Reativo de Tipos de Ação (Filtrados por categoria e ordenados alfabeticamente)
+            @ui.refreshable
+            def render_action_selector():
+                df = tipos_df.copy()
+                df['pontuacao'] = pd.to_numeric(df['pontuacao'], errors='coerce').fillna(0.0)
+                if state['categoria'] == 'positiva':
+                    df = df[df['pontuacao'] > 0]
+                elif state['categoria'] == 'negativa':
+                    df = df[df['pontuacao'] < 0]
+                elif state['categoria'] == 'neutra':
+                    df = df[df['pontuacao'] == 0]
+                
+                # Ordenação alfabética rigorosa
+                df = df.sort_values('nome')
+                
+                opcoes_tipo = {str(r['id']): f"{r['nome']} ({'+' if r['pontuacao'] > 0 else ''}{r['pontuacao']:.2f} pts)" for _, r in df.iterrows()}
+                ui.select(
+                    opcoes_tipo, label='Tipo de Ação'
+                ).props('dark dense outlined').classes('w-full').bind_value(state, 'tipo_selecionado')
+
+            # Checkbox de Lote
+            lote_toggle = ui.checkbox('Lançar para múltiplos alunos (Lote)').props('dark').classes('text-xs text-grey-4')
+            def on_lote_change(e):
+                state['lote'] = e.value
+                render_student_selector.refresh()
+            lote_toggle.on_value_change(on_lote_change)
+
+            render_student_selector()
+
+            # Dropdown de Categorias
+            def on_cat_change(e):
+                state['categoria'] = e.value
+                state['tipo_selecionado'] = None
+                render_action_selector.refresh()
+
+            ui.select(
+                {
+                    'todas': 'Todas as Categorias',
+                    'positiva': '🟢 Positivas (Elogios / Recompensas)',
+                    'negativa': '🔴 Negativas (Faltas / Ocorrências)',
+                    'neutra': '⚪ Neutras (Saúde / Observações)'
+                },
+                value='todas',
+                label='Filtrar Categoria',
+                on_change=on_cat_change
             ).props('dark dense outlined').classes('w-full')
 
-            sel_tipo = ui.select(
-                opcoes_tipo, label='Tipo de Ação'
-            ).props('dark dense outlined').classes('w-full')
+            render_action_selector()
 
             desc_inp = ui.input(
                 'Descrição (opcional)'
             ).props('dark dense outlined').classes('w-full')
 
             def registrar():
-                if not sel_aluno.value or not sel_tipo.value:
-                    ui.notify('Selecione o aluno e o tipo de ação!', color='warning')
+                aluno_ids = state['alunos_selecionados'] if state['lote'] else ([state['aluno_selecionado']] if state['aluno_selecionado'] else [])
+                if not aluno_ids:
+                    ui.notify('Selecione ao menos um aluno!', color='warning')
                     return
+                if not state['tipo_selecionado']:
+                    ui.notify('Selecione o tipo de ação!', color='warning')
+                    return
+                
                 try:
-                    tipo_row = tipos_df[tipos_df['id'].astype(str) == sel_tipo.value].iloc[0]
+                    tipo_row = tipos_df[tipos_df['id'].astype(str) == state['tipo_selecionado']].iloc[0]
                     db_conn = get_db_connection()
                     usuario = app.storage.user.get('user_data', {}).get('nome_guerra', 'Dashboard')
-                    nova_acao = {
-                        'aluno_id': sel_aluno.value,
-                        'tipo_acao_id': sel_tipo.value,
-                        'tipo': tipo_row['nome'],
-                        'descricao': desc_inp.value or '',
-                        'data': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                        'usuario': usuario,
-                        'status': 'Pendente',
-                    }
-                    if db_conn:
-                        db_conn.table('Acoes').insert(nova_acao).execute()
-                        ui.notify('Anotação registrada com sucesso!', color='positive')
+                    
+                    success_count = 0
+                    for al_id in aluno_ids:
+                        nova_acao = {
+                            'aluno_id': al_id,
+                            'tipo_acao_id': state['tipo_selecionado'],
+                            'tipo': tipo_row['nome'],
+                            'descricao': desc_inp.value or '',
+                            'data': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                            'usuario': usuario,
+                            'status': 'Pendente',
+                        }
+                        if db_conn:
+                            db_conn.table('Acoes').insert(nova_acao).execute()
+                            aluno_txt = opcoes_alunos.get(al_id, 'Militar')
+                            from alerts_manager import AlertsManager
+                            pts = float(tipo_row.get('pontuacao', 0.0) or 0.0)
+                            alert_type = "success" if pts > 0 else "alert" if pts < 0 else "info"
+                            AlertsManager.trigger_alert(
+                                "Registro de Ocorrência",
+                                f"{aluno_txt} recebeu {tipo_row['nome'].upper()} por {usuario}!",
+                                alert_type
+                            )
+                            success_count += 1
                         
-                        aluno_txt = opcoes_alunos.get(sel_aluno.value, 'Militar')
-                        from alerts_manager import AlertsManager
-                        pts = float(tipo_row.get('pontuacao', 0.0) or 0.0)
-                        alert_type = "success" if pts > 0 else "alert" if pts < 0 else "info"
-                        AlertsManager.trigger_alert(
-                            "Registro de Ocorrência",
-                            f"{aluno_txt} recebeu {tipo_row['nome'].upper()} por {usuario}!",
-                            alert_type
-                        )
+                    if db_conn:
+                        ui.notify(f'{success_count} anotação(ões) registrada(s) com sucesso!', color='positive')
                     else:
                         ui.notify('[OFFLINE] Anotação simulada registrada.', color='warning')
+                    
+                    # Resetar estado do formulário
+                    state['alunos_selecionados'] = []
+                    state['aluno_selecionado'] = None
+                    desc_inp.value = ''
+                    render_student_selector.refresh()
+                    
                     data_service.clear_cache()
                     render_dashboard_content.refresh()
                 except Exception as e:
@@ -1198,43 +1371,82 @@ def _build_pernoite_dashboard_card(pernoite_ids: list):
             ui.label('Hoje').classes('text-grey-5 text-xs font-bold')
 
         with ui.column().classes('w-full q-pa-md gap-3'):
-            # Seletor para adicionar aluno ao pernoite
+            # Seletor para adicionar lote ou aluno individual ao pernoite
+            alunos_df_sorted = alunos_df.sort_values('nome_guerra') if not alunos_df.empty else pd.DataFrame()
             opcoes_alunos = {
                 str(r['id']): f"{r.get('numero_interno', '?')} – {r.get('nome_guerra', '?')} ({r.get('pelotao', '?')})"
-                for _, r in alunos_df.iterrows()
+                for _, r in alunos_df_sorted.iterrows()
                 if str(r['id']) not in pernoite_ids
-            } if not alunos_df.empty else {}
+            } if not alunos_df_sorted.empty else {}
+
+            state = {
+                'selecionados': []
+            }
 
             with ui.row().classes('w-full items-center gap-2'):
                 sel_aluno = ui.select(
-                    opcoes_alunos, label='Autorizar Pernoite', with_input=True
-                ).props('dark dense outlined').classes('col-grow text-xs')
+                    opcoes_alunos, label='Selecione Militares (Lote / Individual)', multiple=True, with_input=True
+                ).props('dark dense outlined use-chips').classes('col-grow text-xs').bind_value(state, 'selecionados')
                 
                 def autorizar():
-                    if not sel_aluno.value:
-                        ui.notify('Selecione o militar a autorizar!', color='warning')
+                    ids = state['selecionados']
+                    if not ids:
+                        ui.notify('Selecione ao menos um militar para autorizar!', color='warning')
                         return
                     db_conn = get_db_connection()
                     if db_conn:
                         try:
-                            # Upsert
-                            db_conn.table('pernoite').upsert({
-                                'aluno_id': int(sel_aluno.value),
-                                'data': hoje_str,
-                                'presente': True
-                            }, on_conflict='aluno_id,data').execute()
-                            ui.notify('Pernoite autorizado com sucesso!', color='positive')
+                            records = []
+                            for s_id in ids:
+                                records.append({
+                                    'aluno_id': int(s_id),
+                                    'data': hoje_str,
+                                    'presente': True
+                                })
+                            db_conn.table('pernoite').upsert(records, on_conflict='aluno_id,data').execute()
+                            ui.notify(f'{len(ids)} pernoite(s) autorizado(s) com sucesso!', color='positive')
+                            state['selecionados'] = []
                             data_service.clear_cache()
                             render_dashboard_content.refresh()
                         except Exception as e:
-                            ui.notify(f'Erro ao autorizar pernoite: {e}', color='negative')
+                            ui.notify(f'Erro ao autorizar: {e}', color='negative')
                     else:
                         ui.notify('Sem conexão com banco de dados', color='negative')
 
                 ui.button(icon='add', on_click=autorizar).props('unelevated color=cyan-9').classes('h-10 w-10')
 
-            # Lista dos autorizados hoje
-            ui.label('MILITARES AUTORIZADOS HOJE:').classes('text-[10px] text-grey-5 font-bold tracking-widest q-mt-xs')
+            # Cabeçalho da Lista com botão de Limpar Todos
+            with ui.row().classes('w-full justify-between items-center q-mt-xs'):
+                ui.label('MILITARES AUTORIZADOS HOJE:').classes('text-[10px] text-grey-5 font-bold tracking-widest')
+                
+                # Diálogo de confirmação para Limpar Todos
+                with ui.dialog() as confirm_clear_dialog, ui.card().classes('q-pa-md items-center text-center'):
+                    ui.icon('warning', color='warning', size='2.5rem')
+                    ui.label('Revogar Todos os Pernoites?').classes('text-white text-md font-bold')
+                    ui.label('Esta ação removerá todas as autorizações de pernoite para a data de hoje.').classes('text-grey-4 text-xs q-mb-md')
+                    
+                    def limpar_todos():
+                        db_conn = get_db_connection()
+                        if db_conn:
+                            try:
+                                db_conn.table('pernoite').delete().eq('data', hoje_str).execute()
+                                ui.notify('Todos os pernoites de hoje foram revogados.', color='info')
+                                confirm_clear_dialog.close()
+                                data_service.clear_cache()
+                                render_dashboard_content.refresh()
+                            except Exception as e:
+                                ui.notify(f'Erro ao limpar: {e}', color='negative')
+                        else:
+                            ui.notify('Sem conexão com banco de dados', color='negative')
+                            
+                    with ui.row().classes('w-full justify-center gap-2'):
+                        ui.button('Cancelar', on_click=confirm_clear_dialog.close).props('flat dense color=grey')
+                        ui.button('Confirmar', on_click=limpar_todos).props('unelevated dense color=red')
+                
+                if pernoite_ids:
+                    ui.button(
+                        'Revogar Todos', on_click=confirm_clear_dialog.open
+                    ).props('flat dense color=red no-caps size=xs').classes('font-bold')
             
             with ui.column().classes('w-full gap-1 q-pa-xs border border-gray-800 rounded bg-black/10').style('max-height: 180px; overflow-y: auto;'):
                 if not pernoite_ids:
@@ -1244,12 +1456,16 @@ def _build_pernoite_dashboard_card(pernoite_ids: list):
                     if authorized_students.empty:
                         ui.label('Carregando autorizados...').classes('text-grey italic text-xs q-pa-sm')
                     else:
+                        # Ordena autorizados por Pelotão e depois Nome de Guerra
+                        authorized_students = authorized_students.sort_values(by=['pelotao', 'nome_guerra'])
                         for _, r in authorized_students.iterrows():
                             aid = str(r['id'])
-                            with ui.row().classes('w-full items-center justify-between q-py-1 px-2 hover:bg-white/5 rounded border-b border-gray-900'):
-                                with ui.column().classes('gap-0'):
-                                    ui.label(f"{r.get('numero_interno', '?')} – {r.get('nome_guerra', '?')}").classes('text-white text-xs font-bold uppercase')
-                                    ui.label(r.get('pelotao', '?')).classes('text-grey text-[9px]')
+                            with ui.row().classes('w-full items-center justify-between q-py-1 px-2 hover:bg-white/5 rounded border-b border-gray-900/60'):
+                                with ui.row().classes('items-center gap-2'):
+                                    ui.icon('nightlight', color='cyan-5').classes('text-[10px]')
+                                    with ui.column().classes('gap-0'):
+                                        ui.label(f"{r.get('numero_interno', '?')} – {r.get('nome_guerra', '?')}").classes('text-white text-xs font-bold uppercase')
+                                        ui.label(r.get('pelotao', '?')).classes('text-grey text-[9px]')
                                 
                                 def make_delete_handler(student_id=aid):
                                     def delete_pernoite():

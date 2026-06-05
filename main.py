@@ -46,6 +46,7 @@ import admin_panel
 import telegram_bot
 import siscomca_dashboard
 import siscomca_tv
+import ajuda_sobre
 from database import authenticate_user, get_user_by_id
 from services import data_service
 
@@ -119,6 +120,12 @@ siscomca_menu_categories = [
         'items': [
             {'name': 'Configurações', 'icon': 'settings', 'path': '/config', 'roles': ['admin', 'supervisor']},
             {'name': 'Usuários e Permissões', 'icon': 'admin_panel_settings', 'path': '/admin_panel', 'roles': ['admin']},
+        ]
+    },
+    {
+        'category': 'SISTEMA E AJUDA',
+        'items': [
+            {'name': 'Ajuda / Sobre', 'icon': 'help_outline', 'path': '/ajuda_sobre'},
         ]
     }
 ]
@@ -438,6 +445,12 @@ def config_page():
 def admin_panel_page():
     app.storage.user['current_path'] = '/admin_panel'
     build_layout(admin_panel.render_page)()
+
+
+@ui.page('/ajuda_sobre')
+def ajuda_sobre_page():
+    app.storage.user['current_path'] = '/ajuda_sobre'
+    build_layout(ajuda_sobre.render_page)()
 
 
 
