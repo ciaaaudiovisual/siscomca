@@ -826,9 +826,9 @@ def render_page():
                                             
                                             # Alterar Senha
                                             ui.button(
-                                                icon='lock_reset',
+                                                icon='vpn_key',
                                                 on_click=lambda e, user=u: open_password_dialog(user)
-                                            ).props('flat round dense color=amber').classes('text-xs').style('background: rgba(255, 193, 7, 0.05);')
+                                            ).props('flat round dense color=amber-9').classes('text-xs').style('background: rgba(255, 193, 7, 0.05);')
                                             ui.tooltip('Redefinir Senha')
                                             
                                             # Excluir
