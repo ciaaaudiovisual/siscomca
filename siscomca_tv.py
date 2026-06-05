@@ -254,6 +254,7 @@ def _carregar_dados_tv(prog_date: datetime = None):
         'cabecalho_tv_title': cabecalho_title,
         'pernoite_count': 0,
         'atletas_count': 0,
+        'fora_sede_count': 0,
         'is_offline': is_offline
     }
 
@@ -632,6 +633,28 @@ def _carregar_dados_tv(prog_date: datetime = None):
         except Exception as e:
             print(f"[TV] Erro Atletas: {e}")
     dados['atletas_count'] = atletas_count
+
+    # 8.3 Fora de Sede da Semana (Alunos com anotação de FORA DE SEDE ou PAPELETA na semana corrente)
+    fora_sede_count = 0
+    if db_conn:
+        try:
+            hoje = datetime.now()
+            # Segunda-feira da semana corrente
+            inicio_semana = hoje - timedelta(days=hoje.weekday())
+            t_start = inicio_semana.strftime('%Y-%m-%d 00:00:00')
+            
+            res_fs = db_conn.table('Acoes').select('aluno_id,tipo,descricao').gte('data', t_start).in_('status', ['Lançado', 'Pendente']).execute()
+            if res_fs.data:
+                fora_sede_ids = set()
+                for ac in res_fs.data:
+                    tipo_str = str(ac.get('tipo', '')).upper()
+                    desc_str = str(ac.get('descricao', '')).upper()
+                    if 'FORA DE SEDE' in tipo_str or 'FORA DE SEDE' in desc_str or 'PAPELETA' in desc_str:
+                        fora_sede_ids.add(ac.get('aluno_id'))
+                fora_sede_count = len(fora_sede_ids)
+        except Exception as e:
+            print(f"[TV] Erro Fora de Sede: {e}")
+    dados['fora_sede_count'] = fora_sede_count
 
     # 9. Polling interval configurado
     dados['polling_interval'] = get_tv_polling_interval()
@@ -1626,6 +1649,7 @@ def render_page():
                         ausentes_count = d.get('ausentes_hoje', 0)
                     pernoite_count = d.get('pernoite_count', 0)
                     atletas_count = d.get('atletas_count', 0)
+                    fora_sede_count = d.get('fora_sede_count', 0)
                     pendentes_val = d.get('pendentes_count', 0)
 
                     # Linha 1: Efetivo, Presentes, Ausentes/Faltas, Licenças Autorizadas
@@ -1635,12 +1659,13 @@ def render_page():
                         build_mini_kpi(ausentes_count, 'Ausentes/Faltas', '#F44336', 'person_off', subtext=f"{pendentes_val} SEM CHAMADA" if pendentes_val > 0 else None)
                         build_mini_kpi(licenciados_count, 'Licenças Autorizadas', '#2196F3', 'flight_takeoff')
                 
-                    # Linha 2: Enfermaria, Dispensados, Pernoite, Atletas
+                    # Linha 2: Enfermaria, Dispensados, Pernoite, Atletas, Fora de S. Sem.
                     with ui.row().classes('w-full gap-1 justify-between no-wrap').style('flex: 1; min-height: 0;'):
                         build_mini_kpi(baixados_count + hospital_count, 'Enfermaria', '#E91E63', 'local_hospital')
                         build_mini_kpi(dispensados_count, 'Dispensados', '#FF9800', 'event_busy')
                         build_mini_kpi(pernoite_count, 'Pernoite', '#00BCD4', 'nightlight')
                         build_mini_kpi(atletas_count, 'Atletas', '#9C27B0', 'directions_run')
+                        build_mini_kpi(fora_sede_count, 'Fora de S. Sem.', '#FFEB3B', 'explore')
 
                 # 3. Anotações do Dia (Ações dos Alunos com cores positivo/negativo/neutro)
                 anotacoes_container.clear()
