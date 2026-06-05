@@ -93,10 +93,13 @@ def get_cancel_keyboard():
     markup.add(types.KeyboardButton("❌ Cancelar"))
     return markup
 
-def get_settings_keyboard(is_authorized=True):
+def get_settings_keyboard(is_authorized=True, is_admin=False):
     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
     if is_authorized:
-        markup.row(types.KeyboardButton("📅 Ano Letivo"), types.KeyboardButton("🔔 Notificações"))
+        if is_admin:
+            markup.row(types.KeyboardButton("📅 Ano Letivo"), types.KeyboardButton("🔔 Notificações"), types.KeyboardButton("👥 Pedidos de Acesso"))
+        else:
+            markup.row(types.KeyboardButton("📅 Ano Letivo"), types.KeyboardButton("🔔 Notificações"))
         markup.row(types.KeyboardButton("⬅️ Voltar"))
     else:
         markup.row(types.KeyboardButton("📝 Solicitar Acesso"), types.KeyboardButton("⬅️ Voltar"))
@@ -422,6 +425,7 @@ def setup_handlers(bot_instance):
         }
         
         is_authorized = profile is not None
+        is_admin = profile and str(profile.get('role', '')).strip().lower() == 'admin'
         ano_letivo = "Não Definido"
         if is_authorized:
             from notifications_manager import get_user_preferences
@@ -433,7 +437,7 @@ def setup_handlers(bot_instance):
             "⚙️ **CONFIGURAÇÕES DO SISTEMA**\n\n"
             f"📅 **Ano Letivo Ativo:** `{ano_letivo}`\n\n"
             "Escolha uma das opções de configuração abaixo:",
-            reply_markup=get_settings_keyboard(is_authorized),
+            reply_markup=get_settings_keyboard(is_authorized, is_admin),
             parse_mode='Markdown'
         )
 
@@ -880,6 +884,109 @@ def setup_handlers(bot_instance):
             }
             await bot_instance.reply_to(message, "🔍 Consulta de Aluno: Digite o nome de guerra ou número interno do aluno:", reply_markup=get_cancel_keyboard())
 
+    @bot_instance.message_handler(commands=['solicitacoes', 'pedidos'])
+    async def register_solicitacoes_command(message):
+        chat_id = message.chat.id
+        clear_state(chat_id)
+        
+        profile = await check_authorized_user(message.from_user.id)
+        if not profile or str(profile.get('role', '')).strip().lower() != 'admin':
+            await bot_instance.reply_to(message, "⚠️ Acesso restrito a administradores do SisCOMCA.")
+            return
+            
+        conn = get_db_connection()
+        if not conn:
+            await bot_instance.reply_to(message, "❌ Sem conexão com o banco de dados.")
+            return
+            
+        try:
+            res = conn.table('RegistrationRequests').select('*').eq('status', 'pending').execute()
+            reqs = res.data if res.data else []
+        except Exception as e:
+            await bot_instance.reply_to(message, f"❌ Erro ao buscar solicitações: {e}")
+            return
+            
+        if not reqs:
+            await bot_instance.reply_to(message, "ℹ️ Não há solicitações de acesso pendentes no momento.", reply_markup=get_main_menu_keyboard())
+            return
+            
+        await bot_instance.reply_to(message, f"👥 Encontradas {len(reqs)} solicitações pendentes:")
+        for r in reqs:
+            r_id = r['id']
+            email = r['email']
+            nome = r.get('nome_completo', '').upper()
+            guerra = r.get('nome_guerra', '').upper()
+            
+            markup = types.InlineKeyboardMarkup()
+            markup.row(
+                types.InlineKeyboardButton("✅ Aprovar", callback_data=f"approve_req:{r_id}"),
+                types.InlineKeyboardButton("❌ Rejeitar", callback_data=f"reject_req:{r_id}")
+            )
+            
+            text = (
+                f"👤 **{nome}**\n"
+                f"📧 E-mail: `{email}`\n"
+                f"🛡️ Nome de Guerra: `{guerra}`\n\n"
+                f"Escolha uma ação abaixo para este usuário:"
+            )
+            await bot_instance.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
+
+    @bot_instance.callback_query_handler(func=lambda call: call.data.startswith('approve_req:') or call.data.startswith('reject_req:'))
+    async def process_req_callback(call):
+        admin_profile = await check_authorized_user(call.from_user.id)
+        if not admin_profile or str(admin_profile.get('role', '')).strip().lower() != 'admin':
+            await bot_instance.answer_callback_query(call.id, "⛔ Apenas administradores autorizados podem processar acessos.", show_alert=True)
+            return
+            
+        action, req_id = call.data.split(':')
+        conn = get_db_connection()
+        if not conn:
+            await bot_instance.answer_callback_query(call.id, "❌ Erro: Sem conexão com o banco de dados.", show_alert=True)
+            return
+            
+        try:
+            res_req = conn.table('RegistrationRequests').select('*').eq('id', req_id).execute()
+            if not res_req.data or res_req.data[0].get('status') != 'pending':
+                await bot_instance.answer_callback_query(call.id, "⚠️ Esta solicitação já foi processada ou não existe.", show_alert=True)
+                return
+            
+            req = res_req.data[0]
+            email = req.get('email')
+            guerra = req.get('nome_guerra', '').upper()
+            admin_nome = admin_profile.get('nome', 'ADMIN').upper()
+            
+            if action == 'approve_req':
+                conn.table('RegistrationRequests').update({'status': 'approved'}).eq('id', req_id).execute()
+                conn.table('Users').upsert({
+                    'id': req_id,
+                    'username': email.split('@')[0],
+                    'nome': guerra,
+                    'role': 'compel'
+                }, on_conflict='id').execute()
+                
+                status_text = f"✅ **Aprovado por {admin_nome}**"
+                await bot_instance.answer_callback_query(call.id, "Aprovado com sucesso!", show_alert=False)
+            else:
+                conn.table('RegistrationRequests').update({'status': 'rejected'}).eq('id', req_id).execute()
+                status_text = f"❌ **Rejeitado por {admin_nome}**"
+                await bot_instance.answer_callback_query(call.id, "Solicitação rejeitada.", show_alert=False)
+                
+            original_text = call.message.text or call.message.caption or ""
+            lines = original_text.split('\n')
+            if lines and "Escolha uma ação" in lines[-1]:
+                lines = lines[:-1]
+            new_msg_text = "\n".join(lines) + f"\n\n⚙️ **Status:** {status_text}"
+            
+            await bot_instance.edit_message_text(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                text=new_msg_text,
+                reply_markup=None,
+                parse_mode='Markdown'
+            )
+        except Exception as err:
+            await bot_instance.answer_callback_query(call.id, f"❌ Erro ao processar: {err}", show_alert=True)
+
     @bot_instance.message_handler(commands=['ajuda', 'help'])
     async def register_ajuda_command(message):
         chat_id = message.chat.id
@@ -955,7 +1062,10 @@ def setup_handlers(bot_instance):
             if await check_and_prompt_ano_letivo(bot_instance, message, profile):
                 return
 
-            if "resumo" in clean_text or "parada" in clean_text:
+            if "pedidos de acesso" in clean_text or "solicitacoes" in clean_text or "solicitações" in clean_text:
+                await register_solicitacoes_command(message)
+                return
+            elif "resumo" in clean_text or "parada" in clean_text:
                 await register_resumo_command(message)
                 return
             elif "escala" in clean_text or "serviço" in clean_text or "servico" in clean_text:

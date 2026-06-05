@@ -639,7 +639,7 @@ def login_page(request: Request):
                                     f"⚡ Papel Temporário: `aluno` (Acesso Liberado com limites).\n"
                                     f"⚙️ Ação: O administrador pode alterar as permissões deste usuário no painel a qualquer momento."
                                 )
-                                notify_telegram(alert_txt, "new_user", role_required="admin")
+                                notify_telegram(alert_txt, "new_user", role_required="admin", request_id=res.user.id)
                             except Exception as e_notif:
                                 print(f"[MAIN REG NOTIFY ERROR] {e_notif}")
                                 

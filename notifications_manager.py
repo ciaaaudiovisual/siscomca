@@ -53,9 +53,10 @@ def check_notification_enabled(user_id: str, notification_type: str) -> bool:
     pref_key = f"notify_{notification_type}"
     return user_prefs.get(pref_key, True)
 
-async def _send_msg_safe(bot, chat_id: int, text: str):
+
+async def _send_msg_safe(bot, chat_id: int, text: str, reply_markup=None):
     try:
-        await bot.send_message(chat_id=chat_id, text=text, parse_mode='Markdown')
+        await bot.send_message(chat_id=chat_id, text=text, parse_mode='Markdown', reply_markup=reply_markup)
         print(f"[NOTIFY] Mensagem enviada para o chat {chat_id}", flush=True)
     except Exception as e:
         print(f"[NOTIFY] Erro ao enviar mensagem para {chat_id}: {e}", flush=True)
@@ -79,7 +80,7 @@ async def send_notification_to_user(telegram_id: str, text: str):
     except Exception as e:
         print(f"[NOTIFY] Falha ao enviar para {telegram_id}: {e}", flush=True)
 
-async def broadcast_notification(text: str, notification_type: str, role_required: str = None, specific_user_id: str = None):
+async def broadcast_notification(text: str, notification_type: str, role_required: str = None, specific_user_id: str = None, request_id: str = None):
     """Envia notificação para usuários autorizados baseando-se em preferências."""
     import telegram_bot
     bot = telegram_bot.bot
@@ -107,6 +108,15 @@ async def broadcast_notification(text: str, notification_type: str, role_require
         res = query.execute()
         
         if res.data:
+            markup = None
+            if notification_type == "new_user" and request_id:
+                from telebot import types
+                markup = types.InlineKeyboardMarkup()
+                markup.row(
+                    types.InlineKeyboardButton("✅ Aprovar", callback_data=f"approve_req:{request_id}"),
+                    types.InlineKeyboardButton("❌ Rejeitar", callback_data=f"reject_req:{request_id}")
+                )
+
             tasks = []
             for user in res.data:
                 u_id = user.get('id')
@@ -116,23 +126,25 @@ async def broadcast_notification(text: str, notification_type: str, role_require
                 
                 # Checa as preferências
                 if check_notification_enabled(u_id, notification_type):
-                    tasks.append(_send_msg_safe(bot, int(tg_id), text))
+                    tasks.append(_send_msg_safe(bot, int(tg_id), text, reply_markup=markup))
             
             if tasks:
                 await asyncio.gather(*tasks)
     except Exception as e:
         print(f"[NOTIFY] Erro ao transmitir broadcast {notification_type}: {e}", flush=True)
 
-def notify_telegram(text: str, notification_type: str, role_required: str = None, specific_user_id: str = None):
+def notify_telegram(text: str, notification_type: str, role_required: str = None, specific_user_id: str = None, request_id: str = None):
     """Sincronamente despacha o envio de notificação."""
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
-            loop.create_task(broadcast_notification(text, notification_type, role_required, specific_user_id))
+            loop.create_task(broadcast_notification(text, notification_type, role_required, specific_user_id, request_id))
         else:
-            loop.run_until_complete(broadcast_notification(text, notification_type, role_required, specific_user_id))
+            loop.run_until_complete(broadcast_notification(text, notification_type, role_required, specific_user_id, request_id))
     except Exception:
         try:
-            asyncio.run(broadcast_notification(text, notification_type, role_required, specific_user_id))
+            asyncio.run(broadcast_notification(text, notification_type, role_required, specific_user_id, request_id))
         except Exception as e:
             print(f"[NOTIFY] Falha ao despachar notificação de Telegram: {e}", flush=True)
+
+
