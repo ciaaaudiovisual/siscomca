@@ -225,7 +225,8 @@ def build_layout(page_func):
                         'username': p_row.get('username'),
                         'nome_guerra': p_row.get('nome', p_row.get('username')),
                         'role': p_row.get('role', 'compel'),
-                        'email': user_cached.get('email', '')
+                        'email': user_cached.get('email', ''),
+                        'url_foto': p_row.get('url_foto')
                     }
         
         user_name = user.get('nome_guerra') if user else 'Operador'
@@ -283,7 +284,12 @@ def build_layout(page_func):
                         ui.label(user_posto).classes('text-grey-5 text-xs')
                     user_photo = user.get('url_foto') if user else None
                     user_avatar_src = user_photo if isinstance(user_photo, str) and user_photo.startswith('http') else 'https://cdn.quasar.dev/img/boy-avatar.png'
-                    ui.avatar().props('size=32px').style(f"background-image: url('{user_avatar_src}'); background-size: cover; background-position: center; border: 1px solid rgba(255, 255, 255, 0.2);")
+                    ui.element('div').classes('shadow shrink-0').style(
+                        f"width: 32px; height: 32px; background-image: url('{user_avatar_src}'); "
+                        f"background-size: cover; background-position: center; border-radius: 4px; "
+                        f"border: 1.5px solid rgba(0, 229, 255, 0.4); box-shadow: 0 0 10px rgba(0, 229, 255, 0.2);"
+                    )
+
                     with ui.button(on_click=lambda: open_change_password_dialog(user), icon='vpn_key').props('flat round color=amber-9 dense'):
                         ui.tooltip('Alterar Minha Senha')
                     with ui.button(on_click=logout, icon='logout').props('flat round color=red dense'):
