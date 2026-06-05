@@ -193,7 +193,9 @@ async def check_authorized_user(from_user_id: int):
     try:
         res = conn.table('Users').select('*').eq('telegram_id', str(from_user_id)).execute()
         if res.data:
-            profile = res.data[0]
+            # Ordena os perfis para colocar os que não são 'aluno' primeiro
+            sorted_profiles = sorted(res.data, key=lambda u: 1 if u.get('role') == 'aluno' else 0)
+            profile = sorted_profiles[0]
             allowed = await get_allowed_features_for_user(profile)
             USER_PERMISSIONS_CACHE[from_user_id] = allowed
             return profile
@@ -205,12 +207,23 @@ def clear_state(chat_id):
     if chat_id in chat_states:
         del chat_states[chat_id]
 
+def get_user_active_year(profile):
+    if not profile or 'id' not in profile:
+        return '2026'
+    from notifications_manager import get_user_preferences
+    try:
+        user_prefs = get_user_preferences(profile['id'])
+        return user_prefs.get('ano_letivo_ativo', '2026')
+    except Exception:
+        return '2026'
+
 async def prompt_pelotao_selection(bot_instance, message, state):
     conn = get_db_connection()
     pelotoes = []
     if conn:
         try:
-            res = conn.table('Alunos').select('pelotao').execute()
+            active_year = get_user_active_year(state.get('user'))
+            res = conn.table('Alunos').select('pelotao').eq('ano_letivo', active_year).execute()
             if res.data:
                 pelotoes = sorted(list(set([r['pelotao'] for r in res.data if r.get('pelotao')])))
         except Exception as e:
@@ -229,7 +242,13 @@ async def prompt_pelotao_selection(bot_instance, message, state):
         markup.row(*row)
     markup.row(types.KeyboardButton("🔍 Digitar / Lote"), types.KeyboardButton("❌ Cancelar"))
     
-    action_label = "Anotação" if state['action'] == 'anotacao' else "Saúde"
+    action_map = {
+        'anotacao': 'Anotação',
+        'saude': 'Saúde',
+        'pernoite': 'Pernoite',
+        'presenca': 'Presença'
+    }
+    action_label = action_map.get(state['action'], 'Lançamento')
     await bot_instance.reply_to(
         message, 
         f"📋 {action_label}: Selecione o Pelotão do aluno (ou escolha digitar/lote):", 
@@ -246,7 +265,8 @@ async def handle_pelotao_selection(bot_instance, message, state):
         return
         
     try:
-        res = conn.table('Alunos').select('*').eq('pelotao', text).execute()
+        active_year = get_user_active_year(state.get('user'))
+        res = conn.table('Alunos').select('*').eq('pelotao', text).eq('ano_letivo', active_year).execute()
         alunos_pelotao = res.data if res.data else []
     except Exception as e:
         await bot_instance.reply_to(message, f"❌ Erro ao ler alunos do pelotão: {e}", reply_markup=get_main_menu_keyboard())
@@ -295,6 +315,8 @@ async def handle_student_button_selection(bot_instance, message, state):
         await prompt_action_type(bot_instance, message, state, selected)
     elif state['action'] == 'saude':
         await prompt_health_status(bot_instance, message, state, selected)
+    elif state['action'] == 'pernoite':
+        await prompt_pernoite_confirm(bot_instance, message, state, selected)
 
 async def check_and_prompt_ano_letivo(bot_instance, message, profile):
     chat_id = message.chat.id
@@ -446,7 +468,8 @@ def setup_handlers(bot_instance):
                 res_ausentes = conn.table('presenca_ausencia').select('*').eq('data', data_hoje).eq('presente', False).execute()
                 absents = res_ausentes.data if res_ausentes.data else []
                 if absents:
-                    res_alunos = conn.table('Alunos').select('*').execute()
+                    active_year = get_user_active_year(profile)
+                    res_alunos = conn.table('Alunos').select('*').eq('ano_letivo', active_year).execute()
                     alunos = res_alunos.data if res_alunos.data else []
                     for ab in absents:
                         num = str(ab.get('numero_interno', '')).lower()
@@ -521,6 +544,9 @@ def setup_handlers(bot_instance):
     @bot_instance.message_handler(commands=['cancelar'])
     async def cancel_action(message):
         chat_id = message.chat.id
+        current_user_id.set(message.from_user.id)
+        if message.from_user.id not in USER_PERMISSIONS_CACHE:
+            await check_authorized_user(message.from_user.id)
         clear_state(chat_id)
         await bot_instance.reply_to(message, "❌ Operação cancelada com sucesso.", reply_markup=get_main_menu_keyboard())
 
@@ -614,11 +640,11 @@ def setup_handlers(bot_instance):
             
         chat_states[chat_id] = {
             'action': 'pernoite',
-            'step': 'search_student',
+            'step': 'choose_pelotao',
             'user': profile,
             'data': {}
         }
-        await bot_instance.reply_to(message, "🛌 Lançar Pernoite: Digite o nome de guerra ou número interno do aluno:", reply_markup=get_cancel_keyboard())
+        await prompt_pelotao_selection(bot_instance, message, chat_states[chat_id])
 
     @bot_instance.message_handler(commands=['resumo', 'parada'])
     async def register_resumo_command(message):
@@ -650,7 +676,8 @@ def setup_handlers(bot_instance):
             hoje_str = datetime.now().strftime('%Y-%m-%d')
             hoje_br = datetime.now().strftime('%d/%m/%Y')
             
-            res_al = conn.table('Alunos').select('id, numero_interno, nome_guerra, pelotao').execute()
+            active_year = get_user_active_year(profile)
+            res_al = conn.table('Alunos').select('id, numero_interno, nome_guerra, pelotao').eq('ano_letivo', active_year).execute()
             alunos = res_al.data if res_al.data else []
             total_alunos = len(alunos)
             
@@ -877,15 +904,26 @@ def setup_handlers(bot_instance):
     @bot_instance.message_handler(func=lambda msg: True)
     async def handle_normal_message(message):
         chat_id = message.chat.id
-        state = chat_states.get(chat_id)
         text = message.text.strip() if message.text else ""
         
-        # Cancelamento global e prioritário: se houver texto com "cancelar", aborta qualquer fluxo imediatamente
-        if text and "cancelar" in text.lower():
-            await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+        # Define o ID do usuário corrente no contexto da requisição
+        current_user_id.set(message.from_user.id)
+        
+        # Garante que as permissões estejam no cache para renderizar o teclado corretamente
+        if message.from_user.id not in USER_PERMISSIONS_CACHE:
+            await check_authorized_user(message.from_user.id)
+            
+        # Cancelamento global/Voltar ao menu: trata "cancelar", "voltar", "menu principal", etc.
+        clean_text = text.lower()
+        cancel_terms = ["cancelar", "menu principal", "voltar pro menu", "voltar para o menu", "voltar ao menu"]
+        is_cancel = any(term in clean_text for term in cancel_terms) or clean_text in ["voltar", "⬅️ voltar"]
+        
+        if is_cancel:
             clear_state(chat_id)
+            await bot_instance.reply_to(message, "🏠 Retornando ao Menu Principal.", reply_markup=get_main_menu_keyboard())
             return
             
+        state = chat_states.get(chat_id)
         if not state:
             profile = await check_authorized_user(message.from_user.id)
             clean_text = text.lower()
@@ -1382,7 +1420,8 @@ def setup_handlers(bot_instance):
                     clear_state(chat_id)
                     return
                 try:
-                    res = conn.table('Alunos').select('*').execute()
+                    active_year = get_user_active_year(state.get('user'))
+                    res = conn.table('Alunos').select('*').eq('ano_letivo', active_year).execute()
                     alunos = res.data if res.data else []
                 except Exception as e:
                     await bot_instance.reply_to(message, f"❌ Erro ao ler alunos: {e}")
@@ -1553,11 +1592,11 @@ def setup_handlers(bot_instance):
                     return
                 
                 if "realizar chamada" in text.lower():
-                    # Segue para a seleção de pelotão
                     pelotoes = []
                     if conn:
                         try:
-                            res = conn.table('Alunos').select('pelotao').execute()
+                            active_year = get_user_active_year(state.get('user'))
+                            res = conn.table('Alunos').select('pelotao').eq('ano_letivo', active_year).execute()
                             if res.data:
                                 pelotoes = sorted(list(set([r['pelotao'] for r in res.data if r.get('pelotao')])))
                         except Exception as e:
@@ -1585,7 +1624,8 @@ def setup_handlers(bot_instance):
                         
                         absent_students = []
                         if absents:
-                            res_alunos = conn.table('Alunos').select('*').execute()
+                            active_year = get_user_active_year(state.get('user'))
+                            res_alunos = conn.table('Alunos').select('*').eq('ano_letivo', active_year).execute()
                             alunos = res_alunos.data if res_alunos.data else []
                             for ab in absents:
                                 num = str(ab.get('numero_interno', '')).lower()
@@ -2765,7 +2805,30 @@ def setup_handlers(bot_instance):
         
         # ── PROCESSAMENTO DO PERNOITE ─────────────────────────────────
         elif action == 'pernoite':
-            if step == 'search_student':
+            if step == 'choose_pelotao':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                if "digitar" in text.lower() or "lote" in text.lower() or "buscar" in text.lower():
+                    state['step'] = 'search_student'
+                    await bot_instance.reply_to(message, "🔍 Digite o nome de guerra, número interno ou números em lote (separados por vírgula):", reply_markup=get_cancel_keyboard())
+                    return
+                await handle_pelotao_selection(bot_instance, message, state)
+                return
+                
+            elif step == 'choose_student_button':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                if "voltar" in text.lower() or "⬅️" in text:
+                    await prompt_pelotao_selection(bot_instance, message, state)
+                    return
+                await handle_student_button_selection(bot_instance, message, state)
+                return
+
+            elif step == 'search_student':
                 if text.lower() in ['cancelar', '❌ cancelar']:
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
