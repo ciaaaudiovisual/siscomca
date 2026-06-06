@@ -45,7 +45,12 @@ def save_user_preferences(user_id: str, user_prefs: dict):
     save_preferences(prefs)
 
 def check_notification_enabled(user_id: str, notification_type: str) -> bool:
-    """Verifica se o usuário habilitou o tipo de notificação específica no Telegram e não está silenciado."""
+    """Verifica se o usuário habilitou o tipo de notificação específica no Telegram e não está silenciado.
+    Notificações do tipo 'system' sempre são entregues (ex: aprovação de acesso).
+    """
+    # Notificações de sistema nunca são bloqueadas por preferências
+    if notification_type == 'system':
+        return True
     user_prefs = get_user_preferences(user_id)
     if user_prefs.get("silence_all", False):
         return False

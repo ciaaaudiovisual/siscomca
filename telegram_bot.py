@@ -974,6 +974,22 @@ def setup_handlers(bot_instance):
                 except Exception as conf_err:
                     print(f"[TELEGRAM CONFIRM ERR] {conf_err}")
                 
+                # Notifica o usuário aprovado via Telegram (se ele tiver telegram_id vinculado)
+                try:
+                    user_res = conn.table('Users').select('telegram_id').eq('id', req_id).execute()
+                    if user_res.data and user_res.data[0].get('telegram_id'):
+                        tg_id = int(user_res.data[0]['telegram_id'])
+                        msg_aprovado = (
+                            f"✅ **Acesso ao SisCOMCA Aprovado!**\n\n"
+                            f"Olá, **{guerra}**! Seu acesso foi aprovado por **{admin_nome}**.\n\n"
+                            f"🔑 Papel atribuído: `compel`\n"
+                            f"📱 Você já pode usar o bot normalmente.\n"
+                            f"🌐 Acesse também o sistema web para operações avançadas."
+                        )
+                        await bot_instance.send_message(tg_id, msg_aprovado, parse_mode='Markdown')
+                except Exception as notif_err:
+                    print(f"[TELEGRAM NOTIFY APPROVED ERR] {notif_err}")
+                
                 status_text = f"✅ **Aprovado por {admin_nome}**"
                 await bot_instance.answer_callback_query(call.id, "Aprovado com sucesso!", show_alert=False)
             else:
@@ -1878,16 +1894,34 @@ def setup_handlers(bot_instance):
                         state['data']['mode'] = 'todos_presentes'
                         state['step'] = 'confirm_presenca_submit'
                         
+                        # Busca contagem real de alunos do pelotão
+                        total_alunos = 0
+                        nomes_lista = ""
+                        try:
+                            res_count = conn.table('Alunos').select('numero_interno, nome_guerra').eq('pelotao', pelotao).execute()
+                            alunos_do_pelotao = res_count.data if res_count.data else []
+                            total_alunos = len(alunos_do_pelotao)
+                            # Lista os primeiros 10 para exibir
+                            preview = alunos_do_pelotao[:10]
+                            nomes_lista = "\n".join([f"  • {a['numero_interno']} — {a['nome_guerra']}" for a in preview])
+                            if total_alunos > 10:
+                                nomes_lista += f"\n  _(... e mais {total_alunos - 10} alunos)_"
+                        except Exception:
+                            nomes_lista = "  _(erro ao carregar lista)_"
+                        
                         markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-                        markup.row(types.KeyboardButton("S — Confirmar"), types.KeyboardButton("N — Cancelar"))
+                        markup.row(types.KeyboardButton("✅ SIM — Confirmar"), types.KeyboardButton("❌ NÃO — Cancelar"))
 
                         confirm_prompt = (
-                            f"⚠️ Confirmar Lançamento de Presença Coletiva?\n\n"
-                            f"📋 Turma: {pelotao}\n"
-                            f"📊 Lançamento: TODOS PRESENTES\n\n"
-                            "Selecione uma das opções abaixo:"
+                            f"⚠️ **ATENÇÃO: Confirmar Presença em Massa?**\n\n"
+                            f"📋 Turma: **{pelotao}**\n"
+                            f"📊 Alunos afetados: **{total_alunos} aluno(s)**\n"
+                            f"📢 Lançamento: **TODOS PRESENTES**\n\n"
+                            f"🗒️ Lista de alunos que serão marcados:\n{nomes_lista}\n\n"
+                            f"⚠️ _Esta ação não pode ser desfeita facilmente._\n\n"
+                            "Confirma?"
                         )
-                        await bot_instance.reply_to(message, confirm_prompt, reply_markup=markup)
+                        await bot_instance.reply_to(message, confirm_prompt, reply_markup=markup, parse_mode='Markdown')
                     elif choice == 2:
                         state['data']['mode'] = 'ausentes_excecao'
                         state['step'] = 'get_absent_numbers'
@@ -2018,7 +2052,7 @@ def setup_handlers(bot_instance):
             # Passo 5: Confirmação e Inserção no Supabase
             elif step == 'confirm_presenca_submit':
                 ans = text.strip().lower()
-                if ans in ['s', 'sim', 'y', 'yes', 's — confirmar']:
+                if ans in ['s', 'sim', 'y', 'yes', 's — confirmar', '✅ sim — confirmar']:
                     try:
                         pelotao = state['data']['pelotao']
                         mode = state['data']['mode']
