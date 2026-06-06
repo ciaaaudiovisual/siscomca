@@ -980,8 +980,8 @@ def setup_handlers(bot_instance):
                     if user_res.data and user_res.data[0].get('telegram_id'):
                         tg_id = int(user_res.data[0]['telegram_id'])
                         msg_aprovado = (
-                            f"✅ **Acesso ao SisCOMCA Aprovado!**\n\n"
-                            f"Olá, **{guerra}**! Seu acesso foi aprovado por **{admin_nome}**.\n\n"
+                            f"✅ *Acesso ao SisCOMCA Aprovado!*\n\n"
+                            f"Olá, *{guerra}*! Seu acesso foi aprovado por *{admin_nome}*.\n\n"
                             f"🔑 Papel atribuído: `compel`\n"
                             f"📱 Você já pode usar o bot normalmente.\n"
                             f"🌐 Acesse também o sistema web para operações avançadas."
@@ -2033,17 +2033,17 @@ def setup_handlers(bot_instance):
                         absent_students = state['data']['absent_students']
                         
                         markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-                        markup.row(types.KeyboardButton("S — Confirmar"), types.KeyboardButton("N — Cancelar"))
+                        markup.row(types.KeyboardButton("✅ SIM — Confirmar"), types.KeyboardButton("❌ NÃO — Cancelar"))
 
                         confirm_prompt = (
-                            f"⚠️ Confirmar Lançamento de Presença Coletiva?\n\n"
-                            f"📋 Turma: {pelotao}\n"
-                            f"📊 Lançamento: PRESENTES COM EXCEÇÕES\n"
+                            f"⚠️ *ATENÇÃO: Confirmar Presença Coletiva?*\n\n"
+                            f"📋 Turma: *{pelotao}*\n"
+                            f"📊 Lançamento: *PRESENTES COM EXCEÇÕES*\n"
                             f"🚫 Ausentes ({reason}):\n"
                             + '\n'.join([f"• {a['numero_interno']} — {a['nome_guerra']}" for a in absent_students])
-                            + "\n\nSelecione uma das opções abaixo:"
+                            + "\n\n⚠️ _Esta ação não pode ser desfeita facilmente._\n\nConfirma?"
                         )
-                        await bot_instance.reply_to(message, confirm_prompt, reply_markup=markup)
+                        await bot_instance.reply_to(message, confirm_prompt, reply_markup=markup, parse_mode='Markdown')
                     else:
                         await bot_instance.reply_to(message, "⚠️ Opção inválida. Digite um número de 1 a 6:")
                 except ValueError:
@@ -2094,6 +2094,9 @@ def setup_handlers(bot_instance):
                         await bot_instance.reply_to(message, f"❌ Erro ao gravar chamada: {e}", reply_markup=get_main_menu_keyboard())
                     finally:
                         clear_state(chat_id)
+                else:
+                    await bot_instance.reply_to(message, "❌ Lançamento de chamada cancelado.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
 
         elif action == 'atrasado':
             # Passo 1: Seleção de Aluno Ausente da Lista (ou Buscar outro)
@@ -3290,21 +3293,59 @@ def setup_handlers(bot_instance):
                 await bot_instance.reply_to(message, "📧 Digite seu **E-mail cadastrado no sistema** (para vinculação):", reply_markup=get_cancel_keyboard(), parse_mode='Markdown')
 
             elif step == 'request_access_email':
-                state['data']['reg_email'] = text
+                email_input = text.strip().lower()
+                state['data']['reg_email'] = email_input
+                
+                conn = get_db_connection()
+                linked_success = False
+                user_found = False
+                
+                if conn:
+                    try:
+                        # 1. Busca solicitações pendentes para este e-mail
+                        res_req = conn.table('RegistrationRequests').select('*').eq('email', email_input).execute()
+                        if res_req.data:
+                            user_found = True
+                            req_id = res_req.data[0]['id']
+                            # Atualiza a tabela Users com o telegram_id
+                            conn.table('Users').update({'telegram_id': str(chat_id)}).eq('id', req_id).execute()
+                            linked_success = True
+                        else:
+                            # Tenta buscar pelo username na tabela Users
+                            username_input = email_input.split('@')[0]
+                            res_user = conn.table('Users').select('*').eq('username', username_input).execute()
+                            if res_user.data:
+                                user_found = True
+                                req_id = res_user.data[0]['id']
+                                conn.table('Users').update({'telegram_id': str(chat_id)}).eq('id', req_id).execute()
+                                linked_success = True
+                    except Exception as db_err:
+                        print(f"[LINK TELEGRAM ID ERR] {db_err}")
+                        
                 try:
                     from notifications_manager import notify_telegram
                     alert_txt = (
-                        f"🔔 **SOLICITAÇÃO DE NOVO ACESSO (TELEGRAM)**\n\n"
+                        f"🔔 *SOLICITAÇÃO DE NOVO ACESSO (TELEGRAM)*\n\n"
                         f"🎖️ Posto/Grad: {state['data']['reg_nome'].upper()}\n"
                         f"👮 Nome de Guerra: {state['data']['reg_guerra'].upper()}\n"
                         f"📧 E-mail cadastrado: {state['data']['reg_email']}\n"
                         f"⚡ Telegram ID: `{message.from_user.id}`\n\n"
-                        f"Aprovação recomendada via painel Web vinculando o Telegram ID correspondente."
                     )
+                    if linked_success:
+                        alert_txt += "✅ *Vínculo automático de Telegram ID realizado com sucesso!* Aprovando no painel irá ativar o bot automaticamente."
+                    elif user_found:
+                        alert_txt += "⚠️ Usuário encontrado no banco, mas erro ao atualizar telegram_id."
+                    else:
+                        alert_txt += "❌ E-mail não encontrado no sistema. O administrador precisará vincular manualmente."
+                        
                     notify_telegram(alert_txt, "new_user", role_required="admin")
-                    await bot_instance.reply_to(message, "✅ **Solicitação de Acesso Enviada!**\n\nOs administradores foram notificados. Aguarde a criação e vinculação do seu acesso.", reply_markup=get_main_menu_keyboard())
+                    
+                    if linked_success:
+                        await bot_instance.reply_to(message, "✅ *Solicitação de Acesso Vinculada!*\n\nSeu Telegram ID foi vinculado ao seu e-mail cadastrado. Quando os administradores aprovarem seu acesso, você será notificado.", reply_markup=get_unauthorized_keyboard(), parse_mode='Markdown')
+                    else:
+                        await bot_instance.reply_to(message, "⚠️ *Solicitação Enviada com Observações*\n\nSeu e-mail não foi encontrado no sistema ou não foi possível fazer a vinculação automática. Os administradores foram notificados para verificar seu cadastro.", reply_markup=get_unauthorized_keyboard(), parse_mode='Markdown')
                 except Exception as ex:
-                    await bot_instance.reply_to(message, f"❌ Erro ao enviar solicitação: {ex}", reply_markup=get_main_menu_keyboard())
+                    await bot_instance.reply_to(message, f"❌ Erro ao enviar solicitação: {ex}", reply_markup=get_unauthorized_keyboard())
                 finally:
                     clear_state(chat_id)
 

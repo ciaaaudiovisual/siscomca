@@ -1418,6 +1418,25 @@ def render_page():
                                                                         confirm_supabase_user(req_id)
                                                                     except Exception as conf_err:
                                                                         print(f"[CONFIRM ERR] {conf_err}")
+                                                                    
+                                                                    # Notifica o usuário aprovado via Telegram
+                                                                    try:
+                                                                        user_res = db_c.table('Users').select('telegram_id, nome').eq('id', req_id).execute()
+                                                                        if user_res.data and user_res.data[0].get('telegram_id'):
+                                                                            from notifications_manager import notify_telegram
+                                                                            tg_id = str(user_res.data[0]['telegram_id'])
+                                                                            nome_aprovado = user_res.data[0].get('nome', req_guerra).upper()
+                                                                            msg_tg = (
+                                                                                f"✅ *Acesso ao SisCOMCA Aprovado!*\n\n"
+                                                                                f"Olá, *{nome_aprovado}*! Seu acesso foi aprovado pelo administrador.\n\n"
+                                                                                f"🔑 Papel atribuído: `compel`\n"
+                                                                                f"📱 Você já pode usar o bot normalmente.\n"
+                                                                                f"🌐 Acesse também o sistema web para operações avançadas."
+                                                                            )
+                                                                            notify_telegram(msg_tg, "system", specific_user_id=req_id)
+                                                                    except Exception as notif_err:
+                                                                        print(f"[CONFIG NOTIFY APPROVED ERR] {notif_err}")
+
                                                                     ui.notify('Solicitação aprovada!', color='success')
                                                                     render_pending_requests_tab.refresh()
                                                                 except Exception as ex:
