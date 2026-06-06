@@ -211,14 +211,39 @@ def clear_state(chat_id):
         del chat_states[chat_id]
 
 def get_user_active_year(profile):
+    """Busca o ano letivo ativo do usuário. Tenta o banco primeiro, depois o arquivo local, com fallback para 2026."""
     if not profile or 'id' not in profile:
         return '2026'
+    # Primeiro tenta buscar do campo 'ano_letivo' no próprio perfil
+    if profile.get('ano_letivo'):
+        return str(profile['ano_letivo'])
+    # Depois tenta o arquivo local de preferências
     from notifications_manager import get_user_preferences
     try:
         user_prefs = get_user_preferences(profile['id'])
         return user_prefs.get('ano_letivo_ativo', '2026')
     except Exception:
         return '2026'
+
+def set_user_active_year(profile, ano: str):
+    """Salva o ano letivo ativo no banco e também no arquivo local de preferências."""
+    if not profile or 'id' not in profile:
+        return
+    # Salva no arquivo local de preferências (funciona localmente)
+    from notifications_manager import get_user_preferences, save_user_preferences
+    try:
+        user_prefs = get_user_preferences(profile['id'])
+        user_prefs['ano_letivo_ativo'] = ano
+        save_user_preferences(profile['id'], user_prefs)
+    except Exception as e:
+        print(f"[YEAR SAVE LOCAL ERR] {e}")
+    # Tenta salvar também no banco para persistência em produção (coluna extra em Users)
+    try:
+        conn = get_db_connection()
+        if conn:
+            conn.table('Users').update({'ano_letivo': ano}).eq('id', profile['id']).execute()
+    except Exception as e:
+        print(f"[YEAR SAVE DB ERR] {e}")
 
 async def prompt_pelotao_selection(bot_instance, message, state):
     conn = get_db_connection()
@@ -322,28 +347,8 @@ async def handle_student_button_selection(bot_instance, message, state):
         await prompt_pernoite_confirm(bot_instance, message, state, selected)
 
 async def check_and_prompt_ano_letivo(bot_instance, message, profile):
-    chat_id = message.chat.id
-    from notifications_manager import get_user_preferences
-    user_prefs = get_user_preferences(profile['id'])
-    
-    if not user_prefs.get('ano_letivo_ativo'):
-        chat_states[chat_id] = {
-            'action': 'select_initial_ano_letivo',
-            'step': 'choose_year',
-            'user': profile,
-            'data': {}
-        }
-        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-        markup.row(types.KeyboardButton("2025"), types.KeyboardButton("2026"))
-        await bot_instance.send_message(
-            chat_id,
-            "📅 **Configuração Inicial: Ano Letivo**\n\n"
-            "Antes de prosseguir, por favor escolha o **Ano Letivo Ativo** padrão para suas consultas e lançamentos de alunos:\n\n"
-            "*(Você poderá alterar esta opção nas Configurações a qualquer momento)*",
-            reply_markup=markup,
-            parse_mode='Markdown'
-        )
-        return True
+    """DESCONTINUADO como bloqueio obrigatório - apenas retorna False para não bloquear ações.
+    O ano letivo tem padrão automático '2026' e pode ser trocado nas configurações."""
     return False
 
 def setup_handlers(bot_instance):
@@ -1142,11 +1147,8 @@ def setup_handlers(bot_instance):
                     await bot_instance.reply_to(message, "⚠️ Escolha inválida. Por favor, clique em um dos botões: 2025 ou 2026")
                     return
                 
-                from notifications_manager import get_user_preferences, save_user_preferences
                 profile = state['user']
-                user_prefs = get_user_preferences(profile['id'])
-                user_prefs['ano_letivo_ativo'] = ano_escolhido
-                save_user_preferences(profile['id'], user_prefs)
+                set_user_active_year(profile, ano_escolhido)
                 
                 await bot_instance.reply_to(
                     message,
@@ -3330,11 +3332,8 @@ def setup_handlers(bot_instance):
                     await bot_instance.reply_to(message, "⚠️ Escolha inválida. Escolha 2025 ou 2026:")
                     return
                 
-                from notifications_manager import get_user_preferences, save_user_preferences
                 profile = state['user']
-                user_prefs = get_user_preferences(profile['id'])
-                user_prefs['ano_letivo_ativo'] = text.strip()
-                save_user_preferences(profile['id'], user_prefs)
+                set_user_active_year(profile, text.strip())
                 
                 await bot_instance.reply_to(
                     message,
