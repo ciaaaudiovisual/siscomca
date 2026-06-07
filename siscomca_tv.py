@@ -1491,7 +1491,7 @@ def render_page():
                                                 audio.volume = 1.0;
                                                 audio.play().catch(() => {{}});
                                             }}, p * 2000);
-                                        }
+                                        }}
                                         
                                         if (remainder > 0) {{
                                             setTimeout(() => {{
@@ -1499,7 +1499,7 @@ def render_page():
                                                 audio.volume = 1.0;
                                                 audio.play().catch(() => {{}});
                                             }}, pairs * 2000);
-                                        }
+                                        }}
                                     }} else {{
                                         playSynthesizedBells(ctx, count);
                                     }}
@@ -1513,7 +1513,7 @@ def render_page():
                                         let audio = new Audio(customMp3Url);
                                         audio.volume = 1.0;
                                         audio.play().catch(() => {{}});
-                                    } else {{
+                                    }} else {{
                                         playDefaultSynthesized(type);
                                     }}
                                 }}).catch(() => {{
