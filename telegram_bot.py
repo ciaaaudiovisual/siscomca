@@ -310,6 +310,24 @@ async def handle_pelotao_selection(bot_instance, message, state):
         )
         return
         
+    if state['action'] == 'pernoite':
+        state['step'] = 'choose_pernoite_mode'
+        state['data']['pelotao'] = text
+        state['data']['alunos_pelotao'] = alunos_pelotao
+        
+        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+        markup.row(types.KeyboardButton("✅ Todos Pernoitam"), types.KeyboardButton("🚫 Pernoitam com Exceção"))
+        markup.row(types.KeyboardButton("👤 Lançar Individual"), types.KeyboardButton("⬅️ Voltar"))
+        
+        await bot_instance.reply_to(
+            message,
+            f"🛌 **Lançamento de Pernoite - Pelotão {text}**\n\n"
+            "Escolha o modo de lançamento para este pelotão:",
+            reply_markup=markup,
+            parse_mode='Markdown'
+        )
+        return
+
     state['step'] = 'choose_student_button'
     state['data']['alunos_pelotao'] = alunos_pelotao
     
@@ -649,11 +667,14 @@ def setup_handlers(bot_instance):
             
         chat_states[chat_id] = {
             'action': 'pernoite',
-            'step': 'choose_pelotao',
+            'step': 'choose_initial_option',
             'user': profile,
             'data': {}
         }
-        await prompt_pelotao_selection(bot_instance, message, chat_states[chat_id])
+        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+        markup.row(types.KeyboardButton("✍️ Lançar Pernoite"), types.KeyboardButton("📋 Listar Pernoites de Hoje"))
+        markup.row(types.KeyboardButton("❌ Cancelar"))
+        await bot_instance.reply_to(message, "🛌 **Controle de Pernoite**\n\nSelecione uma opção:", reply_markup=markup, parse_mode='Markdown')
 
     @bot_instance.message_handler(commands=['resumo', 'parada'])
     async def register_resumo_command(message):
@@ -2958,16 +2979,145 @@ def setup_handlers(bot_instance):
         
         # ── PROCESSAMENTO DO PERNOITE ─────────────────────────────────
         elif action == 'pernoite':
-            if step == 'choose_pelotao':
+            if step == 'choose_initial_option':
+                clean_text = text.lower()
+                if "cancelar" in clean_text or "❌" in clean_text:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                elif "listar pernoites" in clean_text or "listar" in clean_text or "📋" in clean_text:
+                    await list_today_pernoites(bot_instance, message, state)
+                    return
+                elif "lançar pernoite" in clean_text or "lancar" in clean_text or "✍️" in clean_text:
+                    await prompt_pelotao_selection(bot_instance, message, state)
+                    return
+                else:
+                    await bot_instance.reply_to(message, "⚠️ Opção inválida. Selecione uma das opções do teclado:")
+                    return
+
+            elif step == 'choose_pelotao':
                 if text.lower() in ['cancelar', '❌ cancelar']:
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
                     return
-                if "digitar" in text.lower() or "lote" in text.lower() or "buscar" in text.lower():
+                if "digitar" in text.lower() or "lote" in text.lower() or "buscar" in text.lower() or "🔍" in text:
                     state['step'] = 'search_student'
                     await bot_instance.reply_to(message, "🔍 Digite o nome de guerra, número interno ou números em lote (separados por vírgula):", reply_markup=get_cancel_keyboard())
                     return
                 await handle_pelotao_selection(bot_instance, message, state)
+                return
+
+            elif step == 'choose_pernoite_mode':
+                clean_text = text.lower()
+                pelotao = state['data']['pelotao']
+                alunos_pelotao = state['data']['alunos_pelotao']
+                
+                if "cancelar" in clean_text or "❌" in clean_text:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                elif "voltar" in clean_text or "⬅️" in clean_text:
+                    await prompt_pelotao_selection(bot_instance, message, state)
+                    return
+                elif "todos pernoitam" in clean_text or "todos" in clean_text or "✅" in clean_text:
+                    state['step'] = 'confirm_mass_pernoite'
+                    state['data']['mass_students'] = alunos_pelotao
+                    
+                    preview = alunos_pelotao[:10]
+                    nomes_lista = "\n".join([f"• NI {a['numero_interno']}: {a['nome_guerra']}" for a in preview])
+                    if len(alunos_pelotao) > 10:
+                        nomes_lista += f"\n  _(... e mais {len(alunos_pelotao) - 10} alunos)_"
+                        
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    markup.row(types.KeyboardButton("🟢 CONFIRMAR LANÇAMENTO"), types.KeyboardButton("❌ Cancelar"))
+                    
+                    prompt = (
+                        f"⚠️ **Confirmar Lançamento de Pernoite Coletivo?**\n\n"
+                        f"📋 Pelotão: *{pelotao}*\n"
+                        f"📊 Total: *{len(alunos_pelotao)}* aluno(s)\n"
+                        f"📢 Lançamento: *TODOS AUTORIZADOS*\n\n"
+                        f"🗒️ Lista de alunos:\n{nomes_lista}\n\n"
+                        "Clique em um dos botões abaixo para confirmar:"
+                    )
+                    await bot_instance.reply_to(message, prompt, reply_markup=markup, parse_mode='Markdown')
+                    return
+                elif "exceção" in clean_text or "excecao" in clean_text or "🚫" in clean_text:
+                    state['step'] = 'get_pernoite_exceptions'
+                    await bot_instance.reply_to(
+                        message,
+                        f"🚫 **Lançamento com Exceções - Pelotão {pelotao}**\n\n"
+                        "Digite os números internos dos militares que *NÃO* pernoitarão hoje, separados por vírgula (ex: 102, 209):",
+                        reply_markup=get_cancel_keyboard(),
+                        parse_mode='Markdown'
+                    )
+                    return
+                elif "individual" in clean_text or "👤" in clean_text:
+                    state['step'] = 'choose_student_button'
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    alunos_pelotao_sorted = sorted(alunos_pelotao, key=lambda x: str(x.get('nome_guerra', '')).upper())
+                    for i in range(0, len(alunos_pelotao_sorted), 2):
+                        row = [types.KeyboardButton(f"MIKE {a['numero_interno']} - {a['nome_guerra']}") for a in alunos_pelotao_sorted[i:i+2]]
+                        markup.row(*row)
+                    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
+                    await bot_instance.reply_to(message, f"📋 Alunos do {pelotao}: Selecione o militar desejado abaixo:", reply_markup=markup)
+                    return
+                else:
+                    await bot_instance.reply_to(message, "⚠️ Opção inválida. Escolha uma das opções do teclado:")
+                    return
+
+            elif step == 'get_pernoite_exceptions':
+                clean_text = text.lower()
+                if "cancelar" in clean_text or "❌" in clean_text:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                
+                pelotao = state['data']['pelotao']
+                alunos_pelotao = state['data']['alunos_pelotao']
+                
+                parts = [p.strip() for p in text.split(',') if p.strip()]
+                except_alunos = []
+                found_except_nis = []
+                
+                for part in parts:
+                    match = next((a for a in alunos_pelotao if str(a.get('numero_interno')).strip() == part or str(a.get('numero_interno')).strip().endswith(part)), None)
+                    if match:
+                        except_alunos.append(match)
+                        found_except_nis.append(str(match['numero_interno']))
+                
+                except_ids = [e['id'] for e in except_alunos]
+                mass_students = [a for a in alunos_pelotao if a['id'] not in except_ids]
+                
+                if not mass_students:
+                    await bot_instance.reply_to(
+                        message,
+                        "⚠️ Todas as pessoas foram inseridas como exceções, restando 0 alunos para pernoitar.\n"
+                        "Por favor, insira os números novamente ou selecione Cancelar:",
+                        reply_markup=get_cancel_keyboard()
+                    )
+                    return
+                
+                state['step'] = 'confirm_mass_pernoite'
+                state['data']['mass_students'] = mass_students
+                
+                preview = mass_students[:10]
+                nomes_lista = "\n".join([f"• NI {a['numero_interno']}: {a['nome_guerra']}" for a in preview])
+                if len(mass_students) > 10:
+                    nomes_lista += f"\n  _(... e mais {len(mass_students) - 10} alunos)_"
+                
+                markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                markup.row(types.KeyboardButton("🟢 CONFIRMAR LANÇAMENTO"), types.KeyboardButton("❌ Cancelar"))
+                
+                except_info = f"🚫 *Exceções (NÃO pernoitam):* {', '.join(found_except_nis)}\n" if found_except_nis else ""
+                prompt = (
+                    f"🛌 **Confirmar Lançamento de Pernoite Coletivo com Exceção?**\n\n"
+                    f"📋 Pelotão: *{pelotao}*\n"
+                    f"📊 Total Autorizado: *{len(mass_students)}* aluno(s)\n"
+                    f"{except_info}\n"
+                    f"🗒️ Lista de alunos que serão marcados:\n{nomes_lista}\n\n"
+                    "Clique em um dos botões abaixo para confirmar:"
+                )
+                await bot_instance.reply_to(message, prompt, reply_markup=markup, parse_mode='Markdown')
                 return
                 
             elif step == 'choose_student_button':
@@ -3431,6 +3581,72 @@ def setup_handlers(bot_instance):
                 clear_state(chat_id)
                 return
 
+async def list_today_pernoites(bot_instance, message, state):
+    chat_id = message.chat.id
+    conn = get_db_connection()
+    if not conn:
+        await bot_instance.reply_to(message, "❌ Sem conexão com o banco de dados.", reply_markup=get_main_menu_keyboard())
+        clear_state(chat_id)
+        return
+        
+    try:
+        hoje_str = date.today().strftime('%Y-%m-%d')
+        # Busca pernoites de hoje
+        res_pn = conn.table('pernoite').select('*').eq('data', hoje_str).eq('presente', True).execute()
+        pernoites = res_pn.data if res_pn.data else []
+        
+        if not pernoites:
+            await bot_instance.reply_to(
+                message, 
+                f"ℹ️ Não há pernoites autorizados para hoje ({date.today().strftime('%d/%m')}).", 
+                reply_markup=get_main_menu_keyboard()
+            )
+            clear_state(chat_id)
+            return
+            
+        # Busca os alunos correspondentes
+        aluno_ids = [pn['aluno_id'] for pn in pernoites]
+        active_year = get_user_active_year(state.get('user'))
+        
+        res_al = conn.table('Alunos').select('id, numero_interno, nome_guerra, pelotao, ano_letivo').in_('id', aluno_ids).execute()
+        alunos_dict = {al['id']: al for al in res_al.data} if res_al.data else {}
+        
+        linhas = []
+        for pn in pernoites:
+            al = alunos_dict.get(pn['aluno_id'])
+            if al:
+                if str(al.get('ano_letivo')) == str(active_year):
+                    linhas.append(f"• *{al['numero_interno']}* — {al['nome_guerra']} ({al['pelotao']})")
+                    
+        if not linhas:
+            # Tenta listar de outros anos se não houver no ano ativo
+            for pn in pernoites:
+                al = alunos_dict.get(pn['aluno_id'])
+                if al:
+                    linhas.append(f"• *{al['numero_interno']}* — {al['nome_guerra']} ({al['pelotao']} - {al['ano_letivo']})")
+                    
+        total = len(linhas)
+        if total == 0:
+            await bot_instance.reply_to(
+                message, 
+                f"ℹ️ Não há pernoites autorizados para hoje ({date.today().strftime('%d/%m')}) no ano letivo ativo ({active_year}).", 
+                reply_markup=get_main_menu_keyboard()
+            )
+            clear_state(chat_id)
+            return
+            
+        linhas_str = "\n".join(linhas)
+        msg = (
+            f"🛌 **Pernoites Autorizados para Hoje ({date.today().strftime('%d/%m')})**\n"
+            f"Total: *{total}* militar(es)\n\n"
+            f"{linhas_str}"
+        )
+        await bot_instance.reply_to(message, msg, reply_markup=get_main_menu_keyboard(), parse_mode='Markdown')
+    except Exception as e:
+        await bot_instance.reply_to(message, f"❌ Erro ao listar pernoites: {e}", reply_markup=get_main_menu_keyboard())
+    finally:
+        clear_state(chat_id)
+
 async def prompt_pernoite_confirm(bot_instance, message, state, student):
     state['step'] = 'confirm_pernoite_submit'
     state['data']['student'] = student
@@ -3626,7 +3842,36 @@ async def perform_consulta_search(bot_instance, message, profile, term):
             matches.append(al)
             
     if not matches:
-        await bot_instance.reply_to(message, f"⚠️ Nenhum aluno encontrado com '{term}'. Consulta abortada.", reply_markup=get_main_menu_keyboard())
+        # Busca em outros anos para ajudar o usuário
+        other_matches = []
+        try:
+            res_all = conn.table('Alunos').select('*').execute()
+            alunos_all = res_all.data if res_all.data else []
+            for al in alunos_all:
+                num = str(al.get('numero_interno', '')).lower()
+                nome = str(al.get('nome_guerra', '')).lower()
+                if query in num or query in nome or num.endswith("-" + query) or num.endswith(query):
+                    other_matches.append(al)
+        except Exception:
+            pass
+            
+        if other_matches:
+            years = sorted(list(set([str(m.get('ano_letivo', '')) for m in other_matches if m.get('ano_letivo')])))
+            years_str = ", ".join(years)
+            await bot_instance.reply_to(
+                message,
+                f"⚠️ Nenhum aluno encontrado com '{term}' no ano letivo ativo ({active_year}).\n\n"
+                f"🔍 Encontramos correspondência(s) no(s) ano(s) letivo(s): *{years_str}*.\n"
+                f"💡 Vá em *⚙️ Configurações -> 📅 Alterar Ano Letivo* para alternar o ano ativo e tentar novamente.",
+                reply_markup=get_main_menu_keyboard(),
+                parse_mode='Markdown'
+            )
+        else:
+            await bot_instance.reply_to(
+                message, 
+                f"⚠️ Nenhum aluno encontrado com '{term}' em nenhum ano letivo cadastrado.", 
+                reply_markup=get_main_menu_keyboard()
+            )
         clear_state(chat_id)
         return
         
