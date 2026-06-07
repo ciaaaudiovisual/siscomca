@@ -377,35 +377,49 @@ def render_page():
 
                         async def gravar():
                             gravar_btn.props('disabled loading')
-                            status_label.set_text('💾 Gravando no Supabase via upsert…')
+                            status_label.set_text('💾 Gravando no Supabase…')
                             db2 = await asyncio.to_thread(get_db_connection)
                             if not db2:
                                 ui.notify('❌ Sem conexão com o banco.', color='negative')
                                 gravar_btn.props(remove='disabled loading')
                                 return
                             try:
-                                sucessos = 0
-                                # UPSERT com chave composta (numero_interno + ano_letivo).
-                                # Requer que a tabela Alunos tenha a constraint:
-                                # UNIQUE (numero_interno, ano_letivo)
-                                # Comportamento:
-                                #   - mesmo numéro interno, mesmo ano  → ATUALIZA o registro
-                                #   - mesmo número interno, ano diferente → INSERE novo registro
-                                todos = [
-                                    _limpar_row(n['mapped'], ano) for n in novos
-                                ] + [
-                                    _limpar_row(a['mapped'], ano) for a in atualizar
-                                ]
-                                for row in todos:
+                                ins_ok = 0
+                                upd_ok = 0
+
+                                # ── 1. ATUALIZAR registros existentes (UPDATE por id) ──────────
+                                # Usa o id do registro encontrado no BD para o mesmo
+                                # numero_interno + ano_letivo → sem risco de constraint.
+                                # O ano_letivo vem SEMPRE do seletor do app (campo da página),
+                                # nunca da planilha.
+                                for a in atualizar:
+                                    row = _limpar_row(a['mapped'], ano)
+                                    db_id = a['db_id']
                                     await asyncio.to_thread(
-                                        lambda r=row: db2.table('Alunos')
-                                                        .upsert(r, on_conflict='numero_interno,ano_letivo')
-                                                        .execute()
+                                        lambda r=row, did=db_id:
+                                            db2.table('Alunos').update(r).eq('id', did).execute()
                                     )
-                                    sucessos += 1
+                                    upd_ok += 1
+
+                                # ── 2. INSERIR novos registros (INSERT direto) ─────────────────
+                                # Alunos que não existem no BD para este ano_letivo.
+                                # ano_letivo injetado via _limpar_row com o valor do app.
+                                for n in novos:
+                                    row = _limpar_row(n['mapped'], ano)
+                                    await asyncio.to_thread(
+                                        lambda r=row:
+                                            db2.table('Alunos').insert(r).execute()
+                                    )
+                                    ins_ok += 1
+
+                                partes = []
+                                if ins_ok:
+                                    partes.append(f'{ins_ok} inserido(s)')
+                                if upd_ok:
+                                    partes.append(f'{upd_ok} atualizado(s)')
 
                                 ui.notify(
-                                    f'🎉 {sucessos} aluno(s) gravados na tabela Alunos (Ano {ano})!',
+                                    f'🎉 Concluído! {", ".join(partes)} na tabela Alunos — Ano {ano}.',
                                     color='positive', duration=6
                                 )
                                 data_service.clear_cache()
