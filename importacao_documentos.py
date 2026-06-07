@@ -1,4 +1,4 @@
-from nicegui import ui
+from nicegui import ui, app
 import pandas as pd
 import io
 import theme
@@ -7,16 +7,24 @@ from services import data_service
 
 THEME = theme.colors
 
-# Estado local para a importação
-import_state = {
-    'ano_letivo': '2026',
-    'dados_novos': [],
-    'colunas': []
-}
-
 def render_page():
+    # Inicializa ou recupera o estado na sessão do usuário
+    state = app.storage.user.get('import_state', {
+        'ano_letivo': '2026',
+        'dados_novos': [],
+        'colunas': []
+    })
+    app.storage.user['import_state'] = state
+
     @ui.refreshable
     def render_import_content():
+        # Recarrega o estado atualizado na renderização
+        curr_state = app.storage.user.get('import_state', {
+            'ano_letivo': '2026',
+            'dados_novos': [],
+            'colunas': []
+        })
+        
         with ui.column().classes('w-full gap-6'):
             # --- CARD PRINCIPAL: INSTRUÇÕES E CONFIGURAÇÕES ---
             with theme.card_base().classes('w-full p-6'):
@@ -26,7 +34,7 @@ def render_page():
                     # Ano Letivo Selector
                     ano_input = ui.input(
                         'Ano Letivo de Destino*', 
-                        value=import_state['ano_letivo'],
+                        value=curr_state['ano_letivo'],
                         on_change=lambda e: update_ano_letivo(e.value)
                     ).props('dark outlined dense').classes('w-64')
                     
@@ -94,16 +102,20 @@ def render_page():
                             ui.notify(f"📋 Colunas encontradas na sua planilha: {', '.join(df.columns)}", color='warning', duration=10)
                             return
                             
-                        import_state['dados_novos'] = df.to_dict(orient='records')
-                        import_state['colunas'] = df.columns.tolist()
+                        # Atualiza estado na sessão
+                        s = app.storage.user.get('import_state', {})
+                        s['dados_novos'] = df.to_dict(orient='records')
+                        s['colunas'] = df.columns.tolist()
+                        app.storage.user['import_state'] = s
+                        
                         ui.notify(f"✅ Planilha carregada! {len(df)} alunos detectados.", color='positive')
-                        render_import_content.refresh()
+                        ui.navigate.reload()
                         
                     except Exception as err:
                         ui.notify(f"❌ Erro ao ler planilha: {err}", color='negative', duration=10)
 
                 ui.upload(
-                    label='Enviar Arquivo', 
+                    label='Enviar Planilha', 
                     on_upload=handle_file_upload, 
                     auto_upload=True,
                     max_files=1
@@ -125,7 +137,9 @@ def render_page():
                         
                     raw_name, ext = os.path.splitext(e.name)
                     ni_aluno = raw_name.strip()
-                    ano_destino = import_state['ano_letivo']
+                    
+                    s = app.storage.user.get('import_state', {})
+                    ano_destino = s.get('ano_letivo', '2026')
                     
                     db = get_db_connection()
                     if not db:
@@ -173,13 +187,13 @@ def render_page():
                 ).props('dark dense accept="image/jpeg,image/png"').classes('w-full h-32')
 
             # --- PRÉVIA E INGESTÃO ---
-            if import_state['dados_novos']:
+            if curr_state['dados_novos']:
                 with theme.card_base().classes('w-full p-6'):
-                    ui.label(f"PRÉVIA DOS DADOS (ANO LETIVO DE DESTINO: {import_state['ano_letivo']})").classes('cyber-title text-sm font-bold text-white q-mb-md')
+                    ui.label(f"PRÉVIA DOS DADOS (ANO LETIVO DE DESTINO: {curr_state['ano_letivo']})").classes('cyber-title text-sm font-bold text-white q-mb-md')
                     
                     # Mostra tabela rápida de prévia (limitado a 5 linhas)
-                    preview_data = import_state['dados_novos'][:5]
-                    columns_def = [{'name': c, 'label': c, 'field': c, 'align': 'left'} for c in import_state['colunas']]
+                    preview_data = curr_state['dados_novos'][:5]
+                    columns_def = [{'name': c, 'label': c, 'field': c, 'align': 'left'} for c in curr_state['colunas']]
                     
                     ui.table(
                         columns=columns_def, 
@@ -187,8 +201,8 @@ def render_page():
                         row_key='numero_interno'
                     ).props('dark flat dense bordered').classes('w-full overflow-auto max-h-48 q-mb-md')
                     
-                    if len(import_state['dados_novos']) > 5:
-                        ui.label(f"... e mais {len(import_state['dados_novos']) - 5} alunos.").classes('text-caption text-grey-5 italic q-mb-md')
+                    if len(curr_state['dados_novos']) > 5:
+                        ui.label(f"... e mais {len(curr_state['dados_novos']) - 5} alunos.").classes('text-caption text-grey-5 italic q-mb-md')
                         
                     async def executar_importacao():
                         db = get_db_connection()
@@ -197,14 +211,14 @@ def render_page():
                             return
                             
                         try:
+                            s = app.storage.user.get('import_state', {})
                             # 1. Carrega alunos existentes para atualizar ou inserir
                             res_ex = db.table('Alunos').select('id,numero_interno').execute()
                             existing_map = {str(r['numero_interno']).strip(): r['id'] for r in res_ex.data} if res_ex.data else {}
                             
                             sucessos = 0
-                            erros = 0
                             
-                            for rec in import_state['dados_novos']:
+                            for rec in s.get('dados_novos', []):
                                 num_i = str(rec.get('numero_interno', '')).strip()
                                 if not num_i or not rec.get('nome_guerra'):
                                     continue
@@ -223,7 +237,7 @@ def render_page():
                                     'contato_emergencia_nome': str(rec.get('contato_emergencia_nome', '')).strip(),
                                     'contato_emergencia_numero': str(rec.get('contato_emergencia_numero', '')).strip(),
                                     'numero_armario': str(rec.get('numero_armario', '')).strip(),
-                                    'ano_letivo': import_state['ano_letivo']
+                                    'ano_letivo': s.get('ano_letivo', '2026')
                                 }
                                 
                                 # Se já existir o número interno, faz update. Caso contrário, faz insert.
@@ -236,11 +250,13 @@ def render_page():
                                 
                             ui.notify(f"🎉 Importação concluída! {sucessos} alunos processados com sucesso.", color='positive')
                             
-                            # Limpa estado
-                            import_state['dados_novos'] = []
-                            import_state['colunas'] = []
+                            # Limpa estado na sessão
+                            s['dados_novos'] = []
+                            s['colunas'] = []
+                            app.storage.user['import_state'] = s
+                            
                             data_service.clear_cache()
-                            render_import_content.refresh()
+                            ui.navigate.reload()
                             
                         except Exception as ex:
                             ui.notify(f"❌ Erro ao salvar dados no Supabase: {ex}", color='negative')
@@ -252,17 +268,21 @@ def render_page():
                         ).props('flat color=grey no-caps')
                         
                         ui.button(
-                            f'CONFIRMAR IMPORTAÇÃO DE {len(import_state["dados_novos"])} ALUNOS', 
+                            f'CONFIRMAR IMPORTAÇÃO DE {len(curr_state["dados_novos"])} ALUNOS', 
                             on_click=executar_importacao
                         ).props('unelevated no-caps').style(f'background: {THEME["primary"]}; color: #000; font-weight: bold;')
 
     def update_ano_letivo(val):
-        import_state['ano_letivo'] = str(val).strip()
+        s = app.storage.user.get('import_state', {})
+        s['ano_letivo'] = str(val).strip()
+        app.storage.user['import_state'] = s
         
     def limpar_estado():
-        import_state['dados_novos'] = []
-        import_state['colunas'] = []
-        render_import_content.refresh()
+        s = app.storage.user.get('import_state', {})
+        s['dados_novos'] = []
+        s['colunas'] = []
+        app.storage.user['import_state'] = s
+        ui.navigate.reload()
 
     with ui.column().classes('w-full q-pa-lg gap-4'):
         theme.section_header('Importação de Dados', 'Upload e Processamento de Arquivos e Planilhas')
