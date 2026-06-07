@@ -65,6 +65,9 @@ def render_page():
                 
                 async def handle_file_upload(e):
                     file_bytes = e.content.read()
+                    import inspect
+                    if inspect.isawaitable(file_bytes):
+                        file_bytes = await file_bytes
                     filename = e.name.lower()
                     
                     try:
