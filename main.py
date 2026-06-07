@@ -790,8 +790,8 @@ def login_page(request: Request):
                         from rate_limit import rate_limiter, get_client_ip
                         client_ip = get_client_ip()
                         key = f"login_attempt:{client_ip}"
-                        if not rate_limiter.is_allowed(key, max_requests=5, window_seconds=600):
-                            error_label.text = 'Muitas tentativas. Login bloqueado por 10 minutos.'
+                        if not rate_limiter.is_allowed(key, max_requests=5, window_seconds=20):
+                            error_label.text = 'Muitas tentativas. Login bloqueado por 20 segundos.'
                             import log_acessos
                             log_acessos.log_access(f"Tentativa de login bloqueada (Brute-force)", "Autenticação", "BLOQUEADO")
                             return
