@@ -387,30 +387,38 @@ def render_page():
                                 ins_ok = 0
                                 upd_ok = 0
 
-                                # ── 1. ATUALIZAR registros existentes (UPDATE por id) ──────────
-                                # Usa o id do registro encontrado no BD para o mesmo
-                                # numero_interno + ano_letivo → sem risco de constraint.
-                                # O ano_letivo vem SEMPRE do seletor do app (campo da página),
-                                # nunca da planilha.
-                                for a in atualizar:
-                                    row = _limpar_row(a['mapped'], ano)
-                                    db_id = a['db_id']
-                                    await asyncio.to_thread(
-                                        lambda r=row, did=db_id:
-                                            db2.table('Alunos').update(r).eq('id', did).execute()
-                                    )
-                                    upd_ok += 1
+                                # ── UPSERT com chave composta (numero_interno + ano_letivo) ──
+                                # Comportamento:
+                                #   (numero_interno + ano_letivo) NÃO existe → INSERT novo registro
+                                #   (numero_interno + ano_letivo) JÁ existe  → UPDATE os dados
+                                #
+                                # REQUISITO: a tabela Alunos deve ter apenas:
+                                #   UNIQUE (numero_interno, ano_letivo)   ← constraint composta
+                                # e NÃO ter mais:
+                                #   UNIQUE (numero_interno)               ← constraint antiga (remover!)
+                                #
+                                # SQL para corrigir no Supabase caso ainda não tenha feito:
+                                #   ALTER TABLE "Alunos" DROP CONSTRAINT IF EXISTS "Alunos_numero_interno_key";
+                                #
+                                # O ano_letivo vem SEMPRE do seletor do app, nunca da planilha.
 
-                                # ── 2. INSERIR novos registros (INSERT direto) ─────────────────
-                                # Alunos que não existem no BD para este ano_letivo.
-                                # ano_letivo injetado via _limpar_row com o valor do app.
                                 for n in novos:
                                     row = _limpar_row(n['mapped'], ano)
                                     await asyncio.to_thread(
-                                        lambda r=row:
-                                            db2.table('Alunos').insert(r).execute()
+                                        lambda r=row: db2.table('Alunos')
+                                                        .upsert(r, on_conflict='numero_interno,ano_letivo')
+                                                        .execute()
                                     )
                                     ins_ok += 1
+
+                                for a in atualizar:
+                                    row = _limpar_row(a['mapped'], ano)
+                                    await asyncio.to_thread(
+                                        lambda r=row: db2.table('Alunos')
+                                                        .upsert(r, on_conflict='numero_interno,ano_letivo')
+                                                        .execute()
+                                    )
+                                    upd_ok += 1
 
                                 partes = []
                                 if ins_ok:
@@ -426,7 +434,15 @@ def render_page():
                                 cancelar()
 
                             except Exception as ex:
-                                ui.notify(f'❌ Erro ao gravar: {ex}', color='negative', duration=10)
+                                msg = str(ex)
+                                if '23505' in msg and 'numero_interno_key' in msg:
+                                    ui.notify(
+                                        '❌ Constraint antiga detectada! Execute no Supabase SQL Editor:\n'
+                                        'ALTER TABLE "Alunos" DROP CONSTRAINT IF EXISTS "Alunos_numero_interno_key";',
+                                        color='negative', duration=15
+                                    )
+                                else:
+                                    ui.notify(f'❌ Erro ao gravar: {ex}', color='negative', duration=10)
                                 status_label.set_text(f'❌ Erro: {ex}')
                                 gravar_btn.props(remove='disabled loading')
 
