@@ -176,7 +176,7 @@ def build_layout(page_func):
             ui.navigate.to('/siscomca_tv')
             return
             
-        if app.storage.user.get('tv_lock_active', False) and app.storage.user.get('current_path') != '/siscomca_tv':
+        if role_user in ('tv', 'tv_comcia') and app.storage.user.get('tv_lock_active', False) and app.storage.user.get('current_path') != '/siscomca_tv':
             ui.navigate.to('/siscomca_tv')
             return
 
@@ -852,6 +852,8 @@ def login_page(request: Request):
                             role_user = str(profile.get('role', 'compel')).strip().lower()
                             target_path = '/siscomca_tv' if role_user in ('tv', 'tv_comcia') else '/'
                             app.storage.user['current_path'] = target_path
+                            if role_user not in ('tv', 'tv_comcia'):
+                                app.storage.user['tv_lock_active'] = False
                             ui.notify(f'Bem-vindo, {profile.get("nome", user.value)}!', color='success')
                             
                             # Registrar no log SQLite real (A8)
@@ -888,6 +890,8 @@ def login_page(request: Request):
                                 role_user = str(profile.get('role', 'compel')).strip().lower()
                                 target_path = '/siscomca_tv' if role_user in ('tv', 'tv_comcia') else '/'
                                 app.storage.user['current_path'] = target_path
+                                if role_user not in ('tv', 'tv_comcia'):
+                                    app.storage.user['tv_lock_active'] = False
                                 ui.notify(f'Bem-vindo (Autenticação Direta), {profile.get("nome", user.value)}!', color='success')
                                 
                                 import log_acessos
