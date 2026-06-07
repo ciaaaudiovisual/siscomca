@@ -1133,6 +1133,7 @@ def render_page():
         }
         cfg = color_theme.get(type_, color_theme['info'])
         from alerts_manager import load_alerts_config
+        from database import SUPABASE_URL
         alerts_config = load_alerts_config()
         vocativo = alerts_config.get('tv_alert_vocativo', 'Atenção!')
         
@@ -1425,12 +1426,108 @@ def render_page():
                         }}
                     }}
 
-                    if (ctx && playSound) {{
+                    if (ctx && playSound && type !== 'silent') {{
                         if (ctx.state === 'suspended') {{
                             ctx.resume();
                         }}
                         
-                        // Função para buscar a melhor voz em Português disponível no browser
+                        const customMp3Url = supabaseBaseUrl + "/storage/v1/object/public/sons/" + encodeURIComponent(type) + ".mp3";
+                        
+                        if (type.startsWith('naval_bell_')) {{
+                            let count = 1;
+                            if (type === 'naval_bell_singela') {{
+                                count = 1;
+                            }} else if (type === 'naval_bell_dobrada') {{
+                                count = 2;
+                            }} else {{
+                                count = parseInt(type.split('_')[2]) || 1;
+                            }}
+                            
+                            const singleMp3Url = supabaseBaseUrl + "/storage/v1/object/public/sons/bell_single.mp3";
+                            const doubleMp3Url = supabaseBaseUrl + "/storage/v1/object/public/sons/bell_double.mp3";
+                            
+                            function playSynthesizedBells(ctx, count) {{
+                                function playNavalBellStrike(ctx, time) {{
+                                    const frequencies = [240, 480, 576, 720, 960, 1200, 1440, 1920];
+                                    const gains = [0.35, 0.35, 0.25, 0.15, 0.15, 0.1, 0.08, 0.05];
+                                    const decays = [3.2, 2.6, 2.2, 1.8, 1.4, 1.0, 0.6, 0.4];
+
+                                    frequencies.forEach((f, idx) => {{
+                                        let osc = ctx.createOscillator();
+                                        let gainNode = ctx.createGain();
+                                        osc.connect(gainNode);
+                                        gainNode.connect(ctx.destination);
+                                        
+                                        osc.type = 'sine';
+                                        osc.frequency.setValueAtTime(f, time);
+                                        
+                                        gainNode.gain.setValueAtTime(0, time);
+                                        gainNode.gain.linearRampToValueAtTime(gains[idx], time + 0.005);
+                                        gainNode.gain.exponentialRampToValueAtTime(0.001, time + decays[idx]);
+                                        
+                                        osc.start(time);
+                                        osc.stop(time + decays[idx] + 0.1);
+                                    }});
+                                }}
+
+                                let now = ctx.currentTime;
+                                for (let i = 0; i < count; i++) {{
+                                    let pairIndex = Math.floor(i / 2);
+                                    let inPairIndex = i % 2;
+                                    let timeOffset = pairIndex * 2.0 + inPairIndex * 0.15;
+                                    playNavalBellStrike(ctx, now + timeOffset);
+                                }}
+                            }}
+
+                            fetch(singleMp3Url)
+                                .then(res => {{
+                                    if (res.ok) {{
+                                        let pairs = Math.floor(count / 2);
+                                        let remainder = count % 2;
+                                        
+                                        for (let p = 0; p < pairs; p++) {{
+                                            setTimeout(() => {{
+                                                let audio = new Audio(doubleMp3Url);
+                                                audio.volume = 1.0;
+                                                audio.play().catch(() => {{}});
+                                            }}, p * 2000);
+                                        }
+                                        
+                                        if (remainder > 0) {{
+                                            setTimeout(() => {{
+                                                let audio = new Audio(singleMp3Url);
+                                                audio.volume = 1.0;
+                                                audio.play().catch(() => {{}});
+                                            }}, pairs * 2000);
+                                        }
+                                    }} else {{
+                                        playSynthesizedBells(ctx, count);
+                                    }}
+                                }}).catch(() => {{
+                                    playSynthesizedBells(ctx, count);
+                                }});
+                        }} else {{
+                            fetch(customMp3Url)
+                                .then(res => {{
+                                    if (res.ok) {{
+                                        let audio = new Audio(customMp3Url);
+                                        audio.volume = 1.0;
+                                        audio.play().catch(() => {{}});
+                                    } else {{
+                                        playDefaultSynthesized(type);
+                                    }}
+                                }}).catch(() => {{
+                                    playDefaultSynthesized(type);
+                                }});
+                        }}
+                    }}
+
+                    if (playVoice) {{
+                        let text = {escaped_jarvis};
+                        if (!text || text === "null" || text === "") {{
+                            text = {escaped_vocativo} + ". " + {escaped_msg};
+                        }}
+                        
                         let getBestVoice = () => {{
                             let voices = window.speechSynthesis.getVoices();
                             let ptVoices = voices.filter(v => {{
@@ -1460,10 +1557,16 @@ def render_page():
                             return ptVoices.length > 0 ? ptVoices[0] : null;
                         }};
 
-                        // Dispara a fala com um pequeno atraso após o chime
                         setTimeout(() => {{
+                            window.speechSynthesis.cancel();
+                            let utterance = new SpeechSynthesisUtterance(text);
+                            utterance.lang = 'pt-BR';
+                            let bestVoice = getBestVoice();
+                            if (bestVoice) {{
+                                utterance.voice = bestVoice;
+                            }}
                             window.speechSynthesis.speak(utterance);
-                        }}, 300);
+                        }}, 1000);
                     }}
                 }} catch(e) {{
                     console.error(e);

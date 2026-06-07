@@ -45,7 +45,30 @@ DEFAULT_ALERTS_CONFIG = {
 }
 
 def load_alerts_config() -> dict:
-    """Carrega as configurações de som e agendamento de alertas a partir do arquivo local."""
+    """Carrega as configurações de som e agendamento de alertas a partir do Supabase ou local."""
+    try:
+        from database import get_bot_db_connection
+        db_conn = get_bot_db_connection()
+        if db_conn:
+            res = db_conn.table('Config').select('valor').eq('chave', 'config_alerts_json').execute()
+            if res.data:
+                data = json.loads(res.data[0]['valor'])
+                merged = DEFAULT_ALERTS_CONFIG.copy()
+                merged.update(data)
+                if "sound_mappings" in data:
+                    merged["sound_mappings"] = {**DEFAULT_ALERTS_CONFIG["sound_mappings"], **data["sound_mappings"]}
+                if "message_templates" in data:
+                    merged["message_templates"] = {**DEFAULT_ALERTS_CONFIG["message_templates"], **data["message_templates"]}
+                # Cache local
+                try:
+                    with open(ALERTS_CONFIG_PATH, "w", encoding="utf-8") as f:
+                        json.dump(merged, f, indent=2, ensure_ascii=False)
+                except Exception:
+                    pass
+                return merged
+    except Exception as e:
+        print(f"[ALERTA] Erro ao carregar config_alerts.json do Supabase: {e}")
+
     try:
         if os.path.exists(ALERTS_CONFIG_PATH):
             with open(ALERTS_CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -58,16 +81,28 @@ def load_alerts_config() -> dict:
                     merged["message_templates"] = {**DEFAULT_ALERTS_CONFIG["message_templates"], **data["message_templates"]}
                 return merged
     except Exception as e:
-        print(f"[ALERTA] Erro ao carregar config_alerts.json: {e}")
+        print(f"[ALERTA] Erro ao carregar config_alerts.json local: {e}")
     return DEFAULT_ALERTS_CONFIG.copy()
 
 def save_alerts_config(config: dict):
-    """Salva as configurações de som e agendamento de alertas localmente."""
+    """Salva as configurações de som e agendamento de alertas localmente e no Supabase."""
     try:
         with open(ALERTS_CONFIG_PATH, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
     except Exception as e:
-        print(f"[ALERTA] Erro ao salvar config_alerts.json: {e}")
+        print(f"[ALERTA] Erro ao salvar config_alerts.json local: {e}")
+
+    try:
+        from database import get_bot_db_connection
+        db_conn = get_bot_db_connection()
+        if db_conn:
+            item = {
+                'chave': 'config_alerts_json',
+                'valor': json.dumps(config, ensure_ascii=False)
+            }
+            db_conn.table('Config').upsert(item, on_conflict='chave').execute()
+    except Exception as e:
+        print(f"[ALERTA] Erro ao salvar config_alerts.json no Supabase: {e}")
 
 class AlertsManager:
     # Dicionário de callbacks ativos das telas conectadas: client_id -> {'client': client_obj, 'callback': callback, 'voice': bool, 'sound': bool}
