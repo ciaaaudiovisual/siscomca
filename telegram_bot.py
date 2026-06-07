@@ -1034,6 +1034,48 @@ def setup_handlers(bot_instance):
         except Exception as err:
             await bot_instance.answer_callback_query(call.id, f"❌ Erro ao processar: {err}", show_alert=True)
 
+    @bot_instance.callback_query_handler(func=lambda call: call.data.startswith('add_anot_student:'))
+    async def process_add_anot_student(call):
+        chat_id = call.message.chat.id
+        student_id = call.data.split(':')[1]
+        
+        profile = await check_authorized_user(call.from_user.id)
+        if not profile:
+            await bot_instance.answer_callback_query(call.id, "⚠️ Acesso não autorizado!", show_alert=True)
+            return
+            
+        allowed = USER_PERMISSIONS_CACHE.get(call.from_user.id, set())
+        if 'menu_gestao_acoes' not in allowed:
+            await bot_instance.answer_callback_query(call.id, "⚠️ Seu perfil de usuário não tem permissão para lançar anotações.", show_alert=True)
+            return
+            
+        conn = get_db_connection()
+        if not conn:
+            await bot_instance.answer_callback_query(call.id, "❌ Sem conexão com o banco.", show_alert=True)
+            return
+            
+        try:
+            res_al = conn.table('Alunos').select('*').eq('id', student_id).execute()
+            if not res_al.data:
+                await bot_instance.answer_callback_query(call.id, "⚠️ Aluno não encontrado.", show_alert=True)
+                return
+            student = res_al.data[0]
+        except Exception as e:
+            await bot_instance.answer_callback_query(call.id, f"❌ Erro ao buscar aluno: {e}", show_alert=True)
+            return
+            
+        await bot_instance.answer_callback_query(call.id)
+        
+        # Define o estado para iniciar a anotação para o aluno específico
+        chat_states[chat_id] = {
+            'action': 'anotacao',
+            'step': 'choose_action_type',
+            'user': profile,
+            'data': {}
+        }
+        
+        await prompt_action_type(bot_instance, call.message, chat_states[chat_id], student)
+
     @bot_instance.message_handler(commands=['ajuda', 'help'])
     async def register_ajuda_command(message):
         chat_id = message.chat.id
@@ -1586,7 +1628,8 @@ def setup_handlers(bot_instance):
                 for al in alunos:
                     num = str(al.get('numero_interno', '')).lower()
                     nome = str(al.get('nome_guerra', '')).lower()
-                    if query in num or query in nome or num.endswith("-" + query) or num.endswith(query):
+                    nome_comp = str(al.get('nome_completo', '')).lower()
+                    if query in num or query in nome or query in nome_comp or num.endswith("-" + query) or num.endswith(query):
                         matches.append(al)
                 
                 if not matches:
@@ -3838,7 +3881,8 @@ async def perform_consulta_search(bot_instance, message, profile, term):
     for al in alunos:
         num = str(al.get('numero_interno', '')).lower()
         nome = str(al.get('nome_guerra', '')).lower()
-        if query in num or query in nome or num.endswith("-" + query) or num.endswith(query):
+        nome_comp = str(al.get('nome_completo', '')).lower()
+        if query in num or query in nome or query in nome_comp or num.endswith("-" + query) or num.endswith(query):
             matches.append(al)
             
     if not matches:
@@ -3992,7 +4036,12 @@ async def display_student_dossier(bot_instance, message, conn, student):
             f"{ocurrences_str}"
         )
         
-        await bot_instance.reply_to(message, dossier, reply_markup=get_main_menu_keyboard(), parse_mode='Markdown')
+        markup = types.InlineKeyboardMarkup()
+        markup.row(
+            types.InlineKeyboardButton("➕ Adicionar Anotação", callback_data=f"add_anot_student:{student['id']}")
+        )
+        
+        await bot_instance.reply_to(message, dossier, reply_markup=markup, parse_mode='Markdown')
     except Exception as e:
         await bot_instance.reply_to(message, f"❌ Erro ao gerar dossiê: {e}", reply_markup=get_main_menu_keyboard())
     finally:

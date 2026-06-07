@@ -1030,30 +1030,23 @@ def _build_anotacao_rapida_card():
             # Alunos ordenados alfabeticamente para a listagem
             alunos_df_sorted = alunos_df.sort_values('nome_guerra')
             opcoes_alunos = {
-                str(r['id']): f"{r.get('numero_interno', '?')} – {r.get('nome_guerra', '?')} ({r.get('pelotao', '?')})"
+                str(r['id']): f"{r.get('numero_interno', '?')} – {r.get('nome_guerra', '?')} ({r.get('nome_completo', '')}) [{r.get('pelotao', '?')}]"
                 for _, r in alunos_df_sorted.iterrows()
             }
 
             # Estado local do formulário
             state = {
-                'lote': False,
-                'aluno_selecionado': None,
                 'alunos_selecionados': [],
                 'categoria': 'todas',
                 'tipo_selecionado': None
             }
 
-            # Seletor Reativo de Alunos (Individual com busca por número ou Multi-seleção em lote)
+            # Seletor Reativo de Alunos (Sempre Multi-seleção com busca por Número, Nome de Guerra ou Nome Completo)
             @ui.refreshable
             def render_student_selector():
-                if state['lote']:
-                    ui.select(
-                        opcoes_alunos, label='Alunos Selecionados (Lote)', multiple=True, with_input=True
-                    ).props('dark dense outlined use-chips').classes('w-full').bind_value(state, 'alunos_selecionados')
-                else:
-                    ui.select(
-                        opcoes_alunos, label='Militar (Busque por Nº Interno ou Nome)', with_input=True
-                    ).props('dark dense outlined').classes('w-full').bind_value(state, 'aluno_selecionado')
+                ui.select(
+                    opcoes_alunos, label='Militar(es) (Busque por Nº, Guerra ou Nome Completo)', multiple=True, with_input=True
+                ).props('dark dense outlined use-chips').classes('w-full').bind_value(state, 'alunos_selecionados')
 
             # Seletor Reativo de Tipos de Ação (Filtrados por categoria e ordenados alfabeticamente)
             @ui.refreshable
@@ -1074,13 +1067,6 @@ def _build_anotacao_rapida_card():
                 ui.select(
                     opcoes_tipo, label='Tipo de Ação'
                 ).props('dark dense outlined').classes('w-full').bind_value(state, 'tipo_selecionado')
-
-            # Checkbox de Lote
-            lote_toggle = ui.checkbox('Lançar para múltiplos alunos (Lote)').props('dark').classes('text-xs text-grey-4')
-            def on_lote_change(e):
-                state['lote'] = e.value
-                render_student_selector.refresh()
-            lote_toggle.on_value_change(on_lote_change)
 
             render_student_selector()
 
@@ -1109,7 +1095,7 @@ def _build_anotacao_rapida_card():
             ).props('dark dense outlined').classes('w-full')
 
             def registrar():
-                aluno_ids = state['alunos_selecionados'] if state['lote'] else ([state['aluno_selecionado']] if state['aluno_selecionado'] else [])
+                aluno_ids = state['alunos_selecionados']
                 if not aluno_ids:
                     ui.notify('Selecione ao menos um aluno!', color='warning')
                     return
@@ -1153,7 +1139,6 @@ def _build_anotacao_rapida_card():
                     
                     # Resetar estado do formulário
                     state['alunos_selecionados'] = []
-                    state['aluno_selecionado'] = None
                     desc_inp.value = ''
                     render_student_selector.refresh()
                     
