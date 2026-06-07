@@ -204,19 +204,20 @@ def render_page():
                         progress_bar.set_value(0)
                         return
 
-                    # — passo 3: comparação com o BD —
+                    # — passo 3: comparação com o BD (sem filtro de ano p/ detectar
+                    #   alunos de outros anos e evitar violação de constraint UNIQUE) —
                     progress_bar.set_value(0.60)
                     ano = import_state['ano_letivo']
-                    status_label.set_text(f'🔄 Passo 4/4 — Comparando com o BD (Ano {ano})…')
+                    status_label.set_text(f'🔄 Passo 4/4 — Comparando com o BD…')
 
                     try:
                         db = await asyncio.to_thread(get_db_connection)
                         if not db:
                             raise RuntimeError('Sem conexão com Supabase.')
+                        # Busca TODOS os registros (qualquer ano) para detectar numero_interno duplicados
                         res_ex = await asyncio.to_thread(
                             lambda: db.table('Alunos')
-                                      .select('id,numero_interno,nome_guerra,pelotao')
-                                      .eq('ano_letivo', ano)
+                                      .select('id,numero_interno,nome_guerra,pelotao,ano_letivo')
                                       .execute()
                         )
                     except Exception as err:
@@ -256,6 +257,7 @@ def render_page():
                                 'nome_guerra_antigo': ex['nome_guerra'],
                                 'nome_guerra_novo':   nome_g,
                                 'pelotao_antigo':     ex.get('pelotao',''),
+                                'ano_letivo_atual':   ex.get('ano_letivo',''),
                                 'mapped':             mapped,
                             })
                         else:
@@ -334,6 +336,7 @@ def render_page():
                                 {'name':'nome_guerra_novo','label':'Nome Novo','field':'nome_guerra_novo','align':'left'},
                                 {'name':'pelotao_antigo','label':'Pelotão Atual','field':'pelotao_antigo','align':'left'},
                                 {'name':'pelotao_novo','label':'Pelotão Novo','field':'pelotao_novo','align':'left'},
+                                {'name':'ano_letivo_atual','label':'Ano no BD','field':'ano_letivo_atual','align':'left'},
                             ]
                             rows_u = [{
                                 'numero_interno':     a['numero_interno'],
@@ -341,6 +344,7 @@ def render_page():
                                 'nome_guerra_novo':   a['nome_guerra_novo'],
                                 'pelotao_antigo':     a['pelotao_antigo'],
                                 'pelotao_novo':       a['mapped'].get('pelotao',''),
+                                'ano_letivo_atual':   a.get('ano_letivo_atual',''),
                             } for a in atualizar]
                             ui.table(columns=cols_u, rows=rows_u, row_key='numero_interno').props(
                                 'dark flat dense bordered'
@@ -370,7 +374,7 @@ def render_page():
 
                         async def gravar():
                             gravar_btn.props('disabled loading')
-                            status_label.set_text('💾 Gravando no Supabase…')
+                            status_label.set_text('💾 Gravando no Supabase via upsert…')
                             db2 = await asyncio.to_thread(get_db_connection)
                             if not db2:
                                 ui.notify('❌ Sem conexão com o banco.', color='negative')
@@ -378,17 +382,18 @@ def render_page():
                                 return
                             try:
                                 sucessos = 0
-                                for n in novos:
-                                    row = _limpar_row(n['mapped'], ano)
+                                # UPSERT: insere se numero_interno não existe, atualiza se existe.
+                                # Evita o erro 23505 (duplicate key) da constraint UNIQUE.
+                                todos = [
+                                    _limpar_row(n['mapped'], ano) for n in novos
+                                ] + [
+                                    _limpar_row(a['mapped'], ano) for a in atualizar
+                                ]
+                                for row in todos:
                                     await asyncio.to_thread(
-                                        lambda r=row: db2.table('Alunos').insert(r).execute()
-                                    )
-                                    sucessos += 1
-
-                                for a in atualizar:
-                                    row = _limpar_row(a['mapped'], ano)
-                                    await asyncio.to_thread(
-                                        lambda r=row, did=a['db_id']: db2.table('Alunos').update(r).eq('id', did).execute()
+                                        lambda r=row: db2.table('Alunos')
+                                                        .upsert(r, on_conflict='numero_interno')
+                                                        .execute()
                                     )
                                     sucessos += 1
 
