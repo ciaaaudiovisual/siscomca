@@ -64,6 +64,12 @@ def render_page():
                 ui.label('CARREGAR PLANILHA (EXCEL OU CSV)').classes('cyber-title text-sm font-bold text-white q-mb-md')
                 
                 async def handle_file_upload(e):
+                    ui.notify("Lendo arquivo enviado...", color='info')
+                    try:
+                        e.content.seek(0)
+                    except Exception:
+                        pass
+                    
                     file_bytes = e.content.read()
                     import inspect
                     if inspect.isawaitable(file_bytes):
@@ -77,14 +83,15 @@ def render_page():
                             df = pd.read_excel(io.BytesIO(file_bytes), dtype=str)
                             
                         # Limpa espaços em branco dos cabeçalhos
-                        df.columns = [c.strip().lower() for c in df.columns]
+                        df.columns = [str(c).strip().lower() for c in df.columns]
                         
                         # Validação mínima de colunas obrigatórias
                         colunas_req = ['numero_interno', 'nome_guerra', 'pelotao']
                         colunas_faltantes = [c for c in colunas_req if c not in df.columns]
                         
                         if colunas_faltantes:
-                            ui.notify(f"❌ Colunas obrigatórias faltando na planilha: {', '.join(colunas_faltantes)}", color='negative')
+                            ui.notify(f"❌ Colunas obrigatórias faltando: {', '.join(colunas_faltantes)}", color='negative', duration=5)
+                            ui.notify(f"📋 Colunas encontradas na sua planilha: {', '.join(df.columns)}", color='warning', duration=10)
                             return
                             
                         import_state['dados_novos'] = df.to_dict(orient='records')
@@ -93,7 +100,7 @@ def render_page():
                         render_import_content.refresh()
                         
                     except Exception as err:
-                        ui.notify(f"❌ Erro ao ler planilha: {err}", color='negative')
+                        ui.notify(f"❌ Erro ao ler planilha: {err}", color='negative', duration=10)
 
                 ui.upload(
                     label='Enviar Arquivo', 
