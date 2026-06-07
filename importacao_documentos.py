@@ -149,9 +149,8 @@ def render_page():
 
             async def handle_file_upload(e):
                 """
-                ATENÇÃO: uploads NiceGUI rodam em HTTP POST separado.
-                Todo acesso à UI DEVE ficar dentro de `with e.client:`.
-                O diálogo é criado aqui dentro para garantir o contexto correto.
+                NiceGUI v3: o arquivo fica em e.file (FileUpload).
+                e.file.read() é async e retorna bytes diretamente.
                 """
                 with e.client:
                     # — passo 1: leitura —
@@ -159,14 +158,15 @@ def render_page():
                     status_label.set_text('🔄 Passo 1/4 — Lendo arquivo do disco…')
 
                     try:
-                        raw = await asyncio.to_thread(e.content.read)
+                        # NiceGUI v3 API: e.file é um FileUpload com read() assíncrono
+                        raw = await e.file.read()
                     except Exception as err:
                         status_label.set_text(f'❌ Falha na leitura do arquivo: {err}')
                         ui.notify(f'❌ Leitura falhou: {err}', color='negative', duration=8)
                         progress_bar.set_value(0)
                         return
 
-                    filename = e.name.lower()
+                    filename = e.file.name.lower()
                     progress_bar.set_value(0.25)
                     status_label.set_text('🔄 Passo 2/4 — Interpretando planilha…')
 
@@ -424,11 +424,10 @@ def render_page():
 
             async def handle_image_batch_upload(e):
                 import os
-                file_bytes = e.content.read()
-                if _inspect.isawaitable(file_bytes):
-                    file_bytes = await file_bytes
+                # NiceGUI v3: e.file.read() é async
+                file_bytes = await e.file.read()
 
-                raw_name, ext = os.path.splitext(e.name)
+                raw_name, ext = os.path.splitext(e.file.name)
                 ni_aluno    = raw_name.strip()
                 ano_destino = import_state['ano_letivo']
 
@@ -456,7 +455,7 @@ def render_page():
                     from database import upload_file_to_supabase_storage
                     public_url = await asyncio.to_thread(
                         upload_file_to_supabase_storage,
-                        file_bytes, filename, e.type or 'image/jpeg'
+                        file_bytes, filename, e.file.content_type or 'image/jpeg'
                     )
                     if public_url:
                         db.table('Alunos').update({'url_foto': public_url}).eq('id', aluno_id).execute()
