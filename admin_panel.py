@@ -174,14 +174,26 @@ def render_page():
 
                             # Insere na tabela Users
                             try:
-                                conn.table('Users').insert({
-                                    'id': auth_id,
-                                    'username': c_email.value.split('@')[0],
-                                    'nome': c_nome.value.upper(),
-                                    'role': c_role.value,
-                                    'telegram_id': c_tg.value or None,
-                                    'url_foto': c_foto.value or None
-                                }).execute()
+                                try:
+                                    conn.table('Users').insert({
+                                        'id': auth_id,
+                                        'username': c_email.value.split('@')[0],
+                                        'nome': c_nome.value.upper(),
+                                        'role': c_role.value,
+                                        'telegram_id': c_tg.value or None,
+                                        'url_foto': c_foto.value or None,
+                                        'email': c_email.value
+                                    }).execute()
+                                except Exception as e_mail_err:
+                                    # Fallback: salva sem a coluna email
+                                    conn.table('Users').insert({
+                                        'id': auth_id,
+                                        'username': c_email.value.split('@')[0],
+                                        'nome': c_nome.value.upper(),
+                                        'role': c_role.value,
+                                        'telegram_id': c_tg.value or None,
+                                        'url_foto': c_foto.value or None
+                                    }).execute()
                             except Exception as db_err:
                                 if 'url_foto' in str(db_err):
                                     # Fallback: salva sem a coluna url_foto
@@ -235,20 +247,21 @@ def render_page():
 
         # 2. Diálogo de Edição de Operador
         def open_edit_dialog(user):
-            user_email = ""
-            db_conn = get_db_connection()
-            if db_conn:
-                try:
-                    res_ef = db_conn.table('efetivo').select('email').eq('nome_guerra', user.get('nome', '').upper()).execute()
-                    if res_ef.data and res_ef.data[0].get('email'):
-                        user_email = res_ef.data[0]['email']
-                    else:
-                        if user.get('telegram_id'):
-                            res_ef2 = db_conn.table('efetivo').select('email').eq('telegram_id', user['telegram_id']).execute()
-                            if res_ef2.data and res_ef2.data[0].get('email'):
-                                user_email = res_ef2.data[0]['email']
-                except Exception as ef_err:
-                    print(f"[EDIT EMAIL LOOKUP ERR] {ef_err}")
+            user_email = user.get('email', '') or ""
+            if not user_email:
+                db_conn = get_db_connection()
+                if db_conn:
+                    try:
+                        res_ef = db_conn.table('efetivo').select('email').eq('nome_guerra', user.get('nome', '').upper()).execute()
+                        if res_ef.data and res_ef.data[0].get('email'):
+                            user_email = res_ef.data[0]['email']
+                        else:
+                            if user.get('telegram_id'):
+                                res_ef2 = db_conn.table('efetivo').select('email').eq('telegram_id', user['telegram_id']).execute()
+                                if res_ef2.data and res_ef2.data[0].get('email'):
+                                    user_email = res_ef2.data[0]['email']
+                    except Exception as ef_err:
+                        print(f"[EDIT EMAIL LOOKUP ERR] {ef_err}")
 
             with ui.dialog() as edit_dialog, ui.card().classes('w-[420px] q-pa-md bg-slate-900 border').style(f'border-color: {THEME["accent"]};'):
                 with ui.column().classes('w-full gap-4'):
@@ -354,13 +367,24 @@ def render_page():
 
                             # 2. Atualiza a tabela Users
                             try:
-                                conn.table('Users').update({
-                                    'nome': e_nome.value.upper(),
-                                    'username': e_unm.value,
-                                    'telegram_id': e_tg.value or None,
-                                    'url_foto': e_foto.value or None,
-                                    'role': e_role.value
-                                }).eq('id', user['id']).execute()
+                                try:
+                                    conn.table('Users').update({
+                                        'nome': e_nome.value.upper(),
+                                        'username': e_unm.value,
+                                        'telegram_id': e_tg.value or None,
+                                        'url_foto': e_foto.value or None,
+                                        'role': e_role.value,
+                                        'email': e_email.value.strip() if e_email.value else None
+                                    }).eq('id', user['id']).execute()
+                                except Exception as e_mail_err:
+                                    # Fallback: salva sem a coluna email
+                                    conn.table('Users').update({
+                                        'nome': e_nome.value.upper(),
+                                        'username': e_unm.value,
+                                        'telegram_id': e_tg.value or None,
+                                        'url_foto': e_foto.value or None,
+                                        'role': e_role.value
+                                    }).eq('id', user['id']).execute()
                             except Exception as db_err:
                                 if 'url_foto' in str(db_err):
                                     conn.table('Users').update({
