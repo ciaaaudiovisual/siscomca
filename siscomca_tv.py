@@ -1106,16 +1106,16 @@ def render_page():
     toast_queue = asyncio.Queue()
 
 
-    async def trigger_toast(title, msg, type_='info', jarvis_text=None, jarvis_audio=None):
+    async def trigger_toast(title, msg, type_='info', jarvis_text=None, jarvis_audio=None, extra_options=None):
         """Enfileira o alerta em tempo real para ser exibido sequencialmente na TV."""
-        await toast_queue.put((title, msg, type_, jarvis_text, jarvis_audio))
+        await toast_queue.put((title, msg, type_, jarvis_text, jarvis_audio, extra_options))
 
     async def _process_toast_queue():
         """Processa a fila de alertas sequencialmente, garantindo o tempo de exibição e sons."""
         while True:
             try:
-                title, msg, type_, jarvis_text, jarvis_audio = await toast_queue.get()
-                await _display_toast(title, msg, type_, jarvis_text, jarvis_audio)
+                title, msg, type_, jarvis_text, jarvis_audio, extra_options = await toast_queue.get()
+                await _display_toast(title, msg, type_, jarvis_text, jarvis_audio, extra_options)
                 toast_queue.task_done()
             except asyncio.CancelledError:
                 break
@@ -1123,7 +1123,7 @@ def render_page():
                 print(f"[TV Queue] Erro ao processar alerta: {e}")
                 await asyncio.sleep(1)
 
-    async def _display_toast(title, msg, type_='info', jarvis_text=None, jarvis_audio=None):
+    async def _display_toast(title, msg, type_='info', jarvis_text=None, jarvis_audio=None, extra_options=None):
         """Gera um diálogo luminoso centralizado e ultra-premium na TV com Fade In/Out (máx 10 segundos)."""
         color_theme = {
             'info':    {'border': '#00e5ff', 'bg': '#000b1c', 'glow': 'rgba(0, 229, 255, 0.4)'},
@@ -1136,6 +1136,11 @@ def render_page():
         alerts_config = load_alerts_config()
         vocativo = alerts_config.get('tv_alert_vocativo', 'Atenção!')
         
+        # Opções extra do alerta agendado
+        visual_alert = extra_options.get('visual_alert', True) if extra_options else True
+        voice_enabled = extra_options.get('voice_enabled', True) if extra_options else True
+        sound_enabled = extra_options.get('sound_enabled', True) if extra_options else True
+        
         import json
         escaped_title = json.dumps(title)
         escaped_msg = json.dumps(msg)
@@ -1145,32 +1150,33 @@ def render_page():
         
         try:
             with client:
-                tactical_dialog.clear()
-                tactical_dialog.props('persistent')
-                with tactical_dialog:
-                    dialog_card = ui.card().classes('q-pa-xl items-center text-center rounded-2xl border-4').style(
-                        f"background: {cfg['bg']} !important; border-color: {cfg['border']} !important; "
-                        f"box-shadow: 0 0 50px {cfg['glow']} !important; min-width: 700px; max-width: 90%; "
-                        f"color: #fff; font-family: monospace; opacity: 0; transition: opacity 0.5s ease-in-out;"
-                    )
-                    with dialog_card:
-                        icon_map = {
-                            'success': 'stars',
-                            'alert': 'gavel',
-                            'warning': 'healing',
-                            'info': 'campaign'
-                        }
-                        icon_name = icon_map.get(type_, 'info')
-                        ui.icon(icon_name, size='7rem').style(f"color: {cfg['border']}; filter: drop-shadow(0 0 20px {cfg['glow']});").classes('animate-bounce')
-                        ui.label(title.upper()).style(f"color: {cfg['border']}; font-size: 2.6rem; font-weight: 900; letter-spacing: 5px; line-height: 1.2;").classes('cyber-title q-mt-md')
-                        ui.separator().style(f"background-color: {cfg['border']}; opacity: 0.4; height: 3px;").classes('w-3/4 q-my-md')
-                        ui.label(msg).style("color: #ffffff; font-size: 2.2rem; font-weight: 900; line-height: 1.4; white-space: normal;")
+                if visual_alert:
+                    tactical_dialog.clear()
+                    tactical_dialog.props('persistent')
+                    with tactical_dialog:
+                        dialog_card = ui.card().classes('q-pa-xl items-center text-center rounded-2xl border-4').style(
+                            f"background: {cfg['bg']} !important; border-color: {cfg['border']} !important; "
+                            f"box-shadow: 0 0 50px {cfg['glow']} !important; min-width: 700px; max-width: 90%; "
+                            f"color: #fff; font-family: monospace; opacity: 0; transition: opacity 0.5s ease-in-out;"
+                        )
+                        with dialog_card:
+                            icon_map = {
+                                'success': 'stars',
+                                'alert': 'gavel',
+                                'warning': 'healing',
+                                'info': 'campaign'
+                            }
+                            icon_name = icon_map.get(type_, 'info')
+                            ui.icon(icon_name, size='7rem').style(f"color: {cfg['border']}; filter: drop-shadow(0 0 20px {cfg['glow']});").classes('animate-bounce')
+                            ui.label(title.upper()).style(f"color: {cfg['border']}; font-size: 2.6rem; font-weight: 900; letter-spacing: 5px; line-height: 1.2;").classes('cyber-title q-mt-md')
+                            ui.separator().style(f"background-color: {cfg['border']}; opacity: 0.4; height: 3px;").classes('w-3/4 q-my-md')
+                            ui.label(msg).style("color: #ffffff; font-size: 2.2rem; font-weight: 900; line-height: 1.4; white-space: normal;")
+                    
+                    tactical_dialog.open()
+                    ui.timer(0.1, lambda: dialog_card.style('opacity: 1;'), once=True)
                 
-                tactical_dialog.open()
-                ui.timer(0.1, lambda: dialog_card.style('opacity: 1;'), once=True)
-                
-                play_sound_js = 'true' if audio_config['sound'] else 'false'
-                play_voice_js = 'true' if audio_config['voice'] else 'false'
+                play_sound_js = 'true' if (audio_config['sound'] and sound_enabled) else 'false'
+                play_voice_js = 'true' if (audio_config['voice'] and voice_enabled) else 'false'
 
                 # Toca o som (sintetizado via Web Audio API offline para evitar bloqueios de CORS/Internet)
                 js_code = f"""
@@ -1468,22 +1474,25 @@ def render_page():
             print(f"[TV Alerta] Erro ao abrir diálogo no cliente: {e}")
             return
             
-        await asyncio.sleep(9.4)
-        
-        try:
-            with client:
-                # Fade Out: Altera opacidade para 0
-                dialog_card.style('opacity: 0;')
-        except Exception:
-            pass
+        if visual_alert:
+            await asyncio.sleep(9.4)
+            try:
+                with client:
+                    # Fade Out: Altera opacidade para 0
+                    dialog_card.style('opacity: 0;')
+            except Exception:
+                pass
+                
+            await asyncio.sleep(0.6) # Aguarda transição terminar
             
-        await asyncio.sleep(0.6) # Aguarda transição terminar
-        
-        try:
-            with client:
-                tactical_dialog.close()
-        except Exception as e:
-            print(f"[TV Alerta] Erro ao fechar diálogo no cliente: {e}")
+            try:
+                with client:
+                    tactical_dialog.close()
+            except Exception as e:
+                print(f"[TV Alerta] Erro ao fechar diálogo no cliente: {e}")
+        else:
+            # Apenas reprodução de áudio: aguarda tempo menor antes de liberar a fila
+            await asyncio.sleep(6.0)
 
 
     async def _refresh():

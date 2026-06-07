@@ -173,7 +173,7 @@ class AlertsManager:
             return cycle_hour * 2 + 1
 
     @classmethod
-    def trigger_alert(cls, title: str, message: str, type_: str = 'info'):
+    def trigger_alert(cls, title: str, message: str, type_: str = 'info', extra_options: dict = None):
         """
         Dispara um alerta em tempo real para todas as telas ativas registradas.
         Mapeia os sons baseados no título e suporta toques de sino naval e mudo.
@@ -186,6 +186,10 @@ class AlertsManager:
         # Carrega configuração de alertas para mapear o som correto e aplicar template
         config = load_alerts_config()
         mapped_sound = config.get("sound_mappings", {}).get(title, type_)
+        
+        # Sobrescreve para silencioso se som estiver desativado nas opções do alerta
+        if extra_options and not extra_options.get('sound_enabled', True):
+            mapped_sound = "silent"
 
         templates = config.get("message_templates", {})
         if title in templates:
@@ -210,8 +214,9 @@ class AlertsManager:
             # Verifica se pelo menos um cliente ativo deseja voz
             any_voice_active = any(entry.get('voice', True) for entry in cls._tv_callbacks.values())
             
-            # Bypassa a geração de voz totalmente se for Toque de Sino ou se o som for silencioso
-            if any_voice_active and title != "Toque de Sino" and mapped_sound != "silent":
+            # Bypassa a geração de voz totalmente se for Toque de Sino ou se o som for silencioso ou voz desativada nas opções do alerta
+            voice_enabled = extra_options.get('voice_enabled', True) if extra_options else True
+            if any_voice_active and title != "Toque de Sino" and mapped_sound != "silent" and voice_enabled:
                 try:
                     loop = asyncio.get_running_loop()
                     jarvis_text = await loop.run_in_executor(None, rewrite_to_jarvis_alert, title)
@@ -255,9 +260,9 @@ class AlertsManager:
                 cb = entry['callback']
                 try:
                     if asyncio.iscoroutinefunction(cb):
-                        asyncio.create_task(cb(title, message, mapped_sound, jarvis_text, jarvis_audio))
+                        asyncio.create_task(cb(title, message, mapped_sound, jarvis_text, jarvis_audio, extra_options))
                     else:
-                        cb(title, message, mapped_sound, jarvis_text, jarvis_audio)
+                        cb(title, message, mapped_sound, jarvis_text, jarvis_audio, extra_options)
                 except Exception as e:
                     print(f"[ALERTA] Falha ao notificar tela ({client.id}): {e}")
 
@@ -330,26 +335,7 @@ class AlertsManager:
                 today_str = now.strftime("%Y-%m-%d")
                 hour_min = now.strftime("%H:%M")
                 
-                # 1. Badaladas de Sino da Marinha automática (nas meias-horas)
-                if now.minute in [0, 30]:
-                    slot = (now.hour, now.minute)
-                    if cls._last_triggered_bell_slot != slot:
-                        config = load_alerts_config()
-                        if config.get("bell_enabled", True):
-                            strikes = cls.calculate_naval_bell_strikes(now)
-                            # Representação de batidas singelas e duplas (ex: '●● ●● ●' = 5 batidas)
-                            bell_str = "●● " * (strikes // 2) + "● " * (strikes % 2)
-                            print(f"[SCHEDULER] Acionando Sino da Marinha: {strikes} baladas ({bell_str.strip()})")
-                            
-                            # Dispara o alerta para a TV com áudio do sino
-                            cls.trigger_alert(
-                                "Toque de Sino",
-                                f"Quarto de Serviço: {strikes} baladas ({bell_str.strip()})",
-                                f"naval_bell_{strikes}"
-                            )
-                        cls._last_triggered_bell_slot = slot
-                
-                # 2. Alertas Agendados Personalizados
+                # Alertas Agendados Personalizados (Sinos e Sinais Manuais)
                 config = load_alerts_config()
                 custom_alerts = config.get("custom_alerts", [])
                 for alert in custom_alerts:
@@ -360,7 +346,12 @@ class AlertsManager:
                             cls.trigger_alert(
                                 alert.get("title", "Aviso"),
                                 alert.get("message", ""),
-                                alert.get("sound", "info")
+                                alert.get("sound", "info"),
+                                extra_options={
+                                    'visual_alert': alert.get('visual_alert', True),
+                                    'voice_enabled': alert.get('voice_enabled', True),
+                                    'sound_enabled': alert.get('sound_enabled', True)
+                                }
                             )
                             cls._triggered_custom_alerts_today[alert_id] = today_str
             except Exception as e:

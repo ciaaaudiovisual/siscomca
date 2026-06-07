@@ -994,11 +994,6 @@ def render_page():
                         ui.separator().style(f'background-color: rgba(0, 229, 255, 0.15);')
                         
                         # Switch do Sino Automático
-                        bell_enabled_switch = ui.switch(
-                            '🔔 Toques automáticos do Sino da Marinha (a cada 30min)', 
-                            value=alerts_config.get('bell_enabled', True)
-                        ).props('dark').classes('text-xs font-bold text-white')
-                        
                         input_tv_vocativo = ui.input(
                             'Vocativo Personalizado de Alerta (Modo TV)',
                             value=alerts_config.get('tv_alert_vocativo', 'Atenção!')
@@ -1018,6 +1013,11 @@ def render_page():
                                 icon='play_arrow', 
                                 on_click=lambda: testar_som(select_alerta_sound.value)
                             ).props('flat round dense color=primary').classes('text-xs').style('margin-left:-4px')
+
+                        with ui.row().classes('w-full items-center gap-4 q-mb-sm'):
+                            switch_visual = ui.checkbox('Exibição Visual (TV)', value=True).props('dark').classes('text-xs text-white')
+                            switch_voice = ui.checkbox('Fala (Voz)', value=True).props('dark').classes('text-xs text-white')
+                            switch_sound = ui.checkbox('Efeito Sonoro', value=True).props('dark').classes('text-xs text-white')
                         
                         # Diálogo de Edição de Alerta Horário
                         with ui.dialog() as edit_dialog:
@@ -1030,6 +1030,11 @@ def render_page():
                                     edit_title = ui.input('Título', placeholder='Aviso').props('dark dense outlined').classes('w-full')
                                     edit_msg = ui.input('Mensagem', placeholder='Texto do Alerta').props('dark dense outlined').classes('w-full')
                                     edit_sound = ui.select(som_opcoes, label='Som').props('dark dense outlined').classes('w-full')
+                                    
+                                    with ui.row().classes('w-full items-center gap-2'):
+                                        edit_visual = ui.checkbox('Exibição Visual (TV)', value=True).props('dark').classes('text-xs text-white')
+                                        edit_voice = ui.checkbox('Fala (Voz)', value=True).props('dark').classes('text-xs text-white')
+                                        edit_sound_enabled = ui.checkbox('Efeito Sonoro', value=True).props('dark').classes('text-xs text-white')
                                     
                                     alerta_editando_id = ui.label('').classes('hidden')
                                     
@@ -1055,6 +1060,9 @@ def render_page():
                                                     'title': title_val,
                                                     'message': msg_val,
                                                     'sound': edit_sound.value,
+                                                    'visual_alert': edit_visual.value,
+                                                    'voice_enabled': edit_voice.value,
+                                                    'sound_enabled': edit_sound_enabled.value,
                                                     'enabled': item.get('enabled', True)
                                                 }
                                                 break
@@ -1082,7 +1090,12 @@ def render_page():
                                                 ui.label(a['time']).classes('text-xs text-amber-5 bold')
                                                 with ui.column().classes('gap-0 min-w-0'):
                                                     ui.label(f"{a['title']}: {a['message']}").classes('text-xs text-white break-words')
-                                                    ui.label(f"Som: {som_opcoes.get(a['sound'], a['sound'])}").classes('text-[9px] text-grey-5')
+                                                    opts = []
+                                                    if a.get('visual_alert', True): opts.append('📺 TV')
+                                                    if a.get('voice_enabled', True): opts.append('🗣️ Voz')
+                                                    if a.get('sound_enabled', True): opts.append('🔊 Som')
+                                                    opts_str = " | ".join(opts) if opts else "Silencioso"
+                                                    ui.label(f"Som: {som_opcoes.get(a['sound'], a['sound'])} ({opts_str})").classes('text-[9px] text-grey-5')
                                             
                                             def excluir_alerta(a_id=a['id']):
                                                 c_config = load_alerts_config()
@@ -1097,6 +1110,9 @@ def render_page():
                                                 edit_title.value = alerta_item['title']
                                                 edit_msg.value = alerta_item['message']
                                                 edit_sound.value = alerta_item['sound'] if alerta_item['sound'] in som_opcoes else 'info'
+                                                edit_visual.value = alerta_item.get('visual_alert', True)
+                                                edit_voice.value = alerta_item.get('voice_enabled', True)
+                                                edit_sound_enabled.value = alerta_item.get('sound_enabled', True)
                                                 edit_dialog.open()
 
                                             with ui.row().classes('items-center gap-1'):
@@ -1135,6 +1151,9 @@ def render_page():
                                 'title': title_val,
                                 'message': msg_val,
                                 'sound': select_alerta_sound.value,
+                                'visual_alert': switch_visual.value,
+                                'voice_enabled': switch_voice.value,
+                                'sound_enabled': switch_sound.value,
                                 'enabled': True
                             }
                             c_config.setdefault('custom_alerts', []).append(novo)
@@ -1144,6 +1163,9 @@ def render_page():
                             input_alerta_time.value = ''
                             input_alerta_title.value = ''
                             input_alerta_msg.value = ''
+                            switch_visual.value = True
+                            switch_voice.value = True
+                            switch_sound.value = True
                             render_custom_alerts_list.refresh()
                             
                         ui.button(
@@ -1765,8 +1787,6 @@ def render_page():
                     if key in sound_dropdowns:
                         sound_dropdowns[key].value = val
                 
-                bell_enabled_switch.value = DEFAULT_ALERTS_CONFIG.get('bell_enabled', True)
-                
                 render_custom_alerts_list.refresh()
                 ui.notify('Padrões restaurados na tela. Salve para persistir.', color='info')
 
@@ -1804,9 +1824,8 @@ def render_page():
                     {'chave': 'tts_piper_voice', 'valor': str(input_tts_piper_voice.value)}
                 ]
 
-                # Salva as configurações de som e o switch do sino
+                # Salva as configurações de som
                 new_alerts_config = load_alerts_config()
-                new_alerts_config['bell_enabled'] = bell_enabled_switch.value
                 new_alerts_config['tv_alert_vocativo'] = input_tv_vocativo.value
                 for key in sound_dropdowns:
                     new_alerts_config['sound_mappings'][key] = sound_dropdowns[key].value
