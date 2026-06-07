@@ -2,6 +2,7 @@ from nicegui import ui, app
 import pandas as pd
 import io
 import theme
+import unicodedata
 from database import get_db_connection
 from services import data_service
 
@@ -18,8 +19,9 @@ def render_page():
     }
 
     # Diálogo/Modal de Confirmação Detalhado
-    with ui.dialog() as confirm_dialog, theme.card_base().classes('q-pa-lg').style('min-width: 650px; max-width: 90%; max-height: 85vh; display: flex; flex-direction: column;'):
-        dialog_container = ui.column().classes('w-full gap-4 scroll-area').style('flex-grow: 1; overflow-y: auto;')
+    with ui.dialog() as confirm_dialog:
+        with theme.card_base().classes('q-pa-lg').style('min-width: 800px; max-width: 95%; max-height: 90vh; display: flex; flex-direction: column;'):
+            dialog_container = ui.column().classes('w-full gap-4').style('flex-grow: 1; overflow: hidden;')
 
     def abrir_modal_confirmacao():
         dialog_container.clear()
@@ -28,35 +30,54 @@ def render_page():
         atualizar = import_state['atualizar_lote']
         
         with dialog_container:
-            ui.label('📊 Confirmação de Importação de Alunos').classes('text-lg font-bold text-white')
+            ui.label('📊 Confirmação de Importação de Alunos').classes('text-xl font-bold text-white')
             ui.label(f"Destino: Ano Letivo {import_state['ano_letivo']}").classes('text-xs text-grey-4')
             ui.separator().style('background-color: rgba(255,255,255,0.1);')
             
             # Resumo em cards simples
             with ui.row().classes('w-full gap-4'):
-                with ui.card().props('flat').classes('col p-3 text-center bg-green-950/20 border border-green-500/20 rounded'):
-                    ui.label(str(len(novos))).classes('text-2xl font-bold text-green-400')
-                    ui.label('Novos Cadastros').classes('text-[10px] text-grey-4 uppercase')
-                with ui.card().props('flat').classes('col p-3 text-center bg-blue-950/20 border border-blue-500/20 rounded'):
-                    ui.label(str(len(atualizar))).classes('text-2xl font-bold text-blue-400')
-                    ui.label('Cadastros Atualizados').classes('text-[10px] text-grey-4 uppercase')
+                with ui.card().props('flat').classes('col p-4 text-center bg-green-950/20 border border-green-500/20 rounded-xl'):
+                    ui.label(str(len(novos))).classes('text-3xl font-bold text-green-400')
+                    ui.label('Novos Cadastros').classes('text-xs text-grey-4 uppercase font-bold')
+                with ui.card().props('flat').classes('col p-4 text-center bg-blue-950/20 border border-blue-500/20 rounded-xl'):
+                    ui.label(str(len(atualizar))).classes('text-3xl font-bold text-blue-400')
+                    ui.label('Cadastros Atualizados').classes('text-xs text-grey-4 uppercase font-bold')
             
-            # Seção: Novos Cadastros
-            if novos:
-                ui.label('🆕 NOVOS ALUNOS (A SEREM INSERIDOS):').classes('text-xs font-bold text-green-400 q-mt-md')
-                with ui.column().classes('w-full border border-white/5 q-pa-sm rounded bg-black/25 max-h-40 overflow-y-auto'):
-                    for n in novos:
-                        ui.label(f"Nº {n['numero_interno']} - {n['nome_guerra']} ({n['row_data'].get('pelotao', 'Sem Pelotão')})").classes('text-xs text-white/90 font-mono')
-            
-            # Seção: Atualizações
-            if atualizar:
-                ui.label('🔄 ATUALIZAÇÃO DE ALUNOS EXISTENTES:').classes('text-xs font-bold text-blue-400 q-mt-md')
-                with ui.column().classes('w-full border border-white/5 q-pa-sm rounded bg-black/25 max-h-40 overflow-y-auto'):
+            # Conteúdo rolável com as tabelas
+            with ui.column().classes('w-full scroll-area q-py-sm gap-4').style('flex-grow: 1; overflow-y: auto; max-height: 50vh;'):
+                # Tabela de Novos
+                if novos:
+                    ui.label('🆕 NOVOS ALUNOS (A SEREM INSERIDOS):').classes('text-xs font-bold text-green-400')
+                    columns_novos = [
+                        {'name': 'numero_interno', 'label': 'Nº Interno', 'field': 'numero_interno', 'align': 'left', 'sortable': True},
+                        {'name': 'nome_guerra', 'label': 'Nome Guerra', 'field': 'nome_guerra', 'align': 'left', 'sortable': True},
+                        {'name': 'pelotao', 'label': 'Pelotão', 'field': 'pelotao', 'align': 'left', 'sortable': True},
+                        {'name': 'nome_completo', 'label': 'Nome Completo', 'field': 'nome_completo', 'align': 'left'},
+                        {'name': 'nip', 'label': 'NIP', 'field': 'nip', 'align': 'left'}
+                    ]
+                    rows_novos = [n['mapped_data'] for n in novos]
+                    ui.table(columns=columns_novos, rows=rows_novos, row_key='numero_interno').props('dark flat dense bordered').classes('w-full max-h-48 overflow-auto')
+                
+                # Tabela de Atualizações
+                if atualizar:
+                    ui.label('🔄 ATUALIZAÇÕES DE ALUNOS EXISTENTES:').classes('text-xs font-bold text-blue-400')
+                    columns_up = [
+                        {'name': 'numero_interno', 'label': 'Nº Interno', 'field': 'numero_interno', 'align': 'left', 'sortable': True},
+                        {'name': 'nome_guerra_antigo', 'label': 'Guerra Antigo', 'field': 'nome_guerra_antigo', 'align': 'left'},
+                        {'name': 'nome_guerra_novo', 'label': 'Guerra Novo', 'field': 'nome_guerra_novo', 'align': 'left'},
+                        {'name': 'pelotao_antigo', 'label': 'Pelotão Antigo', 'field': 'pelotao_antigo', 'align': 'left'},
+                        {'name': 'pelotao_novo', 'label': 'Pelotão Novo', 'field': 'pelotao_novo', 'align': 'left'}
+                    ]
+                    rows_up = []
                     for a in atualizar:
-                        alteracao_nome = ""
-                        if a['nome_guerra_antigo'] != a['nome_guerra_novo']:
-                            alteracao_nome = f" (Altera nome de {a['nome_guerra_antigo']} -> {a['nome_guerra_novo']})"
-                        ui.label(f"Nº {a['numero_interno']} - {a['nome_guerra_novo']}{alteracao_nome}").classes('text-xs text-white/80 font-mono')
+                        rows_up.append({
+                            'numero_interno': a['numero_interno'],
+                            'nome_guerra_antigo': a['nome_guerra_antigo'],
+                            'nome_guerra_novo': a['nome_guerra_novo'],
+                            'pelotao_antigo': a['pelotao_antigo'],
+                            'pelotao_novo': a['mapped_data'].get('pelotao', '')
+                        })
+                    ui.table(columns=columns_up, rows=rows_up, row_key='numero_interno').props('dark flat dense bordered').classes('w-full max-h-48 overflow-auto')
 
             ui.separator().style('background-color: rgba(255,255,255,0.1);')
             
@@ -71,46 +92,39 @@ def render_page():
                     
                     # 1. Inserir Novos
                     for n in novos:
-                        rec = n['row_data']
-                        row_data = {
-                            'numero_interno': str(n['numero_interno']),
-                            'nome_guerra': str(n['nome_guerra']),
-                            'nome_completo': str(rec.get('nome_completo', '')).strip(),
-                            'pelotao': str(rec.get('pelotao')).strip(),
-                            'especialidade': str(rec.get('especialidade', '')).strip(),
-                            'nip': str(rec.get('nip', '')).strip(),
-                            'media_academica': float(rec.get('media_academica')) if pd.notna(rec.get('media_academica')) and str(rec.get('media_academica')).strip() else 0.0,
-                            'telefone_contato': str(rec.get('telefone_contato', '')).strip(),
-                            'endereco': str(rec.get('endereco', '')).strip(),
-                            'contato_emergencia_nome': str(rec.get('contato_emergencia_nome', '')).strip(),
-                            'contato_emergencia_numero': str(rec.get('contato_emergencia_numero', '')).strip(),
-                            'numero_armario': str(rec.get('numero_armario', '')).strip(),
-                            'ano_letivo': import_state['ano_letivo']
-                        }
+                        row_data = n['mapped_data'].copy()
+                        row_data['ano_letivo'] = import_state['ano_letivo']
+                        
+                        # Garantir conversões de tipos
+                        if 'media_academica' in row_data and row_data['media_academica'] is not None:
+                            try:
+                                row_data['media_academica'] = float(row_data['media_academica'])
+                            except ValueError:
+                                row_data['media_academica'] = 0.0
+                        else:
+                            row_data['media_academica'] = 0.0
+                            
                         db.table('Alunos').insert(row_data).execute()
                         sucessos += 1
                         
                     # 2. Atualizar Existentes
                     for a in atualizar:
-                        rec = a['row_data']
-                        row_data = {
-                            'nome_guerra': str(a['nome_guerra_novo']),
-                            'nome_completo': str(rec.get('nome_completo', '')).strip(),
-                            'pelotao': str(rec.get('pelotao')).strip(),
-                            'especialidade': str(rec.get('especialidade', '')).strip(),
-                            'nip': str(rec.get('nip', '')).strip(),
-                            'media_academica': float(rec.get('media_academica')) if pd.notna(rec.get('media_academica')) and str(rec.get('media_academica')).strip() else 0.0,
-                            'telefone_contato': str(rec.get('telefone_contato', '')).strip(),
-                            'endereco': str(rec.get('endereco', '')).strip(),
-                            'contato_emergencia_nome': str(rec.get('contato_emergencia_nome', '')).strip(),
-                            'contato_emergencia_numero': str(rec.get('contato_emergencia_numero', '')).strip(),
-                            'numero_armario': str(rec.get('numero_armario', '')).strip(),
-                            'ano_letivo': import_state['ano_letivo']
-                        }
+                        row_data = a['mapped_data'].copy()
+                        row_data['ano_letivo'] = import_state['ano_letivo']
+                        
+                        # Garantir conversões de tipos
+                        if 'media_academica' in row_data and row_data['media_academica'] is not None:
+                            try:
+                                row_data['media_academica'] = float(row_data['media_academica'])
+                            except ValueError:
+                                row_data['media_academica'] = 0.0
+                        else:
+                            row_data['media_academica'] = 0.0
+                            
                         db.table('Alunos').update(row_data).eq('id', a['db_id']).execute()
                         sucessos += 1
                     
-                    ui.notify(f"🎉 Sucesso! {sucessos} cadastros processados na tabela Alunos.", color='positive')
+                    ui.notify(f"🎉 Importação concluída! {sucessos} alunos processados na tabela Alunos.", color='positive')
                     confirm_dialog.close()
                     
                     # Limpa o estado local
@@ -121,8 +135,8 @@ def render_page():
                     
                 except Exception as ex:
                     ui.notify(f"❌ Erro ao gravar dados no Supabase: {ex}", color='negative', duration=10)
-
-            with ui.row().classes('w-full justify-end gap-2 q-mt-md'):
+ 
+            with ui.row().classes('w-full justify-end gap-2 q-mt-sm'):
                 ui.button('Cancelar', on_click=confirm_dialog.close).props('flat color=grey no-caps')
                 ui.button(
                     'Gravar no Banco de Dados (Supabase)', 
@@ -133,12 +147,84 @@ def render_page():
 
     def update_ano_letivo(val):
         import_state['ano_letivo'] = str(val).strip()
+
+    def mapear_colunas(df_columns):
+        mapeadas = {}
         
-    def limpar_estado():
-        import_state['dados_novos'] = []
-        import_state['colunas'] = []
-        import_state['novos_lote'] = []
-        import_state['atualizar_lote'] = []
+        def simplificar(c):
+            c = str(c).strip().lower()
+            c = "".join(x for x in unicodedata.normalize('NFD', c) if unicodedata.category(x) != 'Mn')
+            return c.replace(' ', '_').replace('.', '').replace('-', '_').replace('__', '_')
+        
+        # 1. Mapear numero_interno
+        for c in df_columns:
+            sc = simplificar(c)
+            if sc in ['numero_interno', 'num_interno', 'n_interno', 'numero', 'n', 'no', 'nº', 'num', 'matricula', 'id']:
+                mapeadas['numero_interno'] = c
+                break
+                
+        # 2. Mapear pelotao
+        for c in df_columns:
+            sc = simplificar(c)
+            if sc in ['pelotao', 'pelotao_de_formacao', 'turma', 'pel']:
+                mapeadas['pelotao'] = c
+                break
+                
+        # 3. Mapear nome_completo e nome_guerra
+        for c in df_columns:
+            sc = simplificar(c)
+            if sc in ['nome_completo', 'nome_inteiro', 'nome_todo', 'completo']:
+                mapeadas['nome_completo'] = c
+                break
+                
+        for c in df_columns:
+            sc = simplificar(c)
+            if sc in ['nome_guerra', 'guerra', 'nome_de_guerra']:
+                mapeadas['nome_guerra'] = c
+                break
+                
+        if 'nome_guerra' not in mapeadas:
+            for c in df_columns:
+                sc = simplificar(c)
+                if sc == 'nome' and c != mapeadas.get('nome_completo'):
+                    mapeadas['nome_guerra'] = c
+                    break
+                    
+        if 'nome_guerra' not in mapeadas and 'nome_completo' not in mapeadas:
+            for c in df_columns:
+                sc = simplificar(c)
+                if sc == 'nome':
+                    mapeadas['nome_guerra'] = c
+                    mapeadas['nome_completo'] = c
+                    break
+                    
+        if 'nome_guerra' not in mapeadas:
+            for c in df_columns:
+                sc = simplificar(c)
+                if 'nome' in sc:
+                    mapeadas['nome_guerra'] = c
+                    break
+                    
+        # 4. Outros campos
+        outros_mapeamentos = {
+            'especialidade': ['especialidade', 'esp', 'arma', 'quadro', 'especializacao'],
+            'nip': ['nip'],
+            'media_academica': ['media_academica', 'media', 'nota', 'coeficiente', 'cr'],
+            'telefone_contato': ['telefone_contato', 'telefone', 'celular', 'contato', 'tel'],
+            'endereco': ['endereco', 'rua', 'residencia', 'morada', 'bairro'],
+            'contato_emergencia_nome': ['contato_emergencia_nome', 'emergencia_nome', 'nome_emergencia', 'responsavel'],
+            'contato_emergencia_numero': ['contato_emergencia_numero', 'emergencia_telefone', 'telefone_emergencia', 'tel_emergencia', 'contato_emergencia'],
+            'numero_armario': ['numero_armario', 'armario', 'escaninho']
+        }
+        
+        for dest, opcoes in outros_mapeamentos.items():
+            for c in df_columns:
+                sc = simplificar(c)
+                if sc in opcoes:
+                    mapeadas[dest] = c
+                    break
+                    
+        return mapeadas
 
     with ui.column().classes('w-full q-pa-lg gap-6'):
         theme.section_header('Cadastro de Alunos - Importação de Dados', 'Upload e Processamento de Planilhas e Fotos para o Efetivo de Alunos')
@@ -149,7 +235,7 @@ def render_page():
             
             with ui.row().classes('w-full items-end gap-6 wrap'):
                 # Ano Letivo Selector
-                ano_input = ui.input(
+                ui.input(
                     'Ano Letivo de Destino*', 
                     value=import_state['ano_letivo'],
                     on_change=lambda e: update_ano_letivo(e.value)
@@ -187,7 +273,6 @@ def render_page():
             ui.label('CARREGAR PLANILHA DE ALUNOS (EXCEL OU CSV)').classes('cyber-title text-sm font-bold text-white q-mb-md')
             
             async def handle_file_upload(e):
-                # Executa no contexto do cliente WebSocket correto
                 with e.client:
                     ui.notify("Lendo arquivo enviado...", color='info')
                     try:
@@ -207,14 +292,18 @@ def render_page():
                         else:
                             df = pd.read_excel(io.BytesIO(file_bytes), dtype=str)
                             
-                        df.columns = [str(c).strip().lower() for c in df.columns]
+                        # Limpar espaços em branco dos nomes das colunas
+                        df.columns = [str(c).strip() for c in df.columns]
                         
-                        colunas_req = ['numero_interno', 'nome_guerra', 'pelotao']
-                        colunas_faltantes = [c for c in colunas_req if c not in df.columns]
+                        col_mapping = mapear_colunas(df.columns.tolist())
                         
-                        if colunas_faltantes:
-                            ui.notify(f"❌ Colunas obrigatórias faltando: {', '.join(colunas_faltantes)}", color='negative', duration=5)
-                            ui.notify(f"📋 Colunas encontradas na sua planilha: {', '.join(df.columns)}", color='warning', duration=10)
+                        # Validar colunas obrigatórias
+                        req_fields = ['numero_interno', 'nome_guerra', 'pelotao']
+                        faltantes = [f for f in req_fields if f not in col_mapping]
+                        
+                        if faltantes:
+                            ui.notify(f"❌ Não foi possível mapear as colunas obrigatórias: {', '.join(faltantes)}", color='negative', duration=7)
+                            ui.notify(f"📋 Colunas encontradas na planilha: {', '.join(df.columns)}", color='warning', duration=10)
                             return
                         
                         rows = df.to_dict(orient='records')
@@ -223,16 +312,24 @@ def render_page():
                             ui.notify("❌ Sem conexão com o banco de dados.", color='negative')
                             return
                             
-                        # Carrega alunos já existentes para o ano letivo selecionado para fazer o split (insert/update)
-                        res_ex = db.table('Alunos').select('id,numero_interno,nome_guerra').eq('ano_letivo', import_state['ano_letivo']).execute()
+                        # Carregar alunos já existentes para fazer comparação
+                        res_ex = db.table('Alunos').select('id,numero_interno,nome_guerra,pelotao').eq('ano_letivo', import_state['ano_letivo']).execute()
                         existing_map = {str(r['numero_interno']).strip(): r for r in res_ex.data} if res_ex.data else {}
                         
                         novos = []
                         atualizar = []
                         
                         for rec in rows:
-                            num_i = str(rec.get('numero_interno', '')).strip()
-                            if not num_i or not rec.get('nome_guerra'):
+                            # Montar record mapeado
+                            mapped_data = {}
+                            for dest_key, src_key in col_mapping.items():
+                                val = rec.get(src_key)
+                                mapped_data[dest_key] = str(val).strip() if pd.notna(val) else None
+                            
+                            num_i = mapped_data.get('numero_interno')
+                            nome_g = mapped_data.get('nome_guerra')
+                            
+                            if not num_i or not nome_g:
                                 continue
                             
                             if num_i in existing_map:
@@ -241,14 +338,15 @@ def render_page():
                                     'db_id': existing_item['id'],
                                     'numero_interno': num_i,
                                     'nome_guerra_antigo': existing_item['nome_guerra'],
-                                    'nome_guerra_novo': str(rec.get('nome_guerra')).strip(),
-                                    'row_data': rec
+                                    'nome_guerra_novo': nome_g,
+                                    'pelotao_antigo': existing_item['pelotao'],
+                                    'mapped_data': mapped_data
                                 })
                             else:
                                 novos.append({
                                     'numero_interno': num_i,
-                                    'nome_guerra': str(rec.get('nome_guerra')).strip(),
-                                    'row_data': rec
+                                    'nome_guerra': nome_g,
+                                    'mapped_data': mapped_data
                                 })
                         
                         import_state['dados_novos'] = rows
@@ -256,14 +354,14 @@ def render_page():
                         import_state['novos_lote'] = novos
                         import_state['atualizar_lote'] = atualizar
                         
-                        ui.notify("✅ Planilha processada!", color='positive')
+                        ui.notify("✅ Planilha processada com sucesso!", color='positive')
                         
                         try:
                             e.sender.reset()
                         except Exception:
                             pass
                             
-                        # Abre o modal com os dados separados para o usuário confirmar
+                        # Abre o modal com os dados mapeados para o usuário confirmar
                         abrir_modal_confirmacao()
                         
                     except Exception as err:
