@@ -387,29 +387,34 @@ def render_page():
                                 ins_ok = 0
                                 upd_ok = 0
 
-                                # ── UPSERT com chave composta (numero_interno + ano_letivo) ──
-                                # Comportamento:
-                                #   (numero_interno + ano_letivo) NÃO existe → INSERT novo registro
-                                #   (numero_interno + ano_letivo) JÁ existe  → UPDATE os dados
-                                #
-                                # REQUISITO: a tabela Alunos deve ter apenas:
-                                #   UNIQUE (numero_interno, ano_letivo)   ← constraint composta
-                                # e NÃO ter mais:
-                                #   UNIQUE (numero_interno)               ← constraint antiga (remover!)
-                                #
-                                # SQL para corrigir no Supabase caso ainda não tenha feito:
-                                #   ALTER TABLE "Alunos" DROP CONSTRAINT IF EXISTS "Alunos_numero_interno_key";
-                                #
-                                # O ano_letivo vem SEMPRE do seletor do app, nunca da planilha.
-
                                 for n in novos:
                                     row = _limpar_row(n['mapped'], ano)
-                                    await asyncio.to_thread(
+                                    # Consulta se o aluno já existe para este ano letivo
+                                    res_check = await asyncio.to_thread(
                                         lambda r=row: db2.table('Alunos')
-                                                        .upsert(r, on_conflict='numero_interno,ano_letivo')
-                                                        .execute()
+                                                          .select('id')
+                                                          .eq('numero_interno', r['numero_interno'])
+                                                          .eq('ano_letivo', ano)
+                                                          .execute()
                                     )
-                                    ins_ok += 1
+                                    if res_check.data:
+                                        # Se por acaso já existe, atualiza pelo ID
+                                        student_id = res_check.data[0]['id']
+                                        await asyncio.to_thread(
+                                            lambda r=row, sid=student_id: db2.table('Alunos')
+                                                                             .update(r)
+                                                                             .eq('id', sid)
+                                                                             .execute()
+                                        )
+                                        upd_ok += 1
+                                    else:
+                                        # Se não existe, insere novo
+                                        await asyncio.to_thread(
+                                            lambda r=row: db2.table('Alunos')
+                                                            .insert(r)
+                                                            .execute()
+                                        )
+                                        ins_ok += 1
 
                                 for a in atualizar:
                                     row = _limpar_row(a['mapped'], ano)
