@@ -193,17 +193,24 @@ def render_page():
                     import_state['colunas'] = df.columns.tolist()
                     
                     ui.notify(f"✅ Planilha carregada! {len(df)} alunos detectados.", color='positive')
+                    try:
+                        e.sender.reset()
+                    except Exception:
+                        pass
                     render_preview()
                     
                 except Exception as err:
                     ui.notify(f"❌ Erro ao ler planilha: {err}", color='negative', duration=10)
+                    try:
+                        e.sender.reset()
+                    except Exception:
+                        pass
 
             ui.upload(
                 label='Enviar Planilha de Alunos (.xlsx ou .csv)', 
                 on_upload=handle_file_upload, 
-                auto_upload=True,
-                max_files=1
-            ).props('dark dense accept=".xlsx,.csv"').classes('w-full h-24')
+                auto_upload=True
+            ).props('dark dense').classes('w-full h-24')
 
         # --- CARD IMPORTAÇÃO EM LOTE DE FOTOS ---
         with theme.card_base().classes('w-full p-6'):
