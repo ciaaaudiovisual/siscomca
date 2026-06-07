@@ -192,19 +192,21 @@ def render_page():
                     import_state['dados_novos'] = df.to_dict(orient='records')
                     import_state['colunas'] = df.columns.tolist()
                     
-                    ui.notify(f"✅ Planilha carregada! {len(df)} alunos detectados.", color='positive')
-                    try:
-                        e.sender.reset()
-                    except Exception:
-                        pass
-                    render_preview()
+                    with e.client:
+                        ui.notify(f"✅ Planilha carregada! {len(df)} alunos detectados.", color='positive')
+                        try:
+                            e.sender.reset()
+                        except Exception:
+                            pass
+                        render_preview()
                     
                 except Exception as err:
-                    ui.notify(f"❌ Erro ao ler planilha: {err}", color='negative', duration=10)
-                    try:
-                        e.sender.reset()
-                    except Exception:
-                        pass
+                    with e.client:
+                        ui.notify(f"❌ Erro ao ler planilha: {err}", color='negative', duration=10)
+                        try:
+                            e.sender.reset()
+                        except Exception:
+                            pass
 
             ui.upload(
                 label='Enviar Planilha de Alunos (.xlsx ou .csv)', 
