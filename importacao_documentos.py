@@ -204,20 +204,23 @@ def render_page():
                         progress_bar.set_value(0)
                         return
 
-                    # — passo 3: comparação com o BD (sem filtro de ano p/ detectar
-                    #   alunos de outros anos e evitar violação de constraint UNIQUE) —
+                    # — passo 3: comparação com o BD (filtra por numero_interno + ano_letivo) —
+                    # Assim: mesmo aluno em anos diferentes = registros independentes.
                     progress_bar.set_value(0.60)
                     ano = import_state['ano_letivo']
-                    status_label.set_text(f'🔄 Passo 4/4 — Comparando com o BD…')
+                    status_label.set_text(f'🔄 Passo 4/4 — Comparando com o BD (Ano {ano})…')
 
                     try:
                         db = await asyncio.to_thread(get_db_connection)
                         if not db:
                             raise RuntimeError('Sem conexão com Supabase.')
-                        # Busca TODOS os registros (qualquer ano) para detectar numero_interno duplicados
+                        # Busca somente os registros do ano selecionado.
+                        # A chave composta (numero_interno + ano_letivo) permite o mesmo aluno
+                        # em anos diferentes como registros separados.
                         res_ex = await asyncio.to_thread(
                             lambda: db.table('Alunos')
                                       .select('id,numero_interno,nome_guerra,pelotao,ano_letivo')
+                                      .eq('ano_letivo', ano)
                                       .execute()
                         )
                     except Exception as err:
@@ -382,8 +385,12 @@ def render_page():
                                 return
                             try:
                                 sucessos = 0
-                                # UPSERT: insere se numero_interno não existe, atualiza se existe.
-                                # Evita o erro 23505 (duplicate key) da constraint UNIQUE.
+                                # UPSERT com chave composta (numero_interno + ano_letivo).
+                                # Requer que a tabela Alunos tenha a constraint:
+                                # UNIQUE (numero_interno, ano_letivo)
+                                # Comportamento:
+                                #   - mesmo numéro interno, mesmo ano  → ATUALIZA o registro
+                                #   - mesmo número interno, ano diferente → INSERE novo registro
                                 todos = [
                                     _limpar_row(n['mapped'], ano) for n in novos
                                 ] + [
@@ -392,7 +399,7 @@ def render_page():
                                 for row in todos:
                                     await asyncio.to_thread(
                                         lambda r=row: db2.table('Alunos')
-                                                        .upsert(r, on_conflict='numero_interno')
+                                                        .upsert(r, on_conflict='numero_interno,ano_letivo')
                                                         .execute()
                                     )
                                     sucessos += 1
