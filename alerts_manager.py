@@ -324,8 +324,10 @@ class AlertsManager:
         print("[ALERTA] Loop de background do Scheduler iniciado.")
         while True:
             try:
-                now = datetime.now()
-                today_str = str(date.today())
+                from datetime import timezone, timedelta
+                tz_gmt3 = timezone(timedelta(hours=-3))
+                now = datetime.now(tz_gmt3)
+                today_str = now.strftime("%Y-%m-%d")
                 hour_min = now.strftime("%H:%M")
                 
                 # 1. Badaladas de Sino da Marinha automática (nas meias-horas)
