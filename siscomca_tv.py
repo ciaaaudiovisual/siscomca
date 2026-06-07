@@ -1037,6 +1037,7 @@ def render_page():
         # ── CONFIGURAÇÃO DE TRANSIÇÕES DA ESCALA ──
         current_tv_data = {'d': None}
         active_card_view = {'index': 0}
+        hovering_card = {'value': False}
 
         @ui.refreshable
         def render_servico_diario_card():
@@ -1134,7 +1135,7 @@ def render_page():
                 # Serviço Diário (Top, height: 42%) - Dividido permanentemente em 2 blocos
                 with ui.element('div').classes('tv-panel border border-gray-800').style(
                     f'background: {THEME["bg_panel"]}; width: 100%; height: 42%; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; gap: 4px; padding: 6px;'
-                ):
+                ).on('mouseenter', lambda: hovering_card.__setitem__('value', True)).on('mouseleave', lambda: hovering_card.__setitem__('value', False)):
                     render_servico_diario_card()
 
                 # Anotações do Dia (Bottom, flex: 1 to fill remainder of Column 1)
@@ -2024,6 +2025,8 @@ def render_page():
     refresh_timer = ui.timer(300.0, _refresh)
 
     def toggle_card_view():
+        if hovering_card['value']:
+            return
         if current_tv_data['d'] is not None:
             active_card_view['index'] = (active_card_view['index'] + 1) % 3
             render_servico_diario_card.refresh()
