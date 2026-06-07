@@ -210,7 +210,7 @@ def render_page():
                 label='Enviar Planilha de Alunos (.xlsx ou .csv)', 
                 on_upload=handle_file_upload, 
                 auto_upload=True
-            ).props('dark dense').classes('w-full h-24')
+            ).props('dark dense').classes('w-full')
 
         # --- CARD IMPORTAÇÃO EM LOTE DE FOTOS ---
         with theme.card_base().classes('w-full p-6'):
@@ -269,7 +269,7 @@ def render_page():
                 on_upload=handle_image_batch_upload, 
                 auto_upload=True,
                 multiple=True
-            ).props('dark dense accept="image/jpeg,image/png"').classes('w-full h-32')
+            ).props('dark dense accept="image/jpeg,image/png"').classes('w-full')
 
         # Acopla o container da prévia ao layout principal
         preview_container
