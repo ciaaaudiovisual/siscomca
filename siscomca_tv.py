@@ -262,7 +262,7 @@ def _carregar_dados_tv(prog_date: datetime = None, active_year: str = '2026'):
     alunos_df = pd.DataFrame()
     if db_conn:
         try:
-            res_al = db_conn.table('Alunos').select('id,numero_interno,nome_guerra,pelotao').eq('ano_letivo', active_year).execute()
+            res_al = db_conn.table('Alunos').select('id,numero_interno,nome_guerra,pelotao,especialidade').eq('ano_letivo', active_year).execute()
             alunos_df = pd.DataFrame(res_al.data) if res_al.data else pd.DataFrame()
         except Exception as e:
             print(f"[TV] Erro Alunos: {e}")
@@ -270,15 +270,38 @@ def _carregar_dados_tv(prog_date: datetime = None, active_year: str = '2026'):
     if is_offline or (not db_conn and alunos_df.empty):
         # Fallback Mock
         alunos_data = [
-            {'id': 1, 'numero_interno': 'M-1-101', 'nome_guerra': 'GUILHERME', 'pelotao': 'MIKE-1'},
-            {'id': 2, 'numero_interno': 'M-1-102', 'nome_guerra': 'SILVA', 'pelotao': 'MIKE-1'},
-            {'id': 3, 'numero_interno': 'M-2-207', 'nome_guerra': 'MARTINS', 'pelotao': 'MIKE-2'},
-            {'id': 4, 'numero_interno': 'M-2-208', 'nome_guerra': 'ALBUQUERQUE', 'pelotao': 'MIKE-2'},
-            {'id': 5, 'numero_interno': 'M-3-301', 'nome_guerra': 'GOMES', 'pelotao': 'MIKE-3'}
+            {'id': 1, 'numero_interno': 'M-1-101', 'nome_guerra': 'GUILHERME', 'pelotao': 'MIKE-1', 'especialidade': 'AD'},
+            {'id': 2, 'numero_interno': 'M-1-102', 'nome_guerra': 'SILVA', 'pelotao': 'MIKE-1', 'especialidade': 'AD'},
+            {'id': 3, 'numero_interno': 'M-2-207', 'nome_guerra': 'MARTINS', 'pelotao': 'MIKE-2', 'especialidade': 'EL'},
+            {'id': 4, 'numero_interno': 'M-2-208', 'nome_guerra': 'ALBUQUERQUE', 'pelotao': 'MIKE-2', 'especialidade': 'EL'},
+            {'id': 5, 'numero_interno': 'M-3-301', 'nome_guerra': 'GOMES', 'pelotao': 'MIKE-3', 'especialidade': 'AR'}
         ]
         alunos_df = pd.DataFrame(alunos_data)
 
     dados['total_alunos'] = len(alunos_df)
+
+    # Contagens de turmas e especialidades
+    turmas_counts = []
+    especialidades_counts = []
+    if not alunos_df.empty:
+        if 'pelotao' in alunos_df.columns:
+            pel_s = alunos_df.groupby('pelotao').size()
+            for pel, count in pel_s.items():
+                if pel:
+                    turmas_counts.append({'turma': str(pel).upper(), 'total': int(count)})
+            turmas_counts.sort(key=lambda x: x['turma'])
+            
+        if 'especialidade' in alunos_df.columns:
+            esp_s = alunos_df.groupby('especialidade').size()
+            for esp, count in esp_s.items():
+                esp_name = str(esp).upper().strip() if esp else 'SEM ESP.'
+                if esp_name in ('', 'NONE', 'NAN'):
+                    esp_name = 'SEM ESP.'
+                especialidades_counts.append({'especialidade': esp_name, 'total': int(count)})
+            especialidades_counts.sort(key=lambda x: x['especialidade'])
+
+    dados['turmas_counts'] = turmas_counts
+    dados['especialidades_counts'] = especialidades_counts
 
     # 2. Presença (Prontidão)
     presenca_df = pd.DataFrame()
@@ -1011,6 +1034,98 @@ def render_page():
                 voice_btn.on_click(toggle_voice)
                 eye_btn.on_click(toggle_blur)
 
+        # ── CONFIGURAÇÃO DE TRANSIÇÕES DA ESCALA ──
+        current_tv_data = {'d': None}
+        active_card_view = {'index': 0}
+
+        @ui.refreshable
+        def render_servico_diario_card():
+            d = current_tv_data['d']
+            if not d:
+                with ui.column().classes('w-full h-full items-center justify-center'):
+                    ui.spinner(color='amber', size='lg')
+                    ui.label('CARREGANDO...').classes('text-amber-5 text-[14px]')
+                return
+
+            view_idx = active_card_view['index']
+            if view_idx == 0:
+                # VIEW 0: ESCALA DE SERVIÇO
+                # 1. Bloco de Cima (Inspetor do Dia em Destaque)
+                insp_name_raw = d['inspetor_dia']['nome']
+                is_insp_defined = "DEFINIDO" not in insp_name_raw.upper() and "ESCALADO" not in insp_name_raw.upper() and insp_name_raw.strip() != ""
+                
+                with ui.card().classes('w-full q-pa-xs border').style(
+                    f'background: rgba(212, 175, 55, 0.08) !important; border: 2px solid #D4AF37 !important; box-shadow: 0 0 25px rgba(212, 175, 55, 0.45) !important; height: 45%; display: flex; flex-direction: column; justify-content: center; align-items: center; border-radius: 8px; gap: 6px;'
+                ):
+                    with ui.column().classes('w-full items-center justify-center gap-1.5 no-wrap'):
+                        if is_insp_defined:
+                            ui.avatar(size='72px').style(f"background-image: url('{d['inspetor_dia']['photo_url']}'); background-size: cover; background-position: center; border: 2px solid #D4AF37; box-shadow: 0 0 16px rgba(212, 175, 55, 0.6); shrink: 0; border-radius: 8px !important;")
+                            ui.label('INSPETOR DO DIA').style(f'color: {THEME["primary"]}; font-size: 18px; font-weight: 900; letter-spacing: 3px; line-height: 1; text-align: center;')
+                            ui.label(insp_name_raw.upper()).classes('text-white text-[30px] font-black tracking-wider leading-none text-center')
+                        else:
+                            ui.avatar(size='72px').style("background-image: url('https://cdn.quasar.dev/img/boy-avatar.png'); background-size: cover; background-position: center; border: 2px solid #ff9100; box-shadow: 0 0 12px rgba(255, 145, 0, 0.4); shrink: 0; border-radius: 8px !important;")
+                            ui.label('INSPETOR DO DIA').style(f'color: {THEME["primary"]}; font-size: 18px; font-weight: 900; letter-spacing: 3px; line-height: 1; text-align: center;')
+                            ui.label('AGUARDANDO').classes('text-amber-5/70 italic animate-pulse text-[30px] font-black tracking-wider leading-none text-center')
+
+                # 2. Bloco de Baixo (Demais Serviços)
+                with ui.card().classes('w-full q-pa-xs border border-gray-900/60').style(
+                    'background: rgba(0,0,0,0.3); flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 6px;'
+                ):
+                    with ui.row().classes('w-full items-center justify-between px-1 q-mb-xs border-b border-gray-900/80 q-pb-0.5'):
+                        ui.label('👮 DEMAIS SERVIÇOS').classes('text-amber-5 text-[12px] font-black tracking-widest')
+                        ui.badge('PRONTOS', color='green-9').classes('text-[10px] font-bold')
+                        
+                    outros_servicos = []
+                    outros_servicos.append({'cargo': 'OSCA', 'nome': d.get('osca_servico', 'NÃO ESCALADO')})
+                    outros_servicos.append({'cargo': 'AJOSCA', 'nome': d.get('ajosca_servico', 'NÃO ESCALADO')})
+                    for esc in d.get('outros_escalados', []):
+                        outros_servicos.append({'cargo': esc['cargo'], 'nome': esc['nome']})
+
+                    def is_defined(name: str) -> bool:
+                        if not name:
+                            return False
+                        n = name.strip().upper()
+                        return "DEFINIDO" not in n and "ESCALADO" not in n and n not in {"", "N/A", "-"}
+
+                    use_marquee = len(outros_servicos) > 4
+                    classes_inner = 'health-marquee-container w-full gap-1' if use_marquee else 'w-full gap-1'
+                    items_marquee = outros_servicos * 2 if use_marquee else outros_servicos
+
+                    with ui.column().classes('w-full').style('flex: 1; min-height: 0; overflow: hidden; position: relative;'):
+                        with ui.column().classes(classes_inner):
+                            for item in items_marquee:
+                                defined = is_defined(item['nome'])
+                                with ui.row().classes('w-full items-center justify-between px-1 q-py-0.5 border-b border-gray-900/50 hover:bg-white/5'):
+                                    ui.label(item['cargo'].upper()).classes('text-grey-5 font-bold text-[14px]').style('font-family: monospace;')
+                                    with ui.row().classes('items-center gap-1.5'):
+                                        if defined:
+                                            ui.label(item['nome'].upper()).classes('text-white font-black text-[14px]')
+                                            ui.badge('PRONTO', color='green-9').classes('text-[10px] font-bold')
+                                        else:
+                                            ui.label('AGUARDANDO').classes('text-amber-5 font-bold text-[14px] animate-pulse')
+            
+            elif view_idx == 1:
+                # VIEW 1: TOTAL DE ALUNOS POR TURMA
+                with ui.column().classes('w-full h-full gap-2 justify-center items-center q-pa-sm'):
+                    ui.label('📊 TOTAL POR TURMA').style(f'color: {THEME["primary"]}; font-size: 16px; font-weight: 900; letter-spacing: 2px; text-align: center;')
+                    ui.separator().props('dark')
+                    with ui.column().classes('w-full gap-1').style('flex: 1; min-height: 0; overflow-y: auto; justify-content: center;'):
+                        for t in d.get('turmas_counts', []):
+                            with ui.row().classes('w-full items-center justify-between px-3 py-1.5 border-b border-gray-900/40 bg-black/20 rounded'):
+                                ui.label(f"PELOTÃO {t['turma']}").classes('text-white font-bold text-[15px]')
+                                ui.label(f"{t['total']} alunos").classes('text-amber-5 text-[15px] font-mono font-black')
+
+            elif view_idx == 2:
+                # VIEW 2: QUANTIDADE POR ESPECIALIDADE
+                with ui.column().classes('w-full h-full gap-2 justify-center items-center q-pa-sm'):
+                    ui.label('🛠️ POR ESPECIALIDADE').style(f'color: {THEME["primary"]}; font-size: 16px; font-weight: 900; letter-spacing: 2px; text-align: center;')
+                    ui.separator().props('dark')
+                    with ui.column().classes('w-full gap-1').style('flex: 1; min-height: 0; overflow-y: auto; justify-content: center;'):
+                        for esp in d.get('especialidades_counts', []):
+                            with ui.row().classes('w-full items-center justify-between px-3 py-1.5 border-b border-gray-900/40 bg-black/20 rounded'):
+                                ui.label(esp['especialidade']).classes('text-white font-bold text-[15px]')
+                                ui.label(f"{esp['total']} alunos").classes('text-cyan-4 text-[15px] font-mono font-black')
+
         # ── CORPO PRINCIPAL DO PAINEL (GRID DUPLO) ─────────────────────────────
         with ui.element('div').classes('tv-main-row'):
             
@@ -1020,29 +1135,7 @@ def render_page():
                 with ui.element('div').classes('tv-panel border border-gray-800').style(
                     f'background: {THEME["bg_panel"]}; width: 100%; height: 42%; border-radius: 8px; overflow: hidden; display: flex; flex-direction: column; gap: 4px; padding: 6px;'
                 ):
-                    # 1. Bloco de Cima (Inspetor do Dia em Destaque) - 45% de altura (Layout Vertical e Centralizado de Alto Destaque)
-                    with ui.card().classes('w-full q-pa-xs border').style(
-                        f'background: rgba(212, 175, 55, 0.08) !important; border: 2px solid #D4AF37 !important; box-shadow: 0 0 25px rgba(212, 175, 55, 0.45) !important; height: 45%; display: flex; flex-direction: column; justify-content: center; align-items: center; border-radius: 8px; gap: 6px;'
-                    ):
-                        # Organização em coluna centralizada
-                        with ui.column().classes('w-full items-center justify-center gap-1.5 no-wrap'):
-                            # Avatar com brilho dourado e formato mais quadrado centralizado
-                            insp_avatar = ui.avatar(size='72px').style('border: 2px solid #D4AF37; box-shadow: 0 0 16px rgba(212, 175, 55, 0.6); shrink: 0; border-radius: 8px !important;')
-                            
-                            # Cargo e Nome centralizados com tamanho significativamente ampliado
-                            ui.label('INSPETOR DO DIA').style(f'color: {THEME["primary"]}; font-size: 18px; font-weight: 900; letter-spacing: 3px; line-height: 1; text-align: center;')
-                            insp_nome = ui.label('CARREGANDO...').classes('text-white text-[30px] font-black tracking-wider leading-none text-center')
-
-                    # 2. Bloco de Baixo (Demais Serviços) - 55% de altura restante
-                    with ui.card().classes('w-full q-pa-xs border border-gray-900/60').style(
-                        'background: rgba(0,0,0,0.3); flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 6px;'
-                    ):
-                        with ui.row().classes('w-full items-center justify-between px-1 q-mb-xs border-b border-gray-900/80 q-pb-0.5'):
-                            ui.label('👮 DEMAIS SERVIÇOS').classes('text-amber-5 text-[12px] font-black tracking-widest')
-                            ui.badge('PRONTOS', color='green-9').classes('text-[10px] font-bold')
-                            
-                        # Div de rolagem para os demais serviços
-                        escala_marquee_div = ui.column().classes('w-full').style('flex: 1; min-height: 0; overflow: hidden; position: relative;')
+                    render_servico_diario_card()
 
                 # Anotações do Dia (Bottom, flex: 1 to fill remainder of Column 1)
                 with ui.card().classes('q-pa-sm border border-gray-800 tv-panel').style(f'background: {THEME["bg_panel"]}; width: 100%; flex: 1; min-height: 0; transition: filter 0.3s ease;') as anotacoes_card:
@@ -1619,54 +1712,8 @@ def render_page():
                     status_lbl.classes('text-green-500', remove='text-amber-500')
 
                 # --- REDESENHO DA TELA ---
-            
-                # 1. Módulo do Inspetor do Dia
-                insp_name_raw = d['inspetor_dia']['nome']
-                is_insp_defined = "DEFINIDO" not in insp_name_raw.upper() and "ESCALADO" not in insp_name_raw.upper() and insp_name_raw.strip() != ""
-                
-                if is_insp_defined:
-                    insp_nome.set_text(insp_name_raw.upper())
-                    insp_nome.classes('text-white', remove='text-amber-5/70 italic')
-                    insp_avatar.style(f"background-image: url('{d['inspetor_dia']['photo_url']}'); background-size: cover; background-position: center; border: 2px solid #D4AF37; box-shadow: 0 0 16px rgba(212, 175, 55, 0.6); shrink: 0; border-radius: 8px !important;")
-                else:
-                    insp_nome.set_text('AGUARDANDO')
-                    insp_nome.classes('text-amber-5/70 italic animate-pulse', remove='text-white')
-                    insp_avatar.style("background-image: url('https://cdn.quasar.dev/img/boy-avatar.png'); background-size: cover; background-position: center; border: 2px solid #ff9100; box-shadow: 0 0 12px rgba(255, 145, 0, 0.4); shrink: 0; border-radius: 8px !important;")
-
-                # 1.1 Demais Serviços - Bloco de Baixo
-                escala_marquee_div.clear()
-                with escala_marquee_div:
-                    outros_servicos = []
-                    
-                    # 1. OSCA
-                    outros_servicos.append({'cargo': 'OSCA', 'nome': d.get('osca_servico', 'NÃO ESCALADO')})
-                    # 2. AJOSCA
-                    outros_servicos.append({'cargo': 'AJOSCA', 'nome': d.get('ajosca_servico', 'NÃO ESCALADO')})
-                    # 3. Outros Escalados (Supervisor, Oficial, Enfermeiro, etc.)
-                    for esc in d.get('outros_escalados', []):
-                        outros_servicos.append({'cargo': esc['cargo'], 'nome': esc['nome']})
-
-                    def is_defined(name: str) -> bool:
-                        if not name:
-                            return False
-                        n = name.strip().upper()
-                        return "DEFINIDO" not in n and "ESCALADO" not in n and n not in {"", "N/A", "-"}
-
-                    use_marquee = len(outros_servicos) > 4
-                    classes_inner = 'health-marquee-container w-full gap-1' if use_marquee else 'w-full gap-1'
-                    items_marquee = outros_servicos * 2 if use_marquee else outros_servicos
-                    
-                    with ui.column().classes(classes_inner):
-                        for item in items_marquee:
-                            defined = is_defined(item['nome'])
-                            with ui.row().classes('w-full items-center justify-between px-1 q-py-0.5 border-b border-gray-900/50 hover:bg-white/5'):
-                                ui.label(item['cargo'].upper()).classes('text-grey-5 font-bold text-[14px]').style('font-family: monospace;')
-                                with ui.row().classes('items-center gap-1.5'):
-                                    if defined:
-                                        ui.label(item['nome'].upper()).classes('text-white font-black text-[14px]')
-                                        ui.badge('PRONTO', color='green-9').classes('text-[10px] font-bold')
-                                    else:
-                                        ui.label('AGUARDANDO').classes('text-amber-5 font-bold text-[14px] animate-pulse')
+                current_tv_data['d'] = d
+                render_servico_diario_card.refresh()
 
                 # 2. Painel de Quantitativos (KPIs 4x2)
                 quant_container.clear()
@@ -1975,6 +2022,13 @@ def render_page():
     
     # Criamos o timer com valor inicial que depois será ajustado dinamicamente
     refresh_timer = ui.timer(300.0, _refresh)
+
+    def toggle_card_view():
+        if current_tv_data['d'] is not None:
+            active_card_view['index'] = (active_card_view['index'] + 1) % 3
+            render_servico_diario_card.refresh()
+
+    ui.timer(10.0, toggle_card_view)
     
     # Variável para rastrear o loop de processamento da fila
     queue_task = None
