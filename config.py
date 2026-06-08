@@ -809,20 +809,33 @@ def render_page():
                         
                         # Upload de Som
                         async def handle_sound_upload(e):
-                            filename = e.name
-                            if not filename.lower().endswith('.mp3'):
-                                ui.notify('Apenas arquivos no formato .mp3 são suportados!', color='red')
-                                return
-                            
-                            if filename in ('bell_single.mp3', 'bell_double.mp3'):
-                                ui.notify('Não é permitido sobrescrever arquivos de sistema.', color='red')
-                                return
-                                
                             try:
                                 import inspect
-                                file_bytes = e.file.read()
-                                if inspect.isawaitable(file_bytes):
-                                    file_bytes = await file_bytes
+                                
+                                # Extrai o nome de forma robusta
+                                filename = getattr(e, 'name', None) or getattr(getattr(e, 'file', None), 'name', None)
+                                if not filename:
+                                    filename = 'som_upload.mp3'
+                                    
+                                if not filename.lower().endswith('.mp3'):
+                                    ui.notify('Apenas arquivos no formato .mp3 são suportados!', color='red')
+                                    return
+                                
+                                if filename in ('bell_single.mp3', 'bell_double.mp3'):
+                                    ui.notify('Não é permitido sobrescrever arquivos de sistema.', color='red')
+                                    return
+                                    
+                                # Extrai o conteúdo (bytes) de forma robusta
+                                file_bytes = None
+                                file_obj = getattr(e, 'file', None) or getattr(e, 'content', None)
+                                if file_obj and hasattr(file_obj, 'read'):
+                                    file_bytes = file_obj.read()
+                                    if inspect.isawaitable(file_bytes):
+                                        file_bytes = await file_bytes
+                                        
+                                if not file_bytes:
+                                    ui.notify('Falha ao ler o conteúdo do arquivo enviado.', color='red')
+                                    return
                                     
                                 from database import upload_file_to_supabase_storage
                                 import asyncio
