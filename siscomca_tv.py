@@ -2026,22 +2026,19 @@ def render_page():
                             
                                 with ui.card().classes(f'w-full p-1.5 border border-gray-800 {left_border_color} mb-1').style(f'{bg_card}'):
                                     with ui.column().classes('w-full gap-1'):
-                                        # Linha 1: Horário, Local e Status
+                                        # Linha 1: Horário completo e Local
                                         with ui.row().classes('w-full justify-between items-center no-wrap'):
-                                            with ui.row().classes('items-center gap-1.5'):
-                                                raw_time = str(act.get('horario', '--:--'))
-                                                time_formatted = raw_time[:5] if len(raw_time) >= 5 else raw_time
-                                                ui.label(time_formatted).style('color: #F59E0B; font-size: 16px; font-weight: 900; font-family: monospace;')
-                                                ui.label(act.get('local', 'N/A').upper()).classes('px-1 bg-black/40 border border-grey-900 rounded font-mono text-[16px] text-grey-4')
-                                            if is_concluida:
-                                                ui.badge('CONCLUÍDO', color='green-9').classes('text-[14px] font-bold')
-                                            else:
-                                                ui.badge('AGENDADO', color='amber-9').classes('text-[14px] font-bold text-black animate-pulse')
+                                            raw_time = str(act.get('horario', '--:--'))
+                                            ui.label(raw_time).style('color: #F59E0B; font-size: 14px; font-weight: 900; font-family: monospace;')
+                                            ui.label(act.get('local', 'N/A').upper()).classes('px-1.5 py-0.5 bg-black/40 border border-grey-900 rounded font-mono text-[12px] text-grey-4 max-w-[65%] ellipsis')
                                     
-                                        # Linha 2: Descrição e Responsável
-                                        with ui.row().classes('w-full justify-between items-start no-wrap gap-2 text-[16px]'):
-                                            ui.label(act.get('descricao', '')).classes('text-white font-bold col-grow text-[16px]').style('white-space: normal; word-break: break-word;')
-                                            ui.label(f"👮 {act.get('responsavel', 'N/A')}").classes('text-grey-4 font-medium shrink-0 max-w-[40%] ellipsis text-[16px]')
+                                        # Linha 2: Descrição da Atividade (com fonte menor)
+                                        with ui.row().classes('w-full items-start gap-2'):
+                                            ui.label(act.get('descricao', '')).classes('text-white font-bold col-grow text-[13px]').style('white-space: normal; word-break: break-word;')
+                                        
+                                        # Linha 3: Responsável abaixo
+                                        with ui.row().classes('w-full justify-end items-center gap-1'):
+                                            ui.label(f"👮 {act.get('responsavel', 'N/A')}").classes('text-grey-4 font-medium text-[11px] ellipsis max-w-[80%]')
 
                 # Ajusta o timer dinamicamente com base nas configurações
                 polling_interval = d.get('polling_interval', 300.0)
