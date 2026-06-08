@@ -342,7 +342,6 @@ def generate_elevenlabs_tts_custom(text: str, api_key: str, voice_id: str) -> st
     return ""
 
 
-@lru_cache(maxsize=128)
 def generate_elevenlabs_tts(text: str) -> str:
     """Despacha a geração do TTS conforme o motor ativo nas configurações do sistema."""
     engine = get_config_value('tts_engine', 'basic')

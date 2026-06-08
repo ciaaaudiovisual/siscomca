@@ -808,7 +808,7 @@ def render_page():
                         ui.label('Envie arquivos .mp3 customizados para usar como toques de alerta e sinos.').classes('text-xs').style(f'color: {THEME["text_dim"]}')
                         
                         # Upload de Som
-                        def handle_sound_upload(e):
+                        async def handle_sound_upload(e):
                             filename = e.name
                             if not filename.lower().endswith('.mp3'):
                                 ui.notify('Apenas arquivos no formato .mp3 são suportados!', color='red')
@@ -819,27 +819,34 @@ def render_page():
                                 return
                                 
                             try:
-                                file_bytes = e.content.read()
+                                import inspect
+                                file_bytes = e.file.read()
+                                if inspect.isawaitable(file_bytes):
+                                    file_bytes = await file_bytes
+                                    
                                 from database import upload_file_to_supabase_storage
                                 import asyncio
                                 
                                 async def process_upload():
-                                    public_url = await asyncio.to_thread(
-                                        upload_file_to_supabase_storage,
-                                        file_bytes,
-                                        filename,
-                                        "audio/mpeg",
-                                        "sons"
-                                    )
-                                    if public_url:
-                                        ui.notify(f'Som "{filename}" enviado com sucesso!', color='success')
-                                        atualizar_opcoes_de_sons()
-                                        render_sound_files_list.refresh()
-                                        render_custom_alerts_list.refresh()
-                                    else:
-                                        ui.notify('Erro ao enviar som ao Supabase.', color='red')
+                                     public_url = await asyncio.to_thread(
+                                         upload_file_to_supabase_storage,
+                                         file_bytes,
+                                         filename,
+                                         "audio/mpeg",
+                                         "sons"
+                                     )
+                                     if public_url:
+                                         ui.notify(f'Som "{filename}" enviado com sucesso!', color='success')
+                                         atualizar_opcoes_de_sons()
+                                         render_sound_files_list.refresh()
+                                         try:
+                                             render_custom_alerts_list.refresh()
+                                         except Exception:
+                                             pass
+                                     else:
+                                         ui.notify('Erro ao enviar som ao Supabase.', color='red')
                                 
-                                asyncio.create_task(process_upload())
+                                await process_upload()
                             except Exception as ex:
                                 ui.notify(f'Erro ao salvar arquivo: {ex}', color='red')
                                 
