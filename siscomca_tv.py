@@ -1279,6 +1279,7 @@ def render_page():
                     const playSound = {play_sound_js};
                     const playVoice = {play_voice_js};
                     const supabaseBaseUrl = "{SUPABASE_URL}";
+                    const type = {json.dumps(type_)};
 
                     let ctx = window.globalAudioContext;
                     if (!ctx) {{
