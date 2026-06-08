@@ -922,8 +922,16 @@ def setup_handlers(bot_instance):
             await bot_instance.reply_to(message, "⚠️ Seu perfil de usuário não tem permissão correlata no app para fazer Consulta de Aluno.")
             return
             
+        is_menu_click = message.text.strip().lower() in [
+            "🔍 consulta de aluno",
+            "consulta de aluno",
+            "/consulta",
+            "/aluno",
+            "consulta",
+            "aluno"
+        ]
         args = message.text.split(maxsplit=1)
-        if len(args) > 1:
+        if len(args) > 1 and not is_menu_click:
             term = args[1].strip()
             await perform_consulta_search(bot_instance, message, profile, term)
         else:
