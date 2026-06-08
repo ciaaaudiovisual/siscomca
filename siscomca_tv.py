@@ -1528,6 +1528,7 @@ def render_page():
                         }}
                         
                         const customMp3Url = supabaseBaseUrl + "/storage/v1/object/public/sons/" + encodeURIComponent(type) + ".mp3";
+                        const customMp3UrlUpper = supabaseBaseUrl + "/storage/v1/object/public/sons/" + encodeURIComponent(type) + ".MP3";
                         
                         if (type.startsWith('naval_bell_')) {{
                             let count = 1;
@@ -1610,10 +1611,32 @@ def render_page():
                                         audio.volume = 1.0;
                                         audio.play().catch(() => {{}});
                                     }} else {{
-                                        playDefaultSynthesized(type);
+                                        fetch(customMp3UrlUpper)
+                                            .then(res2 => {{
+                                                if (res2.ok) {{
+                                                    let audio2 = new Audio(customMp3UrlUpper);
+                                                    audio2.volume = 1.0;
+                                                    audio2.play().catch(() => {{}});
+                                                }} else {{
+                                                    playDefaultSynthesized(type);
+                                                }}
+                                            }}).catch(() => {{
+                                                playDefaultSynthesized(type);
+                                            }});
                                     }}
                                 }}).catch(() => {{
-                                    playDefaultSynthesized(type);
+                                    fetch(customMp3UrlUpper)
+                                        .then(res2 => {{
+                                            if (res2.ok) {{
+                                                let audio2 = new Audio(customMp3UrlUpper);
+                                                audio2.volume = 1.0;
+                                                audio2.play().catch(() => {{}});
+                                            }} else {{
+                                                playDefaultSynthesized(type);
+                                            }}
+                                        }}).catch(() => {{
+                                            playDefaultSynthesized(type);
+                                        }});
                                 }});
                         }}
                     }}
