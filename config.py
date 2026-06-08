@@ -1,7 +1,7 @@
 from nicegui import ui, app
 import theme
 import os
-from database import get_db_connection, SUPABASE_URL
+from database import get_db_connection, SUPABASE_URL, get_bot_db_connection as get_admin_db_connection
 from services import data_service
 from datetime import date
 
@@ -729,7 +729,7 @@ def render_page():
                                 'naval_bell_8': 'Sino da Marinha (8 Baladas / 4 Dobradas) ⚓',
                                 'silent': 'Silencioso 🔕'
                             }
-                            db_conn = get_db_connection()
+                            db_conn = get_admin_db_connection() or get_db_connection()
                             if db_conn:
                                 try:
                                     res = db_conn.storage.from_('sons').list()
@@ -763,7 +763,7 @@ def render_page():
                                 pass
 
                         # Carrega dinamicamente arquivos MP3 na inicialização do Supabase
-                        db_conn = get_db_connection()
+                        db_conn = get_admin_db_connection() or get_db_connection()
                         if db_conn:
                             try:
                                 res = db_conn.storage.from_('sons').list()
@@ -911,7 +911,7 @@ def render_page():
                                             ui.notify('Não é permitido usar nomes de arquivos de sistema.', color='red')
                                             return
                                             
-                                        db_conn = get_db_connection()
+                                        db_conn = get_admin_db_connection() or get_db_connection()
                                         if not db_conn:
                                             ui.notify('Sem conexão com o banco de dados.', color='red')
                                             return
@@ -942,7 +942,7 @@ def render_page():
                         @ui.refreshable
                         def render_sound_files_list():
                             custom_files = []
-                            db_conn = get_db_connection()
+                            db_conn = get_admin_db_connection() or get_db_connection()
                             if db_conn:
                                 try:
                                     res = db_conn.storage.from_('sons').list()
@@ -972,7 +972,7 @@ def render_page():
                                                 
                                             def excluir_som(filename=f):
                                                 async def processar_exclusao():
-                                                    db_conn = get_db_connection()
+                                                    db_conn = get_admin_db_connection() or get_db_connection()
                                                     if not db_conn:
                                                         ui.notify('Sem conexão com o banco de dados.', color='red')
                                                         return
