@@ -736,7 +736,7 @@ def render_page():
                                     if res:
                                         for item in res:
                                             f = item.get('name')
-                                            if f and f.endswith('.mp3'):
+                                            if f and f.lower().endswith('.mp3'):
                                                 key = f[:-4]
                                                 if key not in som_opcoes:
                                                     friendly_name = key.replace('_', ' ').replace('-', ' ').title()
@@ -770,7 +770,7 @@ def render_page():
                                 if res:
                                     for item in res:
                                         f = item.get('name')
-                                        if f and f.endswith('.mp3'):
+                                        if f and f.lower().endswith('.mp3'):
                                             key = f[:-4]
                                             if key not in som_opcoes:
                                                 friendly_name = key.replace('_', ' ').replace('-', ' ').title()
@@ -949,7 +949,7 @@ def render_page():
                                     if res:
                                         for item in res:
                                             f = item.get('name')
-                                            if f and f.endswith('.mp3') and f not in ('bell_single.mp3', 'bell_double.mp3'):
+                                            if f and f.lower().endswith('.mp3') and f.lower() not in ('bell_single.mp3', 'bell_double.mp3'):
                                                 custom_files.append(f)
                                 except Exception as e:
                                     print(f"[CONFIG] Erro ao listar arquivos de som: {e}")
