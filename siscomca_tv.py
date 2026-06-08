@@ -1619,50 +1619,57 @@ def render_page():
                     }}
 
                     if (playVoice) {{
-                        let text = {escaped_jarvis};
-                        if (!text || text === "null" || text === "") {{
-                            text = {escaped_vocativo} + ". " + {escaped_msg};
-                        }}
-                        
-                        let getBestVoice = () => {{
-                            let voices = window.speechSynthesis.getVoices();
-                            let ptVoices = voices.filter(v => {{
-                                let l = v.lang.toLowerCase();
-                                return l.includes('pt-br') || l.includes('pt_br') || l === 'pt';
-                            }});
-                            
-                            let naturalMale = ptVoices.find(v => {{
-                                let name = v.name.toLowerCase();
-                                return (name.includes('natural') || name.includes('online') || name.includes('neural')) && 
-                                       (name.includes('valerio') || name.includes('antonio') || name.includes('fabio') || name.includes('male') || name.includes('daniel'));
-                            }});
-                            if (naturalMale) return naturalMale;
-                            
-                            let googlePt = ptVoices.find(v => v.name.toLowerCase().includes('google'));
-                            if (googlePt) return googlePt;
-                            
-                            let anyNatural = ptVoices.find(v => v.name.toLowerCase().includes('natural') || v.name.toLowerCase().includes('online') || v.name.toLowerCase().includes('neural'));
-                            if (anyNatural) return anyNatural;
-                            
-                            let localMale = ptVoices.find(v => {{
-                                let name = v.name.toLowerCase();
-                                return name.includes('daniel') || name.includes('antonio') || name.includes('male') || name.includes('felipe');
-                            }});
-                            if (localMale) return localMale;
-                            
-                            return ptVoices.length > 0 ? ptVoices[0] : null;
-                        }};
-
-                        setTimeout(() => {{
-                            window.speechSynthesis.cancel();
-                            let utterance = new SpeechSynthesisUtterance(text);
-                            utterance.lang = 'pt-BR';
-                            let bestVoice = getBestVoice();
-                            if (bestVoice) {{
-                                utterance.voice = bestVoice;
+                        let audioBase64 = {escaped_audio};
+                        if (audioBase64 && audioBase64 !== "null" && audioBase64 !== "") {{
+                            let audio = new Audio("data:audio/mp3;base64," + audioBase64);
+                            audio.volume = 1.0;
+                            audio.play().catch(e => console.error("Error playing TTS audio: ", e));
+                        }} else {{
+                            let text = {escaped_jarvis};
+                            if (!text || text === "null" || text === "") {{
+                                text = {escaped_vocativo} + ". " + {escaped_msg};
                             }}
-                            window.speechSynthesis.speak(utterance);
-                        }}, 1000);
+                            
+                            let getBestVoice = () => {{
+                                let voices = window.speechSynthesis.getVoices();
+                                let ptVoices = voices.filter(v => {{
+                                    let l = v.lang.toLowerCase();
+                                    return l.includes('pt-br') || l.includes('pt_br') || l === 'pt';
+                                }});
+                                
+                                let naturalMale = ptVoices.find(v => {{
+                                    let name = v.name.toLowerCase();
+                                    return (name.includes('natural') || name.includes('online') || name.includes('neural')) && 
+                                           (name.includes('valerio') || name.includes('antonio') || name.includes('fabio') || name.includes('male') || name.includes('daniel'));
+                                }});
+                                if (naturalMale) return naturalMale;
+                                
+                                let googlePt = ptVoices.find(v => v.name.toLowerCase().includes('google'));
+                                if (googlePt) return googlePt;
+                                
+                                let anyNatural = ptVoices.find(v => v.name.toLowerCase().includes('natural') || v.name.toLowerCase().includes('online') || v.name.toLowerCase().includes('neural'));
+                                if (anyNatural) return anyNatural;
+                                
+                                let localMale = ptVoices.find(v => {{
+                                    let name = v.name.toLowerCase();
+                                    return name.includes('daniel') || name.includes('antonio') || name.includes('male') || name.includes('felipe');
+                                }});
+                                if (localMale) return localMale;
+                                
+                                return ptVoices.length > 0 ? ptVoices[0] : null;
+                            }};
+
+                            setTimeout(() => {{
+                                window.speechSynthesis.cancel();
+                                let utterance = new SpeechSynthesisUtterance(text);
+                                utterance.lang = 'pt-BR';
+                                let bestVoice = getBestVoice();
+                                if (bestVoice) {{
+                                    utterance.voice = bestVoice;
+                                }}
+                                window.speechSynthesis.speak(utterance);
+                            }}, 1000);
+                        }}
                     }}
                 }} catch(e) {{
                     console.error(e);
