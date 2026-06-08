@@ -245,8 +245,8 @@ ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID") or "N2lVS1w4EtoT3dr4eOWO"
 def get_config_value(key: str, default: str = "") -> str:
     """Busca uma chave de configuração do Supabase de forma direta."""
     try:
-        from database import get_db_connection
-        db = get_db_connection()
+        from database import get_bot_db_connection, get_db_connection
+        db = get_bot_db_connection() or get_db_connection()
         if db:
             res = db.table('Config').select('valor').eq('chave', key).execute()
             if res.data:

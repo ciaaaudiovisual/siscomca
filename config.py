@@ -1821,7 +1821,7 @@ def render_page():
                     ui.notify('Os campos numéricos devem conter valores decimais válidos e o Polling deve ser um número inteiro.', color='red')
                     return
 
-                db_conn = get_db_connection()
+                db_conn = get_admin_db_connection() or get_db_connection()
                 
                 novas_configs = [
                     {'chave': 'linha_base_conceito', 'valor': str(input_base.value)},
