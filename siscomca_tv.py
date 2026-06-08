@@ -1278,6 +1278,7 @@ def render_page():
                 try {{
                     const playSound = {play_sound_js};
                     const playVoice = {play_voice_js};
+                    const supabaseBaseUrl = "{SUPABASE_URL}";
 
                     let ctx = window.globalAudioContext;
                     if (!ctx) {{
