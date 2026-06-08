@@ -7,6 +7,8 @@ from services import data_service
 
 THEME = theme.colors
 
+OFFLINE_AVATAR = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='rgb(27,37,53)'/><circle cx='50' cy='40' r='20' fill='rgb(100,116,139)'/><path d='M20,90 C20,70 80,70 80,90 Z' fill='rgb(100,116,139)'/></svg>"
+
 # Motivos de Ausência baseados no SisCOMCA original
 MOTIVOS_AUSENCIA = [
     "Doença",
@@ -278,7 +280,9 @@ def render_page():
                             nome = r['nome_guerra']
                             pel = r['pelotao']
                             foto_url = r.get('url_foto')
-                            image_src = foto_url if isinstance(foto_url, str) and foto_url.startswith('http') else f"https://res.cloudinary.com/comcia/image/upload/alunos_app/{num}.jpg"
+                            ano_let = r.get('ano_letivo', '2026')
+                            fallback_img = f"https://res.cloudinary.com/comcia/image/upload/alunos_app/{num}.jpg" if ano_let == '2025' else OFFLINE_AVATAR
+                            image_src = foto_url if isinstance(foto_url, str) and foto_url.startswith('http') else fallback_img
                             
                             # Status atual da chamada
                             status_label = "Sem registro de chamada"

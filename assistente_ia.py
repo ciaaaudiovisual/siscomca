@@ -7,6 +7,8 @@ from database import get_bot_db_connection, load_data
 
 THEME = theme.colors
 
+OFFLINE_AVATAR = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='rgb(27,37,53)'/><circle cx='50' cy='40' r='20' fill='rgb(100,116,139)'/><path d='M20,90 C20,70 80,70 80,90 Z' fill='rgb(100,116,139)'/></svg>"
+
 
 def natural_sort_key(s):
     return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
@@ -346,8 +348,9 @@ def render_page():
                                     with ui.row().classes('w-full items-center gap-3 q-pb-sm border-b border-gray-800/50'):
                                         # Foto do Aluno
                                         photo_url = aluno_row.get('url_foto')
-                                        if not photo_url or not isinstance(photo_url, str) or pd.isna(photo_url):
-                                            photo_url = f"https://res.cloudinary.com/comcia/image/upload/alunos_app/{aluno_row['numero_interno']}.jpg"
+                                        if not photo_url or not isinstance(photo_url, str) or pd.isna(photo_url) or not photo_url.strip():
+                                            ano_let_val = aluno_row.get('ano_letivo', '2026')
+                                            photo_url = f"https://res.cloudinary.com/comcia/image/upload/alunos_app/{aluno_row['numero_interno']}.jpg" if ano_let_val == '2025' else OFFLINE_AVATAR
                                         
                                         ui.avatar().style(
                                             f"background-image: url('{photo_url}'), url('https://cdn.quasar.dev/img/boy-avatar.png'); "

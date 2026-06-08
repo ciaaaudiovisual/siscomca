@@ -9,6 +9,8 @@ from services import data_service
 
 THEME = theme.colors
 
+OFFLINE_AVATAR = "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' fill='rgb(27,37,53)'/><circle cx='50' cy='40' r='20' fill='rgb(100,116,139)'/><path d='M20,90 C20,70 80,70 80,90 Z' fill='rgb(100,116,139)'/></svg>"
+
 def natural_sort_key(s):
     return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
 
@@ -229,7 +231,8 @@ def render_page():
                             ni_val = r.get('numero_interno')
                             path_file = f"alunos/{ano_let_val}/{ni_val}.jpg"
                             signed_url = get_signed_url_from_supabase_storage(path_file, "fotos-alunos")
-                            image_src = signed_url if signed_url else (foto_url if isinstance(foto_url, str) and foto_url.startswith('http') else f"https://res.cloudinary.com/comcia/image/upload/alunos_app/{r['numero_interno']}.jpg")
+                            fallback_img = f"https://res.cloudinary.com/comcia/image/upload/alunos_app/{r['numero_interno']}.jpg" if ano_let_val == '2025' else OFFLINE_AVATAR
+                            image_src = signed_url if signed_url else (foto_url if isinstance(foto_url, str) and foto_url.startswith('http') else fallback_img)
                             ui.element('div').classes('shadow border border-cyan-500/30 shrink-0').style(
                                 f"width: 75px; height: 75px; background-image: url('{image_src}'); "
                                 f"background-size: cover; background-repeat: no-repeat; "
@@ -586,7 +589,8 @@ def render_page():
                             from database import get_signed_url_from_supabase_storage
                             path_file = f"alunos/{ano_letivo_val}/{num_i_val}.jpg"
                             signed_url = get_signed_url_from_supabase_storage(path_file, "fotos-alunos")
-                            image_src = signed_url if signed_url else (foto_url_val if foto_url_val.startswith('http') else f"https://res.cloudinary.com/comcia/image/upload/alunos_app/{num_i_val}.jpg")
+                            fallback_img = f"https://res.cloudinary.com/comcia/image/upload/alunos_app/{num_i_val}.jpg" if ano_letivo_val == '2025' else OFFLINE_AVATAR
+                            image_src = signed_url if signed_url else (foto_url_val if foto_url_val.startswith('http') else fallback_img)
                             with ui.column().classes('items-center shrink-0 justify-center'):
                                 img_box = ui.element('div').classes('shadow border border-cyan-500/30').style(
                                     f"width: 90px; height: 90px; background-image: url('{image_src}'); "
@@ -632,7 +636,7 @@ def render_page():
                                 if signed_url:
                                     src = signed_url
                             elif not src.startswith('http'):
-                                src = f"https://res.cloudinary.com/comcia/image/upload/alunos_app/{num_i_val}.jpg"
+                                src = f"https://res.cloudinary.com/comcia/image/upload/alunos_app/{num_i_val}.jpg" if ano_letivo_val == '2025' else OFFLINE_AVATAR
                             img_box.style(f"background-image: url('{src}');")
                         
                         foto_url.on('change', update_foto_preview)
