@@ -1,11 +1,36 @@
 import os
 import asyncio
 import contextvars
+import unicodedata
 from datetime import date, datetime, timedelta
 from telebot.async_telebot import AsyncTeleBot
 from telebot import types
 from database import get_bot_db_connection as get_db_connection, salvar_presenca_supabase
 from alerts_manager import AlertsManager
+
+def normalize_text(text: str) -> str:
+    if not text:
+        return ""
+    nfkd = unicodedata.normalize('NFKD', text)
+    return "".join([c for c in nfkd if not unicodedata.combining(c)]).lower().strip()
+
+def student_matches(al: dict, query_normalized: str) -> bool:
+    if not query_normalized:
+        return False
+    num = normalize_text(str(al.get('numero_interno', '')))
+    nome = normalize_text(str(al.get('nome_guerra', '')))
+    nome_comp = normalize_text(str(al.get('nome_completo', '')))
+    
+    # Se busca coincide com o número interno de forma exata ou sufixo
+    if query_normalized in num or num.endswith("-" + query_normalized) or num.endswith(query_normalized):
+        return True
+        
+    query_words = query_normalized.split()
+    if not query_words:
+        return False
+        
+    full_name_text = f"{nome} {nome_comp}"
+    return all(word in full_name_text for word in query_words)
 
 # Estado global da conversação do bot por chat_id
 chat_states = {}
@@ -1624,12 +1649,9 @@ def setup_handlers(bot_instance):
                     return
                 
                 matches = []
-                query = text.lower()
+                query_normalized = normalize_text(text)
                 for al in alunos:
-                    num = str(al.get('numero_interno', '')).lower()
-                    nome = str(al.get('nome_guerra', '')).lower()
-                    nome_comp = str(al.get('nome_completo', '')).lower()
-                    if query in num or query in nome or query in nome_comp or num.endswith("-" + query) or num.endswith(query):
+                    if student_matches(al, query_normalized):
                         matches.append(al)
                 
                 if not matches:
@@ -2192,11 +2214,9 @@ def setup_handlers(bot_instance):
                         clear_state(chat_id)
                         return
                     matches = []
-                    query = text.lower()
+                    query_normalized = normalize_text(text)
                     for al in alunos:
-                        num = str(al.get('numero_interno', '')).lower()
-                        nome = str(al.get('nome_guerra', '')).lower()
-                        if query in num or query in nome:
+                        if student_matches(al, query_normalized):
                             matches.append(al)
                     if not matches:
                         await bot_instance.reply_to(message, f"⚠️ Nenhum aluno encontrado com '{text}'. Digite novamente ou selecione Cancelar:", reply_markup=get_cancel_keyboard())
@@ -2231,11 +2251,9 @@ def setup_handlers(bot_instance):
                     return
                 
                 matches = []
-                query = text.lower()
+                query_normalized = normalize_text(text)
                 for al in alunos:
-                    num = str(al.get('numero_interno', '')).lower()
-                    nome = str(al.get('nome_guerra', '')).lower()
-                    if query in num or query in nome:
+                    if student_matches(al, query_normalized):
                         matches.append(al)
                 
                 if not matches:
@@ -2420,11 +2438,9 @@ def setup_handlers(bot_instance):
                     return
                 
                 matches = []
-                query = text.lower()
+                query_normalized = normalize_text(text)
                 for al in alunos:
-                    num = str(al.get('numero_interno', '')).lower()
-                    nome = str(al.get('nome_guerra', '')).lower()
-                    if query in num or query in nome:
+                    if student_matches(al, query_normalized):
                         matches.append(al)
                 
                 if not matches:
@@ -3247,11 +3263,9 @@ def setup_handlers(bot_instance):
                     return
                 
                 matches = []
-                query = text.lower()
+                query_normalized = normalize_text(text)
                 for al in alunos:
-                    num = str(al.get('numero_interno', '')).lower()
-                    nome = str(al.get('nome_guerra', '')).lower()
-                    if query in num or query in nome or num.endswith("-" + query) or num.endswith(query):
+                    if student_matches(al, query_normalized):
                         matches.append(al)
                 
                 if not matches:
@@ -3877,12 +3891,9 @@ async def perform_consulta_search(bot_instance, message, profile, term):
         return
         
     matches = []
-    query = term.strip().lower()
+    query_normalized = normalize_text(term)
     for al in alunos:
-        num = str(al.get('numero_interno', '')).lower()
-        nome = str(al.get('nome_guerra', '')).lower()
-        nome_comp = str(al.get('nome_completo', '')).lower()
-        if query in num or query in nome or query in nome_comp or num.endswith("-" + query) or num.endswith(query):
+        if student_matches(al, query_normalized):
             matches.append(al)
             
     if not matches:
@@ -3892,9 +3903,7 @@ async def perform_consulta_search(bot_instance, message, profile, term):
             res_all = conn.table('Alunos').select('*').execute()
             alunos_all = res_all.data if res_all.data else []
             for al in alunos_all:
-                num = str(al.get('numero_interno', '')).lower()
-                nome = str(al.get('nome_guerra', '')).lower()
-                if query in num or query in nome or num.endswith("-" + query) or num.endswith(query):
+                if student_matches(al, query_normalized):
                     other_matches.append(al)
         except Exception:
             pass
