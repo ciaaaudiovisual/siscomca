@@ -28,7 +28,8 @@ def render_page():
         novas_colunas = {
             'media_academica': 0.0, 'endereco': '', 'telefone_contato': '',
             'contato_emergencia_nome': '', 'contato_emergencia_numero': '', 'numero_armario': '',
-            'url_foto': '', 'nip': '', 'especialidade': '', 'ano_letivo': '2025'
+            'url_foto': '', 'nip': '', 'especialidade': '', 'ano_letivo': '2025',
+            'pelotao': 'Sem Pelotão', 'numero_interno': '', 'nome_guerra': '', 'nome_completo': ''
         }
         for col, default_value in novas_colunas.items():
             if col not in alunos_df.columns:
