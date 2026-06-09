@@ -102,10 +102,12 @@ def get_main_menu_keyboard():
     if row:
         markup.row(*row)
         
-    # Linha 4: Consulta de Aluno
+    # Linha 4: Consulta de Aluno e Programação
     row = []
     if 'menu_alunos' in allowed_features:
         row.append(types.KeyboardButton("🔍 Consulta de Aluno"))
+    if 'menu_programacao' in allowed_features:
+        row.append(types.KeyboardButton("📅 Programação"))
     if row:
         markup.row(*row)
         
@@ -191,7 +193,8 @@ async def get_allowed_features_for_user(profile) -> set:
         'menu_presenca': ['admin', 'supervisor', 'operador', 'comcia', 'ajosca', 'compel'],
         'menu_saude': ['admin', 'supervisor', 'operador', 'comcia', 'ajosca'],
         'menu_pernoite': ['admin', 'supervisor', 'operador', 'comcia', 'ajosca'],
-        'menu_avisos': ['admin', 'supervisor', 'comcia']
+        'menu_avisos': ['admin', 'supervisor', 'comcia'],
+        'menu_programacao': ['admin', 'supervisor', 'operador', 'comcia', 'compel', 'aluno', 'ajosca']
     }
     
     conn = get_db_connection()
@@ -992,6 +995,83 @@ def setup_handlers(bot_instance):
             )
             await bot_instance.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
 
+    @bot_instance.message_handler(commands=['programacao', 'agenda'])
+    async def register_programacao_command(message):
+        chat_id = message.chat.id
+        clear_state(chat_id)
+        
+        profile = await check_authorized_user(message.from_user.id)
+        if not profile:
+            await bot_instance.reply_to(
+                message, 
+                f"⚠️ Acesso não autorizado!\nPor favor, utilize o botão abaixo para solicitar o acesso aos Administradores do sistema (Seu Telegram ID: {message.from_user.id}).",
+                reply_markup=get_unauthorized_keyboard()
+            )
+            return
+            
+        allowed = USER_PERMISSIONS_CACHE.get(message.from_user.id, set())
+        if 'menu_programacao' not in allowed:
+            await bot_instance.reply_to(message, "⚠️ Seu perfil de usuário não tem permissão correlata no app para visualizar a Programação.")
+            return
+            
+        conn = get_db_connection()
+        if not conn:
+            await bot_instance.reply_to(message, "❌ Sem conexão com o banco de dados.")
+            return
+            
+        await bot_instance.send_chat_action(chat_id, 'typing')
+        
+        try:
+            hoje_str = datetime.now().strftime('%Y-%m-%d')
+            hoje_br = datetime.now().strftime('%d/%m/%Y')
+            
+            # Filtra por data de hoje
+            res_pr = conn.table('Programacao').select('*').gte('data', f"{hoje_str} 00:00:00").lte('data', f"{hoje_str} 23:59:59").execute()
+            prog_list = res_pr.data if res_pr.data else []
+            
+            if not prog_list:
+                await bot_instance.reply_to(
+                    message,
+                    f"📅 **PROGRAMAÇÃO DE HOJE — {hoje_br}**\n\n📭 Nenhuma instrução programada para hoje.",
+                    reply_markup=get_main_menu_keyboard(),
+                    parse_mode='Markdown'
+                )
+                return
+                
+            # Ordena por horário
+            prog_list = sorted(prog_list, key=lambda x: x.get('horario', ''))
+            
+            response_lines = [f"📅 **PROGRAMAÇÃO DE HOJE — {hoje_br}**\n"]
+            for idx, act in enumerate(prog_list, 1):
+                horario = act.get('horario', '--:--')
+                descricao = act.get('descricao', 'Sem descrição').strip()
+                local = act.get('local', 'Não informado').strip()
+                responsavel = act.get('responsavel', 'Não informado').strip()
+                destinatarios = act.get('destinatarios', 'Não informado').strip()
+                status = act.get('status', 'A Realizar').strip()
+                
+                status_emoji = "🟢" if status == 'Concluído' else "🔵"
+                
+                item_text = (
+                    f"{idx}. ⏰ **{horario}** - **{descricao}**\n"
+                    f"    📍 *Local:* {local}\n"
+                    f"    👮 *Responsável:* {responsavel}\n"
+                    f"    🎯 *Público:* {destinatarios}\n"
+                    f"    {status_emoji} *Status:* {status}\n"
+                )
+                response_lines.append(item_text)
+                
+            full_response = "\n".join(response_lines)
+            await bot_instance.reply_to(
+                message, 
+                full_response, 
+                reply_markup=get_main_menu_keyboard(), 
+                parse_mode='Markdown'
+            )
+        except Exception as e:
+            print(f"[Bot] Erro ao carregar Programacao: {e}")
+            await bot_instance.reply_to(message, f"❌ Erro ao buscar programação: {e}")
+
     @bot_instance.callback_query_handler(func=lambda call: call.data.startswith('approve_req:') or call.data.startswith('reject_req:'))
     async def process_req_callback(call):
         admin_profile = await check_authorized_user(call.from_user.id)
@@ -1121,6 +1201,7 @@ def setup_handlers(bot_instance):
             "Este assistente permite gerenciar o efetivo de alunos diretamente do Telegram. Veja abaixo os menus e funções disponíveis:\n\n"
             "📋 **Anotação**: Lança ocorrências disciplinares ou elogios para os alunos. Permite selecionar o aluno e o tipo de ação (positiva, neutra ou negativa).\n\n"
             "📊 **Resumo Diário**: Exibe um sumário geral do efetivo de hoje, incluindo contagem de presentes, baixados na enfermaria, internados no hospital e licenciados.\n\n"
+            "📅 **Programação**: Exibe a escala e programação de eventos de hoje (horário, descrição, local, responsável e status).\n\n"
             "📞 **Presença**: Permite realizar a chamada diária de um pelotão específico (marcando todos presentes ou definindo ausentes com justificativa) e listar os faltosos do dia.\n\n"
             "🏥 **Saúde**: Lança alterações de saúde dos alunos (Enfermaria, Hospital, Dispensa Médica, NAS), definindo o status de saúde e datas de dispensa correspondentes.\n\n"
             "📢 **Quadro de Avisos**: Adiciona, edita, remove ou exibe avisos na TV e no painel do letreiro digital.\n\n"
@@ -1182,10 +1263,10 @@ def setup_handlers(bot_instance):
                 )
                 await bot_instance.reply_to(message, welcome_text, reply_markup=get_unauthorized_keyboard(), parse_mode='Markdown')
                 return
-
+ 
             if await check_and_prompt_ano_letivo(bot_instance, message, profile):
                 return
-
+ 
             if "pedidos de acesso" in clean_text or "solicitacoes" in clean_text or "solicitações" in clean_text:
                 await register_solicitacoes_command(message)
                 return
@@ -1216,6 +1297,9 @@ def setup_handlers(bot_instance):
             elif "pernoite" in clean_text:
                 await register_pernoite_command(message)
                 return
+            elif "programacao" in clean_text or "programação" in clean_text or "agenda" in clean_text:
+                await register_programacao_command(message)
+                return
             elif "configuração" in clean_text or "configuracao" in clean_text or "configurações" in clean_text or "configuracoes" in clean_text or "settings" in clean_text:
                 await register_settings_command(message)
                 return
@@ -1225,11 +1309,12 @@ def setup_handlers(bot_instance):
             elif "cancelar" in clean_text:
                 await cancel_action(message)
                 return
-
+ 
             welcome_text = (
                 "⚠️ Comando ou opção não reconhecida.\n\n"
                 "Para iniciar uma conversa ou operação, use os botões abaixo ou um dos comandos:\n"
                 "🔹 `/resumo` (ou `/parada`) : Exibe o resumo do efetivo e saúde de hoje.\n"
+                "🔹 `/programacao` (ou `/agenda`) : Exibe a programação de eventos de hoje.\n"
                 "🔹 `/escala` (ou `/servico`) : Consulta, adiciona e altera a escala.\n"
                 "🔹 `/consulta` (ou `/aluno`) : Exibe a ficha e ocorrências de um aluno.\n"
                 "🔹 `/anotacao` : Inicia o lançamento de comportamento de alunos.\n"
