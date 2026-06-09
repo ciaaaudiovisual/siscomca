@@ -652,6 +652,14 @@ def _carregar_dados_tv(prog_date: datetime = None, active_year: str = '2026'):
     respondidos_nis = set(presenca_df['numero_interno'].astype(str).str.upper()) if not presenca_df.empty else set()
     pendentes_nis = alunos_todos_nis - respondidos_nis
     dados['pendentes_count'] = len(pendentes_nis)
+    
+    pendentes_mikes = []
+    if not alunos_df.empty and pendentes_nis:
+        pendentes_df = alunos_df[alunos_df['numero_interno'].astype(str).str.upper().isin(pendentes_nis)]
+        if 'pelotao' in pendentes_df.columns:
+            mikes = pendentes_df['pelotao'].dropna().astype(str).str.upper().str.strip().unique()
+            pendentes_mikes = sorted([m for m in mikes if m])
+    dados['pendentes_mikes'] = pendentes_mikes
 
     atletas_count = 0
     if db_conn:
@@ -1783,7 +1791,14 @@ def render_page():
                     with ui.row().classes('w-full gap-1 justify-between no-wrap').style('flex: 1; min-height: 0;'):
                         build_mini_kpi(d['total_alunos'], 'Efetivo', '#D4AF37', 'groups')
                         build_mini_kpi(d['presentes_hoje'], 'Presentes', '#4CAF50', 'how_to_reg')
-                        build_mini_kpi(ausentes_count, 'Ausentes/Faltas', '#F44336', 'person_off', subtext=f"{pendentes_val} SEM CHAMADA" if pendentes_val > 0 else None)
+                        sub_str = None
+                        if pendentes_val > 0:
+                            mikes_list = d.get('pendentes_mikes', [])
+                            if mikes_list:
+                                sub_str = f"{pendentes_val} PEND: {', '.join(mikes_list)}"
+                            else:
+                                sub_str = f"{pendentes_val} SEM CHAMADA"
+                        build_mini_kpi(ausentes_count, 'Ausentes/Faltas', '#F44336', 'person_off', subtext=sub_str)
                         build_mini_kpi(licenciados_count, 'Licenças Autorizadas', '#2196F3', 'flight_takeoff')
                 
                     # Linha 2: Enfermaria, Dispensados, Pernoite, Atletas, Fora de S. Sem.

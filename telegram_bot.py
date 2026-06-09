@@ -455,6 +455,7 @@ def setup_handlers(bot_instance):
         
         markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
         markup.row(types.KeyboardButton("📋 Realizar Chamada"), types.KeyboardButton("❌ Listar Faltosos (Ausentes)"))
+        markup.row(types.KeyboardButton("⏳ Listar Pendentes (Sem Chamada)"))
         markup.row(types.KeyboardButton("❌ Cancelar"))
         
         await bot_instance.reply_to(message, "📞 Controle de Presença: Selecione uma opção abaixo:", reply_markup=markup)
@@ -1879,6 +1880,60 @@ def setup_handlers(bot_instance):
                     
                     prompt = "❌ **LISTA DE FALTOSOS DE HOJE**\n\nSelecione o aluno para gerenciar a ausência:"
                     await bot_instance.reply_to(message, prompt, reply_markup=markup, parse_mode='Markdown')
+                
+                elif "listar pendentes" in text.lower() or "sem chamada" in text.lower():
+                    try:
+                        data_hoje = date.today().strftime('%Y-%m-%d')
+                        active_year = get_user_active_year(state.get('user'))
+                        
+                        # 1. Carrega todos os alunos do ano ativo
+                        res_alunos = conn.table('Alunos').select('*').eq('ano_letivo', active_year).execute()
+                        alunos = res_alunos.data if res_alunos.data else []
+                        
+                        # 2. Carrega registros de presença de hoje
+                        res_pres = conn.table('presenca_ausencia').select('numero_interno').eq('data', data_hoje).execute()
+                        respondidos_nis = set([str(p['numero_interno']).strip().upper() for p in res_pres.data]) if res_pres.data else set()
+                        
+                        # 3. Filtra alunos que ainda não responderam
+                        pendentes = []
+                        for al in alunos:
+                            ni = str(al.get('numero_interno', '')).strip().upper()
+                            if ni not in respondidos_nis:
+                                pendentes.append(al)
+                                
+                    except Exception as e:
+                        await bot_instance.reply_to(message, f"❌ Erro ao ler dados de presença: {e}", reply_markup=get_main_menu_keyboard())
+                        clear_state(chat_id)
+                        return
+                        
+                    if not pendentes:
+                        await bot_instance.reply_to(message, "🟢 Todos os alunos já responderam à chamada hoje!", reply_markup=get_main_menu_keyboard())
+                        clear_state(chat_id)
+                        return
+                        
+                    # 4. Agrupa por pelotão/turma
+                    grouped = {}
+                    for al in pendentes:
+                        pel = al.get('pelotao') or 'Sem Pelotão'
+                        if pel not in grouped:
+                            grouped[pel] = []
+                        grouped[pel].append(al)
+                        
+                    # 5. Constrói a mensagem agrupada e ordenada
+                    prompt = "⏳ **ALUNOS PENDENTES (SEM CHAMADA HOJE)** ⏳\n\n"
+                    for pel in sorted(grouped.keys()):
+                        prompt += f"*Turma: {pel}*\n"
+                        # Ordena os alunos por número interno
+                        alunos_ordenados = sorted(grouped[pel], key=lambda x: str(x.get('numero_interno', '')))
+                        for al in alunos_ordenados:
+                            ni = al.get('numero_interno', 'N/A')
+                            guerra = al.get('nome_guerra', 'N/A')
+                            prompt += f"• `{ni}` - {guerra}\n"
+                        prompt += "\n"
+                        
+                    await bot_instance.reply_to(message, prompt, reply_markup=get_main_menu_keyboard(), parse_mode='Markdown')
+                    clear_state(chat_id)
+                    return
                 else:
                     await bot_instance.reply_to(message, "⚠️ Opção inválida. Selecione uma das opções do teclado:")
 
