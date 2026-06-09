@@ -6,7 +6,8 @@ Centraliza o carregamento e processamento de dados para evitar redundância.
 import pandas as pd
 import logging
 from typing import Dict, List, Optional, Tuple
-from database import load_data, get_db_connection
+from database import load_data, get_db_connection, get_bot_db_connection
+
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ class DataService:
             import concurrent.futures
             try:
                 logger.info("Carregando dados essenciais do sistema em paralelo...")
-                db_conn = get_db_connection()
+                db_conn = get_bot_db_connection() or get_db_connection()
                 tables = {
                     'alunos': 'Alunos',
                     'acoes': 'Acoes',
