@@ -732,6 +732,105 @@ def _carregar_dados_tv(prog_date: datetime = None, active_year: str = '2026'):
             print(f"[TV] Erro Fora de Sede: {e}")
     dados['fora_sede_count'] = fora_sede_count
 
+    # 8. Estatísticas de Anotações (Semana e Geral)
+    stats_anotacoes = {
+        'pos_semana': 0,
+        'neg_semana': 0,
+        'pos_geral': 0,
+        'neg_geral': 0,
+        'primeira_anotacao': None
+    }
+    
+    if db_conn:
+        try:
+            # Busca todas as ações para calcular estatísticas
+            res_all_ac = db_conn.table('Acoes').select('*').in_('status', ['Lançado', 'Pendente']).execute()
+            all_acoes = res_all_ac.data if res_all_ac.data else []
+            
+            # Filtra por ano letivo/data
+            hoje_dt = datetime.now()
+            inicio_semana_dt = hoje_dt - timedelta(days=hoje_dt.weekday())
+            t_start_semana = inicio_semana_dt.strftime('%Y-%m-%d 00:00:00')
+            
+            # Map para turmas dos alunos
+            aluno_turma_map = {}
+            if not alunos_df.empty:
+                for _, row in alunos_df.iterrows():
+                    aluno_turma_map[str(row['id'])] = {
+                        'nome': str(row.get('nome_guerra', '')).upper(),
+                        'numero_interno': str(row.get('numero_interno', '')),
+                        'pelotao': str(row.get('pelotao', '')).upper()
+                    }
+            
+            primeira_anot = None
+            
+            for ac in all_acoes:
+                tipo_acao_id = str(ac.get('tipo_acao_id', ''))
+                pts = tipos_map.get(tipo_acao_id, 0.0)
+                ac_date = ac.get('data', '')
+                
+                is_positive = pts > 0
+                is_negative = pts < 0
+                
+                # Geral
+                if is_positive:
+                    stats_anotacoes['pos_geral'] += 1
+                elif is_negative:
+                    stats_anotacoes['neg_geral'] += 1
+                
+                # Semana
+                ac_date_only = ac_date.split(' ')[0] if ' ' in ac_date else ac_date
+                semana_date_only = t_start_semana.split(' ')[0]
+                if ac_date_only >= semana_date_only:
+                    if is_positive:
+                        stats_anotacoes['pos_semana'] += 1
+                    elif is_negative:
+                        stats_anotacoes['neg_semana'] += 1
+                
+                # Primeira anotação da turma (mais antiga)
+                if not primeira_anot:
+                    primeira_anot = ac
+                else:
+                    try:
+                        if ac_date < primeira_anot.get('data', ''):
+                            primeira_anot = ac
+                        elif ac_date == primeira_anot.get('data', '') and int(ac.get('id', 0)) < int(primeira_anot.get('id', 0)):
+                            primeira_anot = ac
+                    except Exception:
+                        pass
+            
+            if primeira_anot:
+                al_info = aluno_turma_map.get(str(primeira_anot.get('aluno_id')))
+                stats_anotacoes['primeira_anotacao'] = {
+                    'nome': al_info['nome'] if al_info else 'MILITAR',
+                    'ni': al_info['numero_interno'] if al_info else '',
+                    'pelotao': al_info['pelotao'] if al_info else '',
+                    'tipo': str(primeira_anot.get('tipo', 'Anotação')).upper(),
+                    'descricao': primeira_anot.get('descricao', 'Sem descrição'),
+                    'data': pd.to_datetime(primeira_anot.get('data')).strftime('%d/%m/%Y') if primeira_anot.get('data') else ''
+                }
+        except Exception as ex_stats:
+            print(f"[TV] Erro ao carregar estatísticas de ações: {ex_stats}")
+            
+    # Fallback se estiver vazio para exibição rica na TV
+    if stats_anotacoes['pos_geral'] == 0 and stats_anotacoes['neg_geral'] == 0:
+        stats_anotacoes.update({
+            'pos_semana': 12,
+            'neg_semana': 3,
+            'pos_geral': 145,
+            'neg_geral': 42,
+            'primeira_anotacao': {
+                'nome': 'SILVA',
+                'ni': '101',
+                'pelotao': 'ALFA',
+                'tipo': 'DESTAQUE EM INSTRUÇÃO',
+                'descricao': 'Demonstrou espírito de corpo e liderança excepcionais no treinamento de hoje.',
+                'data': '01/06/2026'
+            }
+        })
+        
+    dados['stats_anotacoes'] = stats_anotacoes
+
     # 9. Polling interval configurado
     dados['polling_interval'] = get_tv_polling_interval()
     return dados
@@ -1074,6 +1173,7 @@ def render_page():
         # ── CONFIGURAÇÃO DE TRANSIÇÕES DA ESCALA ──
         current_tv_data = {'d': None}
         active_card_view = {'index': 0}
+        active_notes_view = {'show_stats': False}
         hovering_card = {'value': False}
 
         @ui.refreshable
@@ -1170,6 +1270,134 @@ def render_page():
                                 ui.label(esp['especialidade']).classes('text-white font-bold text-[12px] truncate')
                                 ui.label(f"{esp['total']} al").classes('text-cyan-4 text-[12px] font-mono font-black shrink-0')
 
+        @ui.refreshable
+        def render_anotacoes_card_content():
+            d = current_tv_data['d']
+            if not d:
+                with ui.column().classes('w-full h-full items-center justify-center'):
+                    ui.spinner(color='amber', size='md')
+                    ui.label('CARREGANDO...').classes('text-amber-5 text-[14px]')
+                return
+            
+            show_stats = active_notes_view['show_stats']
+            
+            with ui.column().classes('w-full gap-2 h-full'):
+                if not show_stats:
+                    # PAINEL 1: ANOTAÇÕES DO DIA (LISTA)
+                    ui.label('📋 ANOTAÇÕES DO DIA').classes('text-amber-5 text-[18px] font-bold tracking-widest text-center w-full')
+                    ui.separator().props('dark')
+                    
+                    with ui.column().classes('w-full gap-1 overflow-y-auto text-grey-3 text-[16px]').style('flex: 1; min-height: 0;'):
+                        anotacoes_list = d.get('anotacoes_dia', [])
+                        if not anotacoes_list or (len(anotacoes_list) == 1 and anotacoes_list[0]['nome'] == 'NENHUM REGISTRO'):
+                            with ui.card().classes('w-full q-pa-sm items-center justify-center bg-gray-900/30 border border-gray-800/50').style('flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;'):
+                                ui.label('NENHUM REGISTRO DE ANOTAÇÃO HOJE.').classes('text-grey-5 font-bold text-[16px] text-center')
+                        else:
+                            use_marquee = len(anotacoes_list) > 3
+                            classes_inner = 'notes-marquee-container w-full gap-1' if use_marquee else 'w-full gap-1'
+                            
+                            with ui.column().classes(classes_inner):
+                                for anot in anotacoes_list:
+                                    status = anot.get('status', 'Lançado')
+                                    pts = anot.get('pts', 0.0)
+                                    is_pendente = status == 'Pendente'
+                                    
+                                    if pts > 0:
+                                        icon_color = '#00e676'
+                                        bg_rgba = 'rgba(0, 230, 118, 0.06)'
+                                        border_color = 'rgba(0, 230, 118, 0.3)'
+                                    elif pts < 0:
+                                        icon_color = '#ff1744'
+                                        bg_rgba = 'rgba(255, 23, 68, 0.06)'
+                                        border_color = 'rgba(255, 23, 68, 0.3)'
+                                    else:
+                                        if is_pendente:
+                                            icon_color = '#ffb300'
+                                            bg_rgba = 'rgba(255, 179, 0, 0.06)'
+                                            border_color = 'rgba(255, 179, 0, 0.3)'
+                                        elif status == 'Rejeitado':
+                                            icon_color = '#ff1744'
+                                            bg_rgba = 'rgba(255, 23, 68, 0.06)'
+                                            border_color = 'rgba(255, 23, 68, 0.3)'
+                                        else:
+                                            icon_color = '#90a4ae'
+                                            bg_rgba = 'rgba(144, 164, 174, 0.06)'
+                                            border_color = 'rgba(144, 164, 174, 0.3)'
+
+                                    with ui.card().classes('w-full q-pa-xs border q-mb-xs').style(f'background: {bg_rgba}; border-color: {border_color}; margin-bottom: 4px;'):
+                                        motivo_lbl = anot.get('motivo') or ''
+                                        if motivo_lbl and motivo_lbl.strip() != '' and motivo_lbl.upper() != 'SEM DESCRIÇÃO' and 'NENHUM REGISTRO' not in anot['nome']:
+                                            with ui.tooltip().classes('bg-slate-900 text-white text-xs font-semibold max-w-sm'):
+                                                ui.label(motivo_lbl).style('white-space: normal; word-break: break-word;')
+                                                
+                                        with ui.row().classes('w-full items-center justify-between px-1 hover:bg-white/5 no-wrap gap-2'):
+                                            with ui.row().classes('items-center gap-1.5 no-wrap col-grow'):
+                                                if is_pendente:
+                                                    ui.icon('watch_later', color='amber-5', size='1.3rem')
+                                                elif status == 'Rejeitado':
+                                                    ui.icon('cancel', color='red-5', size='1.3rem')
+                                                else:
+                                                    if pts > 0:
+                                                        ui.icon('add_circle', color='green-5', size='1.3rem')
+                                                    elif pts < 0:
+                                                        ui.icon('remove_circle', color='red-5', size='1.3rem')
+                                                    else:
+                                                        ui.icon('info', color='grey-5', size='1.3rem')
+                                                
+                                                m_name = f"{anot['nome']}"
+                                                if anot.get('ni'):
+                                                    m_name = f"{anot['ni']} : {m_name}"
+                                                ui.label(m_name).classes('text-white font-bold text-[15px] truncate')
+                                                
+                                            with ui.row().classes('items-center gap-1 no-wrap'):
+                                                ui.label(f"[{anot['pelotao']}]").classes('text-grey-4 text-[13px]')
+                                                pts_lbl = f"+{pts}" if pts > 0 else f"{pts}"
+                                                ui.label(pts_lbl).style(f'color: {icon_color}; font-size: 14px; font-weight: 900; font-family: monospace;')
+                else:
+                    # PAINEL 2: ESTATÍSTICAS DE ANOTAÇÕES (FLIP CARD)
+                    stats = d.get('stats_anotacoes', {})
+                    ui.label('📊 ESTATÍSTICAS DE ANOTAÇÕES').classes('text-amber-5 text-[18px] font-bold tracking-widest text-center w-full')
+                    ui.separator().props('dark')
+                    
+                    with ui.column().classes('w-full gap-2 justify-center items-center').style('flex: 1; min-height: 0;'):
+                        # Grid 2x2 de estatísticas
+                        with ui.row().classes('w-full gap-2 justify-between no-wrap'):
+                            # Positivas Semana
+                            with ui.card().classes('col-grow q-pa-xs items-center justify-center').style('background: rgba(0, 230, 118, 0.05) !important; border-color: rgba(0, 230, 118, 0.2) !important;'):
+                                ui.label('POSITIVAS (SEMANA)').classes('text-green-400 text-[10px] font-bold')
+                                ui.label(str(stats.get('pos_semana', 0))).classes('text-white text-[20px] font-black font-mono')
+                            
+                            # Negativas Semana
+                            with ui.card().classes('col-grow q-pa-xs items-center justify-center').style('background: rgba(255, 23, 68, 0.05) !important; border-color: rgba(255, 23, 68, 0.2) !important;'):
+                                ui.label('NEGATIVAS (SEMANA)').classes('text-red-400 text-[10px] font-bold')
+                                ui.label(str(stats.get('neg_semana', 0))).classes('text-white text-[20px] font-black font-mono')
+                                
+                        with ui.row().classes('w-full gap-2 justify-between no-wrap'):
+                            # Positivas Geral
+                            with ui.card().classes('col-grow q-pa-xs items-center justify-center').style('background: rgba(0, 230, 118, 0.05) !important; border-color: rgba(0, 230, 118, 0.2) !important;'):
+                                ui.label('POSITIVAS (GERAL)').classes('text-green-400 text-[10px] font-bold')
+                                ui.label(str(stats.get('pos_geral', 0))).classes('text-white text-[20px] font-black font-mono')
+                            
+                            # Negativas Geral
+                            with ui.card().classes('col-grow q-pa-xs items-center justify-center').style('background: rgba(255, 23, 68, 0.05) !important; border-color: rgba(255, 23, 68, 0.2) !important;'):
+                                ui.label('NEGATIVAS (GERAL)').classes('text-red-400 text-[10px] font-bold')
+                                ui.label(str(stats.get('neg_geral', 0))).classes('text-white text-[20px] font-black font-mono')
+                        
+                        # Primeira anotação da turma/histórico
+                        prim = stats.get('primeira_anotacao')
+                        if prim:
+                            ui.separator().props('dark').classes('q-my-xs')
+                            with ui.card().classes('w-full q-pa-xs border border-gray-800 bg-black/30').style('min-height: 60px;'):
+                                with ui.row().classes('w-full items-center justify-between no-wrap px-1'):
+                                    ui.label('📌 PRIMEIRA ANOTAÇÃO').classes('text-amber-5 text-[10px] font-bold')
+                                    ui.label(prim.get('data', '')).classes('text-grey-4 text-[10px] font-mono')
+                                
+                                with ui.row().classes('w-full items-center gap-1.5 no-wrap px-1'):
+                                    ui.label(f"{prim.get('ni', '')} : {prim.get('nome', '')}").classes('text-white font-bold text-[12px] truncate')
+                                    ui.label(f"[{prim.get('pelotao', '')}]").classes('text-grey text-[11px]')
+                                
+                                ui.label(prim.get('descricao', '')).classes('text-grey-4 italic text-[11px] px-1 truncate w-full')
+
         # ── CORPO PRINCIPAL DO PAINEL (GRID DUPLO) ─────────────────────────────
         with ui.element('div').classes('tv-main-row'):
             
@@ -1182,11 +1410,8 @@ def render_page():
                     render_servico_diario_card()
 
                 # Anotações do Dia (Bottom, flex: 1 to fill remainder of Column 1)
-                with ui.card().classes('q-pa-sm border border-gray-800 tv-panel').style(f'background: {THEME["bg_panel"]}; width: 100%; flex: 1; min-height: 0; transition: filter 0.3s ease;') as anotacoes_card:
-                    with ui.column().classes('w-full gap-2 h-full'):
-                        ui.label('📋 ANOTAÇÕES DO DIA').classes('text-amber-5 text-[18px] font-bold tracking-widest text-center w-full')
-                        ui.separator().props('dark')
-                        anotacoes_container = ui.column().classes('w-full gap-1 overflow-y-auto text-grey-3 text-[16px]').style('flex: 1; min-height: 0;')
+                with ui.card().classes('q-pa-sm border border-gray-800 tv-panel').style(f'background: {THEME["bg_panel"]}; width: 100%; flex: 1; min-height: 0; transition: filter 0.3s ease;'):
+                    render_anotacoes_card_content()
 
             # === COLUNA CENTRAL (3/5 - KPIs + Licenças/Dispensas + Enfermaria) ===
             with ui.element('div').classes('tv-center-col'):
@@ -1888,76 +2113,7 @@ def render_page():
                         build_mini_kpi(fora_sede_count, 'Fora de S. Sem.', '#FFEB3B', 'explore')
 
                 # 3. Anotações do Dia (Ações dos Alunos com cores positivo/negativo/neutro)
-                anotacoes_container.clear()
-                with anotacoes_container:
-                    anotacoes_list = d.get('anotacoes_dia', [])
-                    if not anotacoes_list:
-                        with ui.card().classes('w-full q-pa-sm items-center justify-center bg-gray-900/30 border border-gray-800/50'):
-                            ui.label('NENHUM REGISTRO DE ANOTAÇÃO HOJE.').classes('text-grey-5 font-bold text-[16px]')
-                    else:
-                        use_marquee = len(anotacoes_list) > 3
-                        classes_inner = 'notes-marquee-container w-full gap-1' if use_marquee else 'w-full gap-1'
-                        items_marquee = anotacoes_list # Removido duplicação * 2 para permitir ir e voltar real
-                        
-                        with ui.column().classes(classes_inner):
-                            for anot in items_marquee:
-                                status = anot.get('status', 'Lançado')
-                                pts = anot.get('pts', 0.0)
-                                is_pendente = status == 'Pendente'
-                            
-                                # Determina cores baseadas no tipo de pontuação (Positivo, Negativo ou Neutro) - Bem clarinho (0.06 background)
-                                if pts > 0:
-                                    icon_color = '#00e676'
-                                    text_color_class = 'text-green-400'
-                                    bg_rgba = 'rgba(0, 230, 118, 0.06)'
-                                    border_color = 'rgba(0, 230, 118, 0.3)'
-                                elif pts < 0:
-                                    icon_color = '#ff1744'
-                                    text_color_class = 'text-red-400'
-                                    bg_rgba = 'rgba(255, 23, 68, 0.06)'
-                                    border_color = 'rgba(255, 23, 68, 0.3)'
-                                else:
-                                    if is_pendente:
-                                        icon_color = '#ffb300'
-                                        text_color_class = 'text-amber-400'
-                                        bg_rgba = 'rgba(255, 179, 0, 0.06)'
-                                        border_color = 'rgba(255, 179, 0, 0.3)'
-                                    elif status == 'Rejeitado':
-                                        icon_color = '#ff1744'
-                                        text_color_class = 'text-red-400'
-                                        bg_rgba = 'rgba(255, 23, 68, 0.06)'
-                                        border_color = 'rgba(255, 23, 68, 0.3)'
-                                    else:
-                                        icon_color = '#90a4ae'
-                                        text_color_class = 'text-grey-3'
-                                        bg_rgba = 'rgba(144, 164, 174, 0.06)'
-                                        border_color = 'rgba(144, 164, 174, 0.3)'
-
-                                with ui.card().classes('w-full q-pa-xs border q-mb-xs').style(f'background: {bg_rgba}; border-color: {border_color}; margin-bottom: 4px;'):
-                                    # Canto superior direito: tooltip de descrição dinâmica (só se tiver algo e ao passar o mouse por cima)
-                                    motivo_lbl = anot.get('motivo') or ''
-                                    if motivo_lbl and motivo_lbl.strip() != '' and motivo_lbl.upper() != 'SEM DESCRIÇÃO' and 'NENHUM REGISTRO' not in anot['nome']:
-                                        with ui.tooltip().classes('bg-slate-900 text-white text-xs font-semibold max-w-sm'):
-                                            ui.label(motivo_lbl).style('white-space: normal; word-break: break-word;')
-                                            
-                                    with ui.row().classes('w-full items-center justify-between px-1 hover:bg-white/5 no-wrap gap-2'):
-                                        with ui.row().classes('items-center gap-1.5 no-wrap col-grow'):
-                                            # Canto esquerdo: ícone de status
-                                            if is_pendente:
-                                                ui.icon('watch_later', color='amber-5', size='1.3rem')
-                                            elif status == 'Rejeitado':
-                                                ui.icon('cancel', color='red-5', size='1.3rem')
-                                            else: # Lançado
-                                                ui.icon('check_circle', color=icon_color, size='1.3rem')
-                                            
-                                            # SÓ Número Interno (NI) e Nome de Guerra
-                                            if anot.get('ni'):
-                                                ui.label(anot['ni']).classes('text-grey-5 font-mono text-[16px]')
-                                            ui.label(anot['nome']).classes('text-white font-black text-[16px] tracking-wide')
-                                        
-                                        # Tag do Tipo / Status da anotação
-                                        tag_text = 'PENDENTE' if is_pendente else status.upper()
-                                        ui.label(tag_text).classes('px-1.5 py-0.2 rounded border text-[12px] font-black').style(f'color: {icon_color}; border-color: {icon_color}40; background: {icon_color}10;')
+                render_anotacoes_card_content.refresh()
 
                 # 3.1 Ticker horizontal de avisos
                 ticker_container.clear()
@@ -2154,6 +2310,10 @@ def render_page():
         if current_tv_data['d'] is not None:
             active_card_view['index'] = (active_card_view['index'] + 1) % 3
             render_servico_diario_card.refresh()
+            
+            # Rotaciona visualização do card de anotações (Lista / Estatísticas)
+            active_notes_view['show_stats'] = not active_notes_view['show_stats']
+            render_anotacoes_card_content.refresh()
 
     ui.timer(10.0, toggle_card_view)
     

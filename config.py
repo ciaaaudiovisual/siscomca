@@ -401,18 +401,44 @@ def render_page():
         }
         </style>
         ''')
-        with ui.tabs().classes('w-full border-b border-white/10 config-tabs') as tabs:
-            tab_geral = ui.tab('Parâmetros Gerais', icon='settings')
-            tab_sons = ui.tab('Personalização de Sons', icon='volume_up')
-            tab_sinos = ui.tab('Sinos & Alertas Agendados', icon='alarm')
-            tab_templates = ui.tab('Modelos de Mensagens', icon='chat')
-            tab_telegram = ui.tab('Notificações Telegram', icon='notifications')
-            tab_tts = ui.tab('Configuração de Voz (TTS)', icon='record_voice_over')
-            tab_tipos_acao = ui.tab('Tipos de Ações (Notas)', icon='calculate')
-            tab_permissoes = ui.tab('Gerenciar Permissões', icon='admin_panel_settings')
-
-        with ui.tab_panels(tabs, value=tab_geral).classes('w-full bg-transparent'):
-            with ui.tab_panel(tab_geral).classes('bg-transparent q-pa-none gap-6'):
+        active_tab = {'name': 'geral'}
+        
+        @ui.refreshable
+        def render_config_tabs_bar():
+            with ui.row().classes('w-full border-b border-white/10 gap-2 q-mb-md no-wrap overflow-x-auto q-pb-xs'):
+                tabs_def = [
+                    ('geral', 'Parâmetros Gerais', 'settings'),
+                    ('sons', 'Personalização de Sons', 'volume_up'),
+                    ('sinos', 'Sinos & Alertas Agendados', 'alarm'),
+                    ('templates', 'Modelos de Mensagens', 'chat'),
+                    ('telegram', 'Notificações Telegram', 'notifications'),
+                    ('tts', 'Configuração de Voz (TTS)', 'record_voice_over'),
+                    ('tipos_acao', 'Tipos de Ações (Notas)', 'calculate'),
+                    ('permissoes', 'Gerenciar Permissões', 'admin_panel_settings'),
+                ]
+                for key, label, icon in tabs_def:
+                    is_active = active_tab['name'] == key
+                    color = THEME['primary'] if is_active else '#64748b'
+                    bg_color = 'rgba(0, 229, 255, 0.1)' if is_active else 'transparent'
+                    border = f'1px solid {THEME["primary"]}' if is_active else '1px solid rgba(255,255,255,0.05)'
+                    
+                    def click_tab(k=key):
+                        active_tab['name'] = k
+                        panels.value = k
+                        render_config_tabs_bar.refresh()
+                        
+                    ui.button(
+                        label, 
+                        icon=icon, 
+                        on_click=click_tab
+                    ).props('unelevated no-caps dense').style(
+                        f'background: {bg_color}; color: {color}; border: {border}; border-radius: 6px; font-weight: bold; font-size: 0.8rem; padding: 6px 12px;'
+                    )
+        
+        render_config_tabs_bar()
+        panels = ui.tab_panels(value='geral').classes('w-full bg-transparent')
+        with panels:
+            with ui.tab_panel('geral').classes('bg-transparent q-pa-none gap-6'):
                 with ui.grid(columns='1 md:grid-cols-2').classes('w-full gap-6'):
                     
                     # --- CARD 1: CÁLCULO DE CONCEITOS ---
@@ -716,7 +742,7 @@ def render_page():
                             ).props('unelevated color=amber-9 text-color=black w-full dense').classes('bold')
                     
                     # --- ABA 2: PERSONALIZAÇÃO DE SONS ---
-            with ui.tab_panel(tab_sons).classes('bg-transparent q-pa-none gap-6'):
+            with ui.tab_panel('sons').classes('bg-transparent q-pa-none gap-6'):
                 # --- CARD 5: PERSONALIZAÇÃO DE SONS DOS ALERTAS ---
                 with theme.card_base().classes('w-full q-pa-md'):
                     with ui.column().classes('w-full gap-4'):
@@ -1082,7 +1108,7 @@ def render_page():
                         render_sound_files_list()
 
             # --- ABA 3: SINOS & ALERTAS AGENDADOS ---
-            with ui.tab_panel(tab_sinos).classes('bg-transparent q-pa-none gap-6'):
+            with ui.tab_panel('sinos').classes('bg-transparent q-pa-none gap-6'):
                 # --- CARD 6: ALERTAS AGENDADOS E SINOS NAVAIS ---
                 with theme.card_base().classes('w-full q-pa-md'):
                     with ui.column().classes('w-full gap-4'):
@@ -1273,7 +1299,7 @@ def render_page():
                         ).props('unelevated color=amber-9 text-color=black w-full dense').classes('bold')
 
             # --- ABA 4: MODELOS DE MENSAGENS DOS MODAIS ---
-            with ui.tab_panel(tab_templates).classes('bg-transparent q-pa-none gap-6'):
+            with ui.tab_panel('templates').classes('bg-transparent q-pa-none gap-6'):
                 with theme.card_base().classes('w-full q-pa-md'):
                     with ui.column().classes('w-full gap-4'):
                         with ui.row().classes('items-center gap-2'):
@@ -1299,7 +1325,7 @@ def render_page():
                                 template_inputs[key] = input_field
 
             # --- ABA 5: NOTIFICAÇÕES TELEGRAM ---
-            with ui.tab_panel(tab_telegram).classes('bg-transparent q-pa-none gap-6'):
+            with ui.tab_panel('telegram').classes('bg-transparent q-pa-none gap-6'):
                 with ui.column().classes('w-full gap-6'):
                     
                     # 1. Minhas Preferências (Painel Pessoal)
@@ -1579,7 +1605,7 @@ def render_page():
                                 render_pending_requests_tab()
 
             # --- ABA 6: CONFIGURAÇÃO DE VOZ (TTS) ---
-            with ui.tab_panel(tab_tts).classes('bg-transparent q-pa-none gap-6'):
+            with ui.tab_panel('tts').classes('bg-transparent q-pa-none gap-6'):
                 with ui.column().classes('w-full gap-6'):
                     with theme.card_base().classes('w-full q-pa-md'):
                         with ui.column().classes('w-full gap-4'):
@@ -1624,7 +1650,7 @@ def render_page():
                     piper_card.bind_visibility_from(input_tts_engine, 'value', backward=lambda x: x == 'piper')
 
             # --- ABA 7: TIPOS DE AÇÕES (PONTOS/NOTAS) ---
-            with ui.tab_panel(tab_tipos_acao).classes('bg-transparent q-pa-none gap-6'):
+            with ui.tab_panel('tipos_acao').classes('bg-transparent q-pa-none gap-6'):
                 with theme.card_base().classes('w-full q-pa-md'):
                     with ui.column().classes('w-full gap-4'):
                         with ui.row().classes('items-center justify-between w-full'):
@@ -1775,7 +1801,7 @@ def render_page():
                         render_tipos_list()
 
             # --- ABA 8: GERENCIAR PERMISSÕES ---
-            with ui.tab_panel(tab_permissoes).classes('bg-transparent q-pa-none gap-6'):
+            with ui.tab_panel('permissoes').classes('bg-transparent q-pa-none gap-6'):
                 with theme.card_base().classes('w-full q-pa-md'):
                     with ui.column().classes('w-full gap-4'):
                         with ui.row().classes('items-center gap-2'):

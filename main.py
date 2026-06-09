@@ -244,14 +244,17 @@ def build_layout(page_func):
         system_title = str(data_service.get_config_value('cabecalho_tv_title', 'SISTEMA C2') or 'SISTEMA C2').upper()
         ui.run_javascript(f"document.title = '{system_title}'")
         
-        with ui.header().classes('no-shadow').style(f'background: {theme.colors["bg_panel"]}; border-bottom: {theme.colors["border"]}'):
-            with ui.row().classes('w-full items-center justify-between'):
-                with ui.row().classes('items-center gap-2'):
-                    ui.button(on_click=lambda: left_drawer.toggle(), icon='menu').props('flat color=white dense')
-                    ui.image(LOGO_BASE64).style('width: 46px; height: 46px; box-shadow: 0 0 15px rgba(0, 229, 255, 0.5); border-radius: 50%; border: 1px solid rgba(0, 229, 255, 0.3);').classes('drop-shadow-[0_0_10px_rgba(0,229,255,0.4)]')
-                    with ui.column().classes('gap-0'):
-                        ui.label(system_title).style(f'color: {theme.colors["primary"]}; font-weight: bold; line-height: 1; letter-spacing: 1.5px; font-size: 1.2rem;').classes('cyber-title')
-                        ui.label('Corpo de Alunos • 1º Batalhão').style('font-size: 0.75rem; color: #64748b;')
+        with ui.header().classes('no-shadow relative').style(f'background: {theme.colors["bg_panel"]}; border-bottom: {theme.colors["border"]}; height: 60px;'):
+            with ui.row().classes('w-full items-center justify-between h-full px-2'):
+                # Botão de Menu (Alinhado à esquerda)
+                ui.button(on_click=lambda: left_drawer.toggle(), icon='menu').props('flat color=white dense')
+                
+                # Ícone e Título Centralizados
+                with ui.row().classes('absolute-center items-center gap-2 no-wrap'):
+                    ui.image(LOGO_BASE64).style('width: 38px; height: 38px; box-shadow: 0 0 10px rgba(0, 229, 255, 0.5); border-radius: 50%; border: 1px solid rgba(0, 229, 255, 0.3);').classes('drop-shadow-[0_0_8px_rgba(0,229,255,0.4)]')
+                    with ui.column().classes('gap-0 items-center md:items-start'):
+                        ui.label(system_title).style(f'color: {theme.colors["primary"]}; font-weight: bold; line-height: 1.1; letter-spacing: 1.5px; font-size: 1.1rem;').classes('cyber-title text-center md:text-left')
+                        ui.label('Corpo de Alunos • 1º Batalhão').style('font-size: 0.65rem; color: #64748b;').classes('text-center md:text-left')
                 
                 with ui.row().classes('items-center gap-3 no-wrap'):
                     # Seletor Global de Ano Letivo
