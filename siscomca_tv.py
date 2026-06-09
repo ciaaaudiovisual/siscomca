@@ -1790,27 +1790,27 @@ def render_page():
                         }}
                     }}
 
-                    function playSingleSound(sndType) {
-                        if (sndType.startsWith('naval_bell_')) {
+                    function playSingleSound(sndType) {{
+                        if (sndType.startsWith('naval_bell_')) {{
                             let count = 1;
-                            if (sndType === 'naval_bell_singela') {
+                            if (sndType === 'naval_bell_singela') {{
                                 count = 1;
-                            } else if (sndType === 'naval_bell_dobrada') {
+                            }} else if (sndType === 'naval_bell_dobrada') {{
                                 count = 2;
-                            } else {
+                            }} else {{
                                 count = parseInt(sndType.split('_')[2]) || 1;
-                            }
+                            }}
                             
                             const singleMp3Url = supabaseBaseUrl + "/storage/v1/object/public/sons/bell_single.mp3";
                             const doubleMp3Url = supabaseBaseUrl + "/storage/v1/object/public/sons/bell_double.mp3";
                             
-                            function playSynthesizedBells(ctx, count) {
-                                function playNavalBellStrike(ctx, time) {
+                            function playSynthesizedBells(ctx, count) {{
+                                function playNavalBellStrike(ctx, time) {{
                                     const frequencies = [240, 480, 576, 720, 960, 1200, 1440, 1920];
                                     const gains = [0.35, 0.35, 0.25, 0.15, 0.15, 0.1, 0.08, 0.05];
                                     const decays = [3.2, 2.6, 2.2, 1.8, 1.4, 1.0, 0.6, 0.4];
 
-                                    frequencies.forEach((f, idx) => {
+                                    frequencies.forEach((f, idx) => {{
                                         let osc = ctx.createOscillator();
                                         let gainNode = ctx.createGain();
                                         osc.connect(gainNode);
@@ -1825,124 +1825,124 @@ def render_page():
                                         
                                         osc.start(time);
                                         osc.stop(time + decays[idx] + 0.1);
-                                    });
-                                }
+                                    }});
+                                }}
 
                                 let now = ctx.currentTime;
-                                for (let i = 0; i < count; i++) {
+                                for (let i = 0; i < count; i++) {{
                                     let pairIndex = Math.floor(i / 2);
                                     let inPairIndex = i % 2;
                                     let timeOffset = pairIndex * 2.0 + inPairIndex * 0.15;
                                     playNavalBellStrike(ctx, now + timeOffset);
-                                }
-                            }
+                                }}
+                            }}
 
                             fetch(singleMp3Url)
-                                .then(res => {
-                                    if (res.ok) {
+                                .then(res => {{
+                                    if (res.ok) {{
                                         let pairs = Math.floor(count / 2);
                                         let remainder = count % 2;
                                         
-                                        for (let p = 0; p < pairs; p++) {
-                                            setTimeout(() => {
+                                        for (let p = 0; p < pairs; p++) {{
+                                            setTimeout(() => {{
                                                 let audio = new Audio(doubleMp3Url);
                                                 audio.volume = 1.0;
-                                                audio.play().catch(() => {});
-                                            }, p * 2000);
-                                        }
+                                                audio.play().catch(() => {{}});
+                                            }}, p * 2000);
+                                        }}
                                         
-                                        if (remainder > 0) {
-                                            setTimeout(() => {
+                                        if (remainder > 0) {{
+                                            setTimeout(() => {{
                                                 let audio = new Audio(singleMp3Url);
                                                 audio.volume = 1.0;
-                                                audio.play().catch(() => {});
-                                            }, pairs * 2000);
-                                        }
-                                    } else {
+                                                audio.play().catch(() => {{}});
+                                            }}, pairs * 2000);
+                                        }}
+                                    }} else {{
                                         playSynthesizedBells(ctx, count);
-                                    }
-                                }).catch(() => {
+                                    }}
+                                }}).catch(() => {{
                                     playSynthesizedBells(ctx, count);
-                                });
-                        } else {
+                                }});
+                        }} else {{
                             const customMp3Url = supabaseBaseUrl + "/storage/v1/object/public/sons/" + encodeURIComponent(sndType) + ".mp3";
                             const customMp3UrlUpper = supabaseBaseUrl + "/storage/v1/object/public/sons/" + encodeURIComponent(sndType) + ".MP3";
                             fetch(customMp3Url)
-                                .then(res => {
-                                    if (res.ok) {
+                                .then(res => {{
+                                    if (res.ok) {{
                                         let audio = new Audio(customMp3Url);
                                         audio.volume = 1.0;
-                                        audio.play().catch(() => {});
-                                    } else {
+                                        audio.play().catch(() => {{}});
+                                    }} else {{
                                         fetch(customMp3UrlUpper)
-                                            .then(res2 => {
-                                                if (res2.ok) {
+                                            .then(res2 => {{
+                                                if (res2.ok) {{
                                                     let audio2 = new Audio(customMp3UrlUpper);
                                                     audio2.volume = 1.0;
-                                                    audio2.play().catch(() => {});
-                                                } else {
+                                                    audio2.play().catch(() => {{}});
+                                                }} else {{
                                                     playDefaultSynthesized(sndType);
-                                                }
-                                            }).catch(() => {
+                                                }}
+                                            }}).catch(() => {{
                                                 playDefaultSynthesized(sndType);
-                                            });
-                                    }
-                                }).catch(() => {
+                                            }});
+                                    }}
+                                }}).catch(() => {{
                                     fetch(customMp3UrlUpper)
-                                        .then(res2 => {
-                                            if (res2.ok) {
+                                        .then(res2 => {{
+                                            if (res2.ok) {{
                                                 let audio2 = new Audio(customMp3UrlUpper);
                                                 audio2.volume = 1.0;
-                                                audio2.play().catch(() => {});
-                                            } else {
+                                                audio2.play().catch(() => {{}});
+                                            }} else {{
                                                 playDefaultSynthesized(sndType);
-                                            }
-                                        }).catch(() => {
+                                            }}
+                                        }}).catch(() => {{
                                             playDefaultSynthesized(sndType);
-                                        });
-                                });
-                        }
-                    }
+                                        }});
+                                }});
+                        }}
+                    }}
 
-                    if (ctx && playSound && type !== 'silent') {
-                        if (ctx.state === 'suspended') {
+                    if (ctx && playSound && type !== 'silent') {{
+                        if (ctx.state === 'suspended') {{
                             ctx.resume();
-                        }
+                        }}
                         
                         let sequence = [];
-                        if (Array.isArray(type)) {
+                        if (Array.isArray(type)) {{
                             sequence = type;
-                        } else if (typeof type === 'string') {
-                            try {
+                        }} else if (typeof type === 'string') {{
+                            try {{
                                 let parsed = JSON.parse(type);
-                                if (Array.isArray(parsed)) {
+                                if (Array.isArray(parsed)) {{
                                     sequence = parsed;
-                                } else {
-                                    sequence = [{som: type, delay: 0}];
-                                }
-                            } catch(e) {
-                                sequence = [{som: type, delay: 0}];
-                            }
-                        } else {
-                            sequence = [{som: String(type), delay: 0}];
-                        }
+                                }} else {{
+                                    sequence = [{{som: type, delay: 0}}];
+                                }}
+                            }} catch(e) {{
+                                sequence = [{{som: type, delay: 0}}];
+                            }}
+                        }} else {{
+                            sequence = [{{som: String(type), delay: 0}}];
+                        }}
 
                         let accumulatedDelay = 0;
-                        sequence.forEach(item => {
+                        sequence.forEach(item => {{
                             let som = 'info';
                             let delay = 0;
-                            if (typeof item === 'object' && item !== null) {
+                            if (typeof item === 'object' && item !== null) {{
                                 som = item.som || 'info';
                                 delay = parseFloat(item.delay) || 0;
-                            } else {
+                            }} else {{
                                 som = String(item);
-                            }
+                            }}
                             accumulatedDelay += delay;
-                            setTimeout(() => {
+                            setTimeout(() => {{
                                 playSingleSound(som);
-                            }, accumulatedDelay * 1000);
-                        });
-                    }
+                            }}, accumulatedDelay * 1000);
+                        }});
+                    }}
 
                     if (playVoice) {{
                         let audioBase64 = {escaped_audio};
