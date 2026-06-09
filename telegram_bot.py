@@ -4043,6 +4043,7 @@ async def display_student_dossier(bot_instance, message, conn, student):
             f"• Nome de Guerra: {student.get('nome_guerra')}\n"
             f"• Número Interno: `{student.get('numero_interno')}`\n"
             f"• Pelotão (Turma): {student.get('pelotao')}\n"
+            f"• Especialidade: {student.get('especialidade') or 'Não informada'}\n"
             f"• Situação Cadastral: {student.get('status') or 'Ativo'}\n\n"
             f"📊 Presença Hoje: {pres_lbl}\n"
             f"🩺 Situação de Saúde: {health_lbl}\n\n"
