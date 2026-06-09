@@ -188,6 +188,80 @@ def _upsert_registro(
                 payload['criado_em'] = datetime.now().isoformat()
                 db_conn.table('enfermaria').insert(payload).execute()
         
+        # Grava o lançamento no histórico de ações/dossier do aluno
+        aluno_id = '0'
+        try:
+            alunos_df = data_service.get_alunos_data()
+            if not alunos_df.empty:
+                match_al = alunos_df[alunos_df['numero_interno'].astype(str) == str(numero_interno)]
+                if not match_al.empty:
+                    aluno_id = str(match_al.iloc[0]['id'])
+            if aluno_id == '0' and db_conn:
+                r_al = db_conn.table('Alunos').select('id').eq('numero_interno', str(numero_interno)).execute()
+                if r_al.data:
+                    aluno_id = str(r_al.data[0]['id'])
+        except Exception as ex_al:
+            print(f"[SAUDE] Erro ao buscar aluno_id para Acoes: {ex_al}")
+
+        if aluno_id != '0':
+            # Mapeamento do Tipo de Ação
+            tipo_nome = 'SAÚDE'
+            if status == 'Dispensado':
+                tipo_nome = 'DISPENSA MÉDICA'
+            elif status == 'Hospital':
+                tipo_nome = 'HOSPITAL'
+            elif status in ['Em Observação', 'Internado', 'baixado']:
+                tipo_nome = 'ENFERMARIA'
+            
+            tipo_acao_id = '0'
+            try:
+                tipos_df = data_service.get_tipos_acao_data()
+                if not tipos_df.empty:
+                    match_tipo = tipos_df[tipos_df['nome'].str.upper() == tipo_nome]
+                    if not match_tipo.empty:
+                        tipo_acao_id = str(match_tipo.iloc[0]['id'])
+            except Exception as ex_tipo:
+                print(f"[SAUDE] Erro ao buscar tipo_acao_id: {ex_tipo}")
+
+            try:
+                usuario = app.storage.user.get('user_data', {}).get('nome_guerra', 'Oficial de Dia')
+                if status == 'Alta':
+                    descricao_acao = f"Alta Médica: {motivo}"
+                elif status == 'Dispensado':
+                    descricao_acao = f"Dispensa Médica ({detalhe}): {motivo}"
+                    if data_ini and data_fim:
+                        descricao_acao += f" ({pd.to_datetime(data_ini).strftime('%d/%m')} a {pd.to_datetime(data_fim).strftime('%d/%m')})"
+                elif status == 'Licença':
+                    descricao_acao = f"Licença ({detalhe}): {motivo}"
+                    if data_ini and data_fim:
+                        descricao_acao += f" ({pd.to_datetime(data_ini).strftime('%d/%m')} a {pd.to_datetime(data_fim).strftime('%d/%m')})"
+                else:
+                    descricao_acao = f"Entrada na Enfermaria ({status}): {motivo}"
+                    if observacao:
+                        descricao_acao += f" | Obs: {observacao}"
+                
+                nova_acao = {
+                    'aluno_id': aluno_id,
+                    'tipo_acao_id': tipo_acao_id if tipo_acao_id != '0' else None,
+                    'tipo': tipo_nome,
+                    'descricao': descricao_acao,
+                    'data': data_hoje,
+                    'usuario': usuario,
+                    'status': 'Lançado'
+                }
+                
+                if status == 'Dispensado':
+                    nova_acao.update({
+                        'esta_dispensado': True,
+                        'periodo_dispensa_inicio': data_ini,
+                        'periodo_dispensa_fim': data_fim,
+                        'tipo_dispensa': detalhe
+                    })
+                    
+                db_conn.table('Acoes').insert(nova_acao).execute()
+            except Exception as ex_ins:
+                print(f"[SAUDE] Erro ao inserir Acao em _upsert_registro: {ex_ins}")
+        
         # Dispara alertas em tempo real para as TVs
         try:
             from alerts_manager import AlertsManager
@@ -501,6 +575,99 @@ def _card_vazio(msg: str):
         ui.label(msg).classes('text-grey-700 italic text-xs text-center')
 
 
+def _abrir_anotacao_saude_dialog(numero_interno: str, nome_guerra: str, turma: str, alunos_df: pd.DataFrame):
+    """Abre um diálogo para adicionar uma anotação de saúde diretamente na ficha/cadastro do aluno."""
+    d = ui.dialog()
+    with d, ui.card().classes('w-[420px] q-pa-lg').style(
+        f'background:{THEME["bg_panel"]}; border:{THEME["border"]};'
+    ):
+        ui.label('⚕️ Adicionar Anotação de Saúde').style(f'color:{THEME["primary"]}; font-weight:bold; font-size:1.1rem;')
+        ui.label(f'Militar: {nome_guerra} ({numero_interno}) • Pelotão: {turma}').classes('text-grey text-caption q-mb-md')
+        
+        db_conn = get_db_connection()
+        tipos_df = data_service.get_tipos_acao_data()
+        
+        # Tipos padrão se vazio/erro
+        health_types = [
+            {'id': '44', 'nome': 'SAÚDE'},
+            {'id': '42', 'nome': 'DISPENSA MÉDICA'},
+            {'id': '37', 'nome': 'ENFERMARIA'},
+            {'id': '6', 'nome': 'HOSPITAL'}
+        ]
+        
+        if not tipos_df.empty:
+            match_types = tipos_df[tipos_df['nome'].str.upper().isin(['SAÚDE', 'DISPENSA MÉDICA', 'ENFERMARIA', 'HOSPITAL'])]
+            if not match_types.empty:
+                health_types = match_types[['id', 'nome']].to_dict(orient='records')
+        
+        opcoes = {str(item['id']): item['nome'] for item in health_types}
+        default_val = None
+        for item in health_types:
+            if item['nome'].upper() == 'SAÚDE':
+                default_val = str(item['id'])
+                break
+        if not default_val and health_types:
+            default_val = str(health_types[0]['id'])
+            
+        tipo_sel = ui.select(opcoes, value=default_val, label='Tipo de Anotação').props('dark outlined dense').classes('w-full q-mb-md')
+        desc_inp = ui.textarea('Anotação de Saúde').props('dark outlined dense rows=3 placeholder="Descreva os sintomas, atendimento ou orientações médicas..."').classes('w-full q-mb-md')
+        err = ui.label('').classes('text-caption text-red')
+        
+        def confirmar():
+            if not desc_inp.value:
+                err.text = 'Preencha a descrição da anotação.'
+                return
+            
+            try:
+                # Localizar aluno_id
+                aluno_id = '0'
+                if not alunos_df.empty:
+                    match_al = alunos_df[alunos_df['numero_interno'].astype(str) == str(numero_interno)]
+                    if not match_al.empty:
+                        aluno_id = str(match_al.iloc[0]['id'])
+                
+                if aluno_id == '0' and db_conn:
+                    r_al = db_conn.table('Alunos').select('id').eq('numero_interno', str(numero_interno)).execute()
+                    if r_al.data:
+                        aluno_id = str(r_al.data[0]['id'])
+                
+                if aluno_id == '0':
+                    err.text = 'Erro: Aluno não localizado na base de dados.'
+                    return
+                
+                usuario = app.storage.user.get('user_data', {}).get('nome_guerra', 'Oficial de Dia')
+                tipo_nome = opcoes[tipo_sel.value]
+                
+                nova_acao = {
+                    'aluno_id': aluno_id,
+                    'tipo_acao_id': tipo_sel.value,
+                    'tipo': tipo_nome,
+                    'descricao': desc_inp.value,
+                    'data': datetime.now().strftime('%Y-%m-%d'),
+                    'usuario': usuario,
+                    'status': 'Lançado'
+                }
+                
+                if db_conn:
+                    db_conn.table('Acoes').insert(nova_acao).execute()
+                    ui.notify(f"Anotação registrada para {nome_guerra}!", color='positive')
+                    d.close()
+                    data_service.clear_cache()
+                    render_saude_content.refresh()
+                else:
+                    ui.notify('[OFFLINE] Conexão indisponível', color='warning')
+                    d.close()
+            except Exception as ex:
+                print(f"[SAUDE] Erro ao adicionar anotação: {ex}")
+                err.text = 'Erro ao salvar anotação.'
+                
+        with ui.row().classes('w-full justify-end gap-2 q-mt-sm'):
+            ui.button('Cancelar', on_click=d.close).props('flat color=grey')
+            ui.button('💾 Confirmar Lançamento', on_click=confirmar).props('unelevated color=primary text-color=black')
+
+    d.open()
+
+
 def _abrir_alta_dialog(rid, ni, ng, t, alunos_df):
     """Abre um diálogo/questionário de alta médica perguntando se é Alta Normal ou com Restrições/Dispensa."""
     d = ui.dialog()
@@ -566,40 +733,6 @@ def _abrir_alta_dialog(rid, ni, ng, t, alunos_df):
                 
                 # 3. Registrar Ação
                 if ok1 and ok2:
-                    try:
-                        db_conn = get_db_connection()
-                        tipo_acao_id = '0'
-                        tipos_df = data_service.get_tipos_acao_data()
-                        if not tipos_df.empty:
-                            match = tipos_df[tipos_df['name'].str.upper().isin(['DISPENSA MÉDICA', 'SAÚDE'])]
-                            if not match.empty:
-                                tipo_acao_id = str(match.iloc[0]['id'])
-                        
-                        aluno_id = '0'
-                        if not alunos_df.empty:
-                            match_al = alunos_df[alunos_df['numero_interno'].astype(str) == str(ni)]
-                            if not match_al.empty:
-                                aluno_id = str(match_al.iloc[0]['id'])
-                                
-                        usuario = app.storage.user.get('user_data', {}).get('nome_guerra', 'Oficial de Dia')
-                        nova_acao = {
-                            'aluno_id': aluno_id,
-                            'tipo_acao_id': tipo_acao_id,
-                            'tipo': 'DISPENSA MÉDICA',
-                            'descricao': f"{tipo_disp.value} — {obs_inp.value or motivo_inp.value}",
-                            'data': datetime.now().strftime('%Y-%m-%d'),
-                            'usuario': usuario,
-                            'status': 'Lançado',
-                            'esta_dispensado': True,
-                            'periodo_dispensa_inicio': d_ini.value,
-                            'periodo_dispensa_fim': d_fim.value,
-                            'tipo_dispensa': tipo_disp.value,
-                        }
-                        if db_conn:
-                            db_conn.table('Acoes').insert(nova_acao).execute()
-                    except Exception as ex:
-                        print(f"[SAUDE] Erro ao registrar Acoes na alta: {ex}")
-                        
                     ui.notify(f'Alta e Dispensa registradas — {ng}', color='positive')
                     d.close()
                     data_service.clear_cache()
@@ -651,11 +784,16 @@ def _card_ativo(r: dict, alunos_df, mostrar_alta=False):
                     f'border:1px solid {cor}; padding:2px 5px; border-radius:3px; '
                     'white-space:nowrap;'
                 ).classes('cyber-title')
-                if mostrar_alta:
-                    # Botão Alta (abre questionário/diálogo)
-                    ui.button('✅ Alta', on_click=lambda: _abrir_alta_dialog(reg_id, num_int, nome, turma, alunos_df)).props('unelevated dense no-caps').style(
-                        'background:#00e676; color:#000; font-size:0.6rem; font-weight:bold; padding:2px 8px;'
+                with ui.row().classes('items-center gap-1.5'):
+                    # Botão Adicionar Anotação
+                    ui.button(icon='post_add', on_click=lambda: _abrir_anotacao_saude_dialog(num_int, nome, turma, alunos_df)).props('unelevated dense round').style(
+                        'background:#2a2a2a; color:#fff; font-size:0.6rem; width:22px; height:22px;'
                     )
+                    if mostrar_alta:
+                        # Botão Alta (abre questionário/diálogo)
+                        ui.button('✅ Alta', on_click=lambda: _abrir_alta_dialog(reg_id, num_int, nome, turma, alunos_df)).props('unelevated dense no-caps').style(
+                            'background:#00e676; color:#000; font-size:0.6rem; font-weight:bold; padding:2px 8px;'
+                        )
 
 
 def _card_dispensa(r: dict, alunos_df):
@@ -711,9 +849,14 @@ def _card_dispensa(r: dict, alunos_df):
                     render_saude_content.refresh()
                 else:
                     ui.notify('Erro ao encerrar dispensa', color='negative')
-            ui.button('⬜ Encerrar Dispensa', on_click=_encerrar).props(
-                'unelevated dense no-caps'
-            ).style('background:#00a2ff; color:#000; font-weight:bold; font-size:0.65rem; padding:3px 10px; margin-top:4px;')
+            with ui.row().classes('items-center gap-2 q-mt-xs'):
+                # Botão Adicionar Anotação
+                ui.button(icon='post_add', on_click=lambda: _abrir_anotacao_saude_dialog(num_int, nome, turma, alunos_df)).props('unelevated dense round').style(
+                    'background:#2a2a2a; color:#fff; font-size:0.65rem; width:26px; height:26px;'
+                )
+                ui.button('⬜ Encerrar Dispensa', on_click=_encerrar).props(
+                    'unelevated dense no-caps'
+                ).style('background:#00a2ff; color:#000; font-weight:bold; font-size:0.65rem; padding:3px 10px;')
 
 
 def _card_licenca(r: dict, alunos_df):
@@ -775,9 +918,14 @@ def _card_licenca(r: dict, alunos_df):
                         render_saude_content.refresh()
                     else:
                         ui.notify('Erro ao encerrar licença', color='negative')
-                ui.button('⬜ Encerrar Licença', on_click=_encerrar_lic).props(
-                    'unelevated dense no-caps'
-                ).style('background:#00e5ff; color:#000; font-weight:bold; font-size:0.65rem; padding:3px 10px; margin-top:4px;')
+                with ui.row().classes('items-center gap-2 q-mt-xs'):
+                    # Botão Adicionar Anotação
+                    ui.button(icon='post_add', on_click=lambda: _abrir_anotacao_saude_dialog(num_int, nome, turma, alunos_df)).props('unelevated dense round').style(
+                        'background:#2a2a2a; color:#fff; font-size:0.65rem; width:26px; height:26px;'
+                    )
+                    ui.button('⬜ Encerrar Licença', on_click=_encerrar_lic).props(
+                        'unelevated dense no-caps'
+                    ).style('background:#00e5ff; color:#000; font-weight:bold; font-size:0.65rem; padding:3px 10px;')
 
             ui.label('LICENÇA').style(
                 f'color:{cor}; font-size:0.6rem; font-weight:bold; '
@@ -904,34 +1052,8 @@ def _render_form_dispensa(alunos_view, alunos_df, acoes_df, tipos_acao_df, pelot
                         detalhe=tipo_disp.value,
                         observacao=obs_inp.value or '',
                     )
-                    # Também registra na tabela Acoes para histórico de conceito
+                    # Também registra na tabela Acoes para histórico de conceito (removido duplicidade, já tratado em _upsert_registro)
                     if ok:
-                        try:
-                            db_conn = get_db_connection()
-                            tipo_acao_id = '0'
-                            if not tipos_acao_df.empty:
-                                match = tipos_acao_df[tipos_acao_df['nome'].str.upper().isin(['DISPENSA MÉDICA', 'SAÚDE'])]
-                                if not match.empty:
-                                    tipo_acao_id = str(match.iloc[0]['id'])
-                            usuario = app.storage.user.get('user_data', {}).get('nome_guerra', 'Oficial de Dia')
-                            nova_acao = {
-                                'aluno_id': str(aluno_sel.value),
-                                'tipo_acao_id': tipo_acao_id,
-                                'tipo': 'DISPENSA MÉDICA',
-                                'descricao': f"{tipo_disp.value} — {obs_inp.value or motivo_inp.value}",
-                                'data': datetime.now().strftime('%Y-%m-%d'),
-                                'usuario': usuario,
-                                'status': 'Lançado',
-                                'esta_dispensado': True,
-                                'periodo_dispensa_inicio': data_ini.value,
-                                'periodo_dispensa_fim': data_fim.value,
-                                'tipo_dispensa': tipo_disp.value,
-                            }
-                            if db_conn:
-                                db_conn.table('Acoes').insert(nova_acao).execute()
-                        except Exception as e:
-                            print(f"[SAUDE] Erro ao registrar Acoes: {e}")
-
                         ui.notify(f"📋 Dispensa registrada para {r['nome_guerra']}!", color='positive')
                         data_service.clear_cache()
                         render_saude_content.refresh()
@@ -1142,9 +1264,22 @@ def _render_historico(alunos_df, pelotao_filtro):
                             with ui.row().classes('items-center gap-3'):
                                 ui.label(f'🕐 {hora}h').style('color:#444; font-size:0.65rem; font-weight:bold; min-width:60px;')
                                 with ui.column().classes('gap-0'):
-                                    ui.label(str(r.get('nome_guerra') or '???')).classes('text-white text-xs font-bold uppercase')
+                                    with ui.row().classes('items-center gap-1'):
+                                        ui.label(str(r.get('nome_guerra') or '???')).classes('text-white text-xs font-bold uppercase')
+                                        num_int = r.get('numero_interno')
+                                        if num_int:
+                                            ui.label(f"({num_int})").classes('text-grey-5 text-[10px]')
                                     ui.label(f"Pel. {r.get('turma') or '?'} — {r.get('motivo') or ''}").classes('text-grey text-[10px] italic')
-                            ui.label(str(st).upper()).style(
-                                f'color:{cor}; font-size:0.6rem; font-weight:bold; '
-                                f'border:1px solid {cor}; padding:1px 6px; border-radius:3px;'
-                            )
+                            with ui.row().classes('items-center gap-2'):
+                                # Botão Adicionar Anotação rápida
+                                num_int = r.get('numero_interno')
+                                nome_g = r.get('nome_guerra')
+                                turma_p = r.get('turma')
+                                if num_int and nome_g:
+                                    ui.button(icon='post_add', on_click=lambda num_int=num_int, nome_g=nome_g, turma_p=turma_p: _abrir_anotacao_saude_dialog(num_int, nome_g, turma_p, alunos_df)).props('unelevated dense round').style(
+                                        'background:#2a2a2a; color:#fff; font-size:0.6rem; width:22px; height:22px;'
+                                    )
+                                ui.label(str(st).upper()).style(
+                                    f'color:{cor}; font-size:0.6rem; font-weight:bold; '
+                                    f'border:1px solid {cor}; padding:1px 6px; border-radius:3px;'
+                                )
