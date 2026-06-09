@@ -1043,12 +1043,12 @@ def setup_handlers(bot_instance):
             
             response_lines = [f"📅 **PROGRAMAÇÃO DE HOJE — {hoje_br}**\n"]
             for idx, act in enumerate(prog_list, 1):
-                horario = act.get('horario', '--:--')
-                descricao = act.get('descricao', 'Sem descrição').strip()
-                local = act.get('local', 'Não informado').strip()
-                responsavel = act.get('responsavel', 'Não informado').strip()
-                destinatarios = act.get('destinatarios', 'Não informado').strip()
-                status = act.get('status', 'A Realizar').strip()
+                horario = act.get('horario') or '--:--'
+                descricao = (act.get('descricao') or 'Sem descrição').strip()
+                local = (act.get('local') or 'Não informado').strip()
+                responsavel = (act.get('responsavel') or 'Não informado').strip()
+                destinatarios = (act.get('destinatarios') or 'Não informado').strip()
+                status = (act.get('status') or 'A Realizar').strip()
                 
                 status_emoji = "🟢" if status == 'Concluído' else "🔵"
                 
