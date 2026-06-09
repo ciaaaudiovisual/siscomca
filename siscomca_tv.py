@@ -1084,56 +1084,62 @@ def render_page():
                         ui.label('👮 DEMAIS SERVIÇOS').classes('text-amber-5 text-[12px] font-black tracking-widest')
                         ui.badge('PRONTOS', color='green-9').classes('text-[10px] font-bold')
                         
-                    outros_servicos = []
-                    outros_servicos.append({'cargo': 'OSCA', 'nome': d.get('osca_servico', 'NÃO ESCALADO')})
-                    outros_servicos.append({'cargo': 'AJOSCA', 'nome': d.get('ajosca_servico', 'NÃO ESCALADO')})
-                    for esc in d.get('outros_escalados', []):
-                        outros_servicos.append({'cargo': esc['cargo'], 'nome': esc['nome']})
-
                     def is_defined(name: str) -> bool:
                         if not name:
                             return False
                         n = name.strip().upper()
-                        return "DEFINIDO" not in n and "ESCALADO" not in n and n not in {"", "N/A", "-"}
+                        return "DEFINIDO" not in n and "ESCALADO" not in n and n not in {"", "N/A", "-", "NÃO ESCALADO"}
 
-                    use_marquee = len(outros_servicos) > 4
-                    classes_inner = 'health-marquee-container w-full gap-1' if use_marquee else 'w-full gap-1'
-                    items_marquee = outros_servicos * 2 if use_marquee else outros_servicos
+                    outros_servicos = []
+                    osca_name = d.get('osca_servico', '')
+                    if is_defined(osca_name):
+                        outros_servicos.append({'cargo': 'OSCA', 'nome': osca_name})
+                    ajosca_name = d.get('ajosca_servico', '')
+                    if is_defined(ajosca_name):
+                        outros_servicos.append({'cargo': 'AJOSCA', 'nome': ajosca_name})
+                    for esc in d.get('outros_escalados', []):
+                        if is_defined(esc['nome']):
+                            outros_servicos.append({'cargo': esc['cargo'], 'nome': esc['nome']})
 
-                    with ui.column().classes('w-full').style('flex: 1; min-height: 0; overflow: hidden; position: relative;'):
-                        with ui.column().classes(classes_inner):
-                            for item in items_marquee:
-                                defined = is_defined(item['nome'])
-                                with ui.row().classes('w-full items-center justify-between px-1 q-py-0.5 border-b border-gray-900/50 hover:bg-white/5'):
-                                    ui.label(item['cargo'].upper()).classes('text-grey-5 font-bold text-[14px]').style('font-family: monospace;')
-                                    with ui.row().classes('items-center gap-1.5'):
-                                        if defined:
+                    if not outros_servicos:
+                        with ui.column().classes('w-full h-full items-center justify-center gap-1.5').style('flex: 1; min-height: 0;'):
+                            ui.icon('shield', size='2rem', color='grey-8')
+                            ui.label('NENHUM OUTRO SERVIÇO DEFINIDO').classes('text-grey-6 font-bold text-[13px] tracking-wider')
+                    else:
+                        use_marquee = len(outros_servicos) > 4
+                        classes_inner = 'health-marquee-container w-full gap-1' if use_marquee else 'w-full gap-1'
+                        items_marquee = outros_servicos * 2 if use_marquee else outros_servicos
+
+                        with ui.column().classes('w-full').style('flex: 1; min-height: 0; overflow: hidden; position: relative;'):
+                            with ui.column().classes(classes_inner):
+                                for item in items_marquee:
+                                    with ui.row().classes('w-full items-center justify-between px-1 q-py-0.5 border-b border-gray-900/50 hover:bg-white/5'):
+                                        ui.label(item['cargo'].upper()).classes('text-grey-5 font-bold text-[14px]').style('font-family: monospace;')
+                                        with ui.row().classes('items-center gap-1.5'):
                                             ui.label(item['nome'].upper()).classes('text-white font-black text-[14px]')
                                             ui.badge('PRONTO', color='green-9').classes('text-[10px] font-bold')
-                                        else:
-                                            ui.label('AGUARDANDO').classes('text-amber-5 font-bold text-[14px] animate-pulse')
             
             elif view_idx == 1:
                 # VIEW 1: TOTAL DE ALUNOS POR TURMA
                 with ui.column().classes('w-full h-full gap-2 justify-center items-center q-pa-sm'):
                     ui.label('📊 TOTAL POR TURMA').style(f'color: {THEME["primary"]}; font-size: 16px; font-weight: 900; letter-spacing: 2px; text-align: center;')
                     ui.separator().props('dark')
-                    with ui.column().classes('w-full gap-1').style('flex: 1; min-height: 0; overflow-y: auto; justify-content: center;'):
+                    with ui.element('div').classes('grid grid-cols-2 gap-x-2 gap-y-1.5 w-full').style('flex: 1; min-height: 0; overflow-y: auto; align-content: center;'):
                         for t in d.get('turmas_counts', []):
-                            with ui.row().classes('w-full items-center justify-between px-3 py-1.5 border-b border-gray-900/40 bg-black/20 rounded'):
-                                ui.label(f"PELOTÃO {t['turma']}").classes('text-white font-bold text-[15px]')
-                                ui.label(f"{t['total']} alunos").classes('text-amber-5 text-[15px] font-mono font-black')
+                            with ui.row().classes('items-center justify-between px-2.5 py-1 border-b border-gray-900/40 bg-black/20 rounded no-wrap'):
+                                ui.label(f"PEL. {t['turma']}").classes('text-white font-bold text-[12px] truncate')
+                                ui.label(f"{t['total']} al").classes('text-amber-5 text-[12px] font-mono font-black shrink-0')
 
             elif view_idx == 2:
                 # VIEW 2: QUANTIDADE POR ESPECIALIDADE
                 with ui.column().classes('w-full h-full gap-2 justify-center items-center q-pa-sm'):
                     ui.label('🛠️ POR ESPECIALIDADE').style(f'color: {THEME["primary"]}; font-size: 16px; font-weight: 900; letter-spacing: 2px; text-align: center;')
                     ui.separator().props('dark')
-                    with ui.column().classes('w-full gap-1').style('flex: 1; min-height: 0; overflow-y: auto; justify-content: center;'):
+                    with ui.element('div').classes('grid grid-cols-2 gap-x-2 gap-y-1.5 w-full').style('flex: 1; min-height: 0; overflow-y: auto; align-content: center;'):
                         for esp in d.get('especialidades_counts', []):
-                            with ui.row().classes('w-full items-center justify-between px-3 py-1.5 border-b border-gray-900/40 bg-black/20 rounded'):
-                                ui.label(esp['especialidade']).classes('text-white font-bold text-[15px]')
-                                ui.label(f"{esp['total']} alunos").classes('text-cyan-4 text-[15px] font-mono font-black')
+                            with ui.row().classes('items-center justify-between px-2.5 py-1 border-b border-gray-900/40 bg-black/20 rounded no-wrap'):
+                                ui.label(esp['especialidade']).classes('text-white font-bold text-[12px] truncate')
+                                ui.label(f"{esp['total']} al").classes('text-cyan-4 text-[12px] font-mono font-black shrink-0')
 
         # ── CORPO PRINCIPAL DO PAINEL (GRID DUPLO) ─────────────────────────────
         with ui.element('div').classes('tv-main-row'):
@@ -1712,7 +1718,17 @@ def render_page():
             return
             
         if visual_alert:
-            await asyncio.sleep(9.4)
+            from services import data_service
+            try:
+                tempo_cfg = data_service.get_config_value('tempo_alerta_tv', '10')
+                total_duration = float(tempo_cfg)
+            except Exception:
+                total_duration = 10.0
+            
+            fade_out = 0.6
+            visible_duration = max(0.1, total_duration - fade_out)
+            
+            await asyncio.sleep(visible_duration)
             try:
                 with client:
                     # Fade Out: Altera opacidade para 0
@@ -1720,7 +1736,7 @@ def render_page():
             except Exception:
                 pass
                 
-            await asyncio.sleep(0.6) # Aguarda transição terminar
+            await asyncio.sleep(fade_out) # Aguarda transição terminar
             
             try:
                 with client:

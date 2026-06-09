@@ -22,6 +22,7 @@ DEFAULT_CONFIGS = {
     'cabecalho_tv_sunset_time': '17:48',
     'cargos_escala_lista': 'INSPETOR DO DIA, SUPERVISOR, AJOSCA, OSCA, OFICIAL DE SERVIÇO, ENFERMEIRO DE SERVIÇO',
     'codigo_desbloqueio_tv': '1234',
+    'tempo_alerta_tv': '10',
     'telegram_bot_token': '',
     'tts_engine': 'basic',
     'elevenlabs_api_key': '',
@@ -514,6 +515,12 @@ def render_page():
                                 value=current_configs.get('codigo_desbloqueio_tv', '1234')
                             ).props('dark dense outlined w-full').classes('w-full')
                             ui.label('Código padrão exigido para reexibir as anotações do dia quando ocultadas no Modo TV (Padrão: 1234).').classes('text-[10px] q-mt-xs').style(f'color: {THEME["text_dim"]}')
+
+                            input_alerta_tv = ui.input(
+                                'Tempo de Exibição de Alertas da TV (segundos)', 
+                                value=current_configs.get('tempo_alerta_tv', '10')
+                            ).props('dark dense outlined w-full').classes('w-full')
+                            ui.label('Tempo padrão em segundos de exibição dos alertas visuais/toasts no Modo TV (Padrão: 10 segundos).').classes('text-[10px] q-mt-xs').style(f'color: {THEME["text_dim"]}')
 
                             input_telegram_token = ui.input(
                                 'Token do Bot do Telegram', 
@@ -1812,6 +1819,7 @@ def render_page():
                 input_sunset_tv.value = DEFAULT_CONFIGS['cabecalho_tv_sunset_time']
                 input_cargos_escala.value = DEFAULT_CONFIGS['cargos_escala_lista']
                 input_unlock_code.value = DEFAULT_CONFIGS['codigo_desbloqueio_tv']
+                input_alerta_tv.value = DEFAULT_CONFIGS['tempo_alerta_tv']
                 input_telegram_token.value = DEFAULT_CONFIGS['telegram_bot_token']
                 input_tts_engine.value = DEFAULT_CONFIGS['tts_engine']
                 input_elevenlabs_api_key.value = DEFAULT_CONFIGS['elevenlabs_api_key']
@@ -1840,8 +1848,9 @@ def render_page():
                     float(input_peso_acad.value)
                     float(input_fator.value)
                     int(input_polling.value)
+                    float(input_alerta_tv.value)
                 except ValueError:
-                    ui.notify('Os campos numéricos devem conter valores decimais válidos e o Polling deve ser um número inteiro.', color='red')
+                    ui.notify('Os campos numéricos devem conter valores decimais válidos, o Tempo de Alerta deve ser um número e o Polling deve ser um número inteiro.', color='red')
                     return
 
                 db_conn = get_admin_db_connection() or get_db_connection()
@@ -1859,6 +1868,7 @@ def render_page():
                     {'chave': 'cabecalho_tv_sunset_time', 'valor': str(input_sunset_tv.value)},
                     {'chave': 'cargos_escala_lista', 'valor': str(input_cargos_escala.value)},
                     {'chave': 'codigo_desbloqueio_tv', 'valor': str(input_unlock_code.value)},
+                    {'chave': 'tempo_alerta_tv', 'valor': str(input_alerta_tv.value)},
                     {'chave': 'telegram_bot_token', 'valor': str(input_telegram_token.value)},
                     {'chave': 'tts_engine', 'valor': str(input_tts_engine.value)},
                     {'chave': 'elevenlabs_api_key', 'valor': str(input_elevenlabs_api_key.value)},

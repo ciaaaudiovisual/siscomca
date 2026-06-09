@@ -706,12 +706,6 @@ def _build_escala_dialog():
                 err_lbl.text = ''
                 render_rows.refresh()
 
-            def update_state_cargo(idx: int, val: str):
-                state['rows'][idx]['cargo'] = val
-
-            def update_state_nome(idx: int, val: str):
-                state['rows'][idx]['nome'] = val
-
             def delete_row(idx: int):
                 state['rows'].pop(idx)
                 render_rows.refresh()
@@ -744,17 +738,12 @@ def _build_escala_dialog():
                     for idx, item in enumerate(state['rows']):
                         with ui.row().classes('w-full items-center gap-2 no-wrap').style('border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 4px;'):
                             # Input editável do Cargo
-                            cargo_inp = ui.input(
-                                value=item['cargo'],
-                                on_change=lambda e, idx=idx: update_state_cargo(idx, e.value)
-                            ).props('dark dense outlined').classes('w-[160px] text-xs font-bold')
+                            cargo_inp = ui.input().props('dark dense outlined').classes('w-[160px] text-xs font-bold').bind_value(item, 'cargo')
                             
                             # Input editável do Militar de serviço
                             nome_inp = ui.input(
-                                placeholder='Nome completo / posto',
-                                value=item['nome'],
-                                on_change=lambda e, idx=idx: update_state_nome(idx, e.value)
-                            ).props('dark dense outlined').classes('col-grow text-xs')
+                                placeholder='Nome completo / posto'
+                            ).props('dark dense outlined').classes('col-grow text-xs').bind_value(item, 'nome')
                             
                             # Botão de exclusão do posto
                             ui.button(on_click=lambda idx=idx: delete_row(idx), icon='delete').props('flat dense color=red-5 round')

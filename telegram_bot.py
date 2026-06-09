@@ -289,11 +289,12 @@ async def prompt_pelotao_selection(bot_instance, message, state):
     state['data']['pelotoes'] = pelotoes
     
     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+    markup.row(types.KeyboardButton("🔍 Digitar / Lote"))
     # Adiciona pelotões em linhas de 2
     for i in range(0, len(pelotoes), 2):
         row = [types.KeyboardButton(p) for p in pelotoes[i:i+2]]
         markup.row(*row)
-    markup.row(types.KeyboardButton("🔍 Digitar / Lote"), types.KeyboardButton("❌ Cancelar"))
+    markup.row(types.KeyboardButton("❌ Cancelar"))
     
     action_map = {
         'anotacao': 'Anotação',
@@ -542,9 +543,9 @@ def setup_handlers(bot_instance):
             }
             
             markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-            for idx, al in enumerate(absent_students):
-                markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']}"))
             markup.add(types.KeyboardButton(f"{len(absent_students) + 1} — 🔍 Buscar outro aluno"))
+            for idx, al in enumerate(absent_students):
+                markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al.get('especialidade') or 'Sem Esp.'})"))
             markup.add(types.KeyboardButton("❌ Cancelar"))
             
             prompt = "🕒 Lançamento de Atrasado: Selecione o aluno que chegou atrasado na lista abaixo (ou escolha buscar outro):"
@@ -1676,12 +1677,12 @@ def setup_handlers(bot_instance):
                     
                     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
                     for idx, al in enumerate(state['data']['matches']):
-                        markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']}"))
+                        markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al.get('especialidade') or 'Sem Esp.'})"))
                     markup.add(types.KeyboardButton("❌ Cancelar"))
  
                     prompt = "🔍 Múltiplos alunos encontrados. Selecione o correspondente abaixo:\n\n"
                     for idx, al in enumerate(state['data']['matches']):
-                        prompt += f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al['pelotao']})\n"
+                        prompt += f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al['pelotao']} • {al.get('especialidade') or 'Sem Esp.'})\n"
                     await bot_instance.reply_to(message, prompt, reply_markup=markup)
                 else:
                     await prompt_action_type(bot_instance, message, state, matches[0])
@@ -1875,7 +1876,7 @@ def setup_handlers(bot_instance):
                     
                     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
                     for idx, al in enumerate(absent_students):
-                        markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']}"))
+                        markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al.get('especialidade') or 'Sem Esp.'})"))
                     markup.add(types.KeyboardButton("❌ Cancelar"))
                     
                     prompt = "❌ **LISTA DE FALTOSOS DE HOJE**\n\nSelecione o aluno para gerenciar a ausência:"
@@ -2289,12 +2290,12 @@ def setup_handlers(bot_instance):
                         state['data']['matches'] = matches[:10]
                         markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
                         for idx, al in enumerate(state['data']['matches']):
-                            markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']}"))
+                            markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al.get('especialidade') or 'Sem Esp.'})"))
                         markup.add(types.KeyboardButton("❌ Cancelar"))
                         
                         prompt = "🔍 Múltiplos alunos encontrados. Selecione o correspondente abaixo:\n\n"
                         for idx, al in enumerate(state['data']['matches']):
-                            prompt += f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al['pelotao']})\n"
+                            prompt += f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al['pelotao']} • {al.get('especialidade') or 'Sem Esp.'})\n"
                         await bot_instance.reply_to(message, prompt, reply_markup=markup)
                     else:
                         await prompt_atrasado_confirm(bot_instance, message, state, conn, matches[0])
@@ -2328,12 +2329,12 @@ def setup_handlers(bot_instance):
                     state['data']['matches'] = matches[:10]
                     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
                     for idx, al in enumerate(state['data']['matches']):
-                        markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']}"))
+                        markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al.get('especialidade') or 'Sem Esp.'})"))
                     markup.add(types.KeyboardButton("❌ Cancelar"))
                     
                     prompt = "🔍 Múltiplos alunos encontrados. Selecione o correspondente abaixo:\n\n"
                     for idx, al in enumerate(state['data']['matches']):
-                        prompt += f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al['pelotao']})\n"
+                        prompt += f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al['pelotao']} • {al.get('especialidade') or 'Sem Esp.'})\n"
                     await bot_instance.reply_to(message, prompt, reply_markup=markup)
                 else:
                     await prompt_atrasado_confirm(bot_instance, message, state, conn, matches[0])
@@ -2519,12 +2520,12 @@ def setup_handlers(bot_instance):
                     
                     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
                     for idx, al in enumerate(state['data']['matches']):
-                        markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']}"))
+                        markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al.get('especialidade') or 'Sem Esp.'})"))
                     markup.add(types.KeyboardButton("❌ Cancelar"))
 
                     prompt = "🔍 Múltiplos alunos encontrados. Selecione o correspondente abaixo:\n\n"
                     for idx, al in enumerate(state['data']['matches']):
-                        prompt += f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al['pelotao']})\n"
+                        prompt += f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al['pelotao']} • {al.get('especialidade') or 'Sem Esp.'})\n"
                     await bot_instance.reply_to(message, prompt, reply_markup=markup)
                 else:
                     await prompt_health_status(bot_instance, message, state, matches[0])
@@ -3344,12 +3345,12 @@ def setup_handlers(bot_instance):
                     
                     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
                     for idx, al in enumerate(state['data']['matches']):
-                        markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']}"))
+                        markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al.get('especialidade') or 'Sem Esp.'})"))
                     markup.add(types.KeyboardButton("❌ Cancelar"))
                     
                     prompt = "🔍 Múltiplos alunos encontrados. Selecione o correspondente abaixo:\n\n"
                     for idx, al in enumerate(state['data']['matches']):
-                        prompt += f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al['pelotao']})\n"
+                        prompt += f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al['pelotao']} • {al.get('especialidade') or 'Sem Esp.'})\n"
                     await bot_instance.reply_to(message, prompt, reply_markup=markup)
                 else:
                     await prompt_pernoite_confirm(bot_instance, message, state, matches[0])
@@ -4004,12 +4005,12 @@ async def perform_consulta_search(bot_instance, message, profile, term):
         
         markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
         for idx, al in enumerate(chat_states[chat_id]['data']['matches']):
-            markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']}"))
+            markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al.get('especialidade') or 'Sem Esp.'})"))
         markup.add(types.KeyboardButton("❌ Cancelar"))
         
         prompt = "🔍 Múltiplos alunos encontrados. Selecione o correspondente abaixo:\n\n"
         for idx, al in enumerate(chat_states[chat_id]['data']['matches']):
-            prompt += f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al['pelotao']})\n"
+            prompt += f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al['pelotao']} • {al.get('especialidade') or 'Sem Esp.'})\n"
         await bot_instance.reply_to(message, prompt, reply_markup=markup)
     else:
         await display_student_dossier(bot_instance, message, conn, matches[0])
