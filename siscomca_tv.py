@@ -246,7 +246,7 @@ def _carregar_dados_tv(prog_date: datetime = None, active_year: str = '2026'):
         'presentes_pct': 0.0,
         'licencas_ativas': [],
         'saude_ativos': [],
-        'inspetor_dia': {'nome': 'NÃO ESCALADO', 'photo_url': 'https://cdn.quasar.dev/img/boy-avatar.png'},
+        'inspetor_dia': {'nome': 'NÃO ESCALADO', 'cargo_title': 'INSPETOR DO DIA', 'photo_url': 'https://cdn.quasar.dev/img/boy-avatar.png'},
         'outros_escalados': [],
         'anotacoes_dia': [],
         'avisos_letreiro': [],
@@ -458,13 +458,33 @@ def _carregar_dados_tv(prog_date: datetime = None, active_year: str = '2026'):
         for _, row in escala_df.iterrows():
             escala_map[row['cargo'].upper()] = row['nome']
 
-    # 4.1 Inspetor do Dia
-    inspetor_nome = escala_map.get('INSPETOR DO DIA', escala_map.get('INSPETOR', ''))
+    # 4.1 Inspetor (Destaque Principal)
+    inspetor_nome = ''
+    inspetor_cargo_exibido = 'INSPETOR DO DIA'
+    
+    # 1. Tenta achar o primeiro que contenha 'INSPETOR' e esteja preenchido
+    for cargo_key, nome_val in escala_map.items():
+        if 'INSPETOR' in cargo_key:
+            n_clean = nome_val.strip().upper() if nome_val else ''
+            if n_clean and n_clean not in {"NÃO ESCALADO", "AGUARDANDO", "N/A", "-", "NÃO DEFINIDO"}:
+                inspetor_nome = nome_val
+                inspetor_cargo_exibido = cargo_key
+                break
+                
+    # 2. Se nenhum estava preenchido, pega o primeiro que contiver 'INSPETOR'
+    if not inspetor_nome:
+        for cargo_key, nome_val in escala_map.items():
+            if 'INSPETOR' in cargo_key:
+                inspetor_nome = nome_val
+                inspetor_cargo_exibido = cargo_key
+                break
+
     if not inspetor_nome:
         inspetor_nome = 'Cap. Calaça' if is_offline else 'NÃO ESCALADO'
 
     dados['inspetor_dia'] = {
         'nome': inspetor_nome.upper(),
+        'cargo_title': inspetor_cargo_exibido.upper(),
         'photo_url': 'https://cdn.quasar.dev/img/boy-avatar.png'
     }
 
@@ -481,8 +501,8 @@ def _carregar_dados_tv(prog_date: datetime = None, active_year: str = '2026'):
     dados['osca_servico'] = escala_map.get('OSCA', 'Cap. Calaça' if is_offline else 'NÃO ESCALADO').upper()
     dados['ajosca_servico'] = escala_map.get('AJOSCA', 'Ten. Santos' if is_offline else 'NÃO ESCALADO').upper()
 
-    # 4.3 Outros Escalados (excluindo Inspetor, OSCA e AJOSCA)
-    excluir_cargos = {'INSPETOR DO DIA', 'INSPETOR', 'OSCA', 'AJOSCA'}
+    # 4.3 Outros Escalados (excluindo o Inspetor selecionado, OSCA e AJOSCA)
+    excluir_cargos = {'OSCA', 'AJOSCA', inspetor_cargo_exibido.upper()}
     dados['outros_escalados'] = []
     for cargo in cargos_config:
         cargo_upper = cargo.upper()
@@ -1069,11 +1089,11 @@ def render_page():
                     with ui.column().classes('w-full items-center justify-center gap-1.5 no-wrap'):
                         if is_insp_defined:
                             ui.avatar(size='72px').style(f"background-image: url('{d['inspetor_dia']['photo_url']}'); background-size: cover; background-position: center; border: 2px solid #D4AF37; box-shadow: 0 0 16px rgba(212, 175, 55, 0.6); shrink: 0; border-radius: 8px !important;")
-                            ui.label('INSPETOR DO DIA').style(f'color: {THEME["primary"]}; font-size: 18px; font-weight: 900; letter-spacing: 3px; line-height: 1; text-align: center;')
+                            ui.label(d['inspetor_dia']['cargo_title']).style(f'color: {THEME["primary"]}; font-size: 18px; font-weight: 900; letter-spacing: 3px; line-height: 1; text-align: center;')
                             ui.label(insp_name_raw.upper()).classes('text-white text-[30px] font-black tracking-wider leading-none text-center')
                         else:
                             ui.avatar(size='72px').style("background-image: url('https://cdn.quasar.dev/img/boy-avatar.png'); background-size: cover; background-position: center; border: 2px solid #ff9100; box-shadow: 0 0 12px rgba(255, 145, 0, 0.4); shrink: 0; border-radius: 8px !important;")
-                            ui.label('INSPETOR DO DIA').style(f'color: {THEME["primary"]}; font-size: 18px; font-weight: 900; letter-spacing: 3px; line-height: 1; text-align: center;')
+                            ui.label(d['inspetor_dia']['cargo_title']).style(f'color: {THEME["primary"]}; font-size: 18px; font-weight: 900; letter-spacing: 3px; line-height: 1; text-align: center;')
                             ui.label('AGUARDANDO').classes('text-amber-5/70 italic animate-pulse text-[30px] font-black tracking-wider leading-none text-center')
 
                 # 2. Bloco de Baixo (Demais Serviços)
