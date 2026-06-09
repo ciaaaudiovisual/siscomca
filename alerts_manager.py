@@ -251,7 +251,13 @@ class AlertsManager:
             
             # Bypassa a geração de voz totalmente se for Toque de Sino ou se o som for silencioso ou voz desativada nas opções do alerta
             voice_enabled = extra_options.get('voice_enabled', True) if extra_options else True
-            if any_voice_active and title != "Toque de Sino" and mapped_sound != "silent" and voice_enabled:
+            is_silent = False
+            if isinstance(mapped_sound, list):
+                is_silent = all((item.get('som') if isinstance(item, dict) else str(item)) == 'silent' for item in mapped_sound)
+            else:
+                is_silent = (mapped_sound == 'silent')
+                
+            if any_voice_active and title != "Toque de Sino" and not is_silent and voice_enabled:
                 try:
                     loop = asyncio.get_running_loop()
                     jarvis_text = await loop.run_in_executor(None, rewrite_to_jarvis_alert, title)

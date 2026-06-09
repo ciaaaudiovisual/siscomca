@@ -808,24 +808,72 @@ def render_page():
                             except Exception as e:
                                 print(f"[CONFIG] Erro na inicialização ao listar sons do Supabase: {e}")
                         
-                        for ocorrencia_nome, som_atual in sound_mappings.items():
-                            with ui.row().classes('w-full items-center justify-between gap-2 border-b border-white/5 py-1'):
-                                ui.label(ocorrencia_nome).classes('text-xs text-white')
-                                with ui.row().classes('items-center gap-2'):
-                                    dropdown = ui.select(
-                                        som_opcoes, 
-                                        value=som_atual
-                                    ).props('dark dense outlined').classes('text-xs min-w-[200px]')
-                                    sound_dropdowns[ocorrencia_nome] = dropdown
+                        def build_sound_sequence_editor(ocorrencia_nome, val_som):
+                            # val_som pode ser uma string (legado) ou uma lista de dicionarios/strings
+                            sequence = []
+                            if isinstance(val_som, list):
+                                for item in val_som:
+                                    if isinstance(item, dict):
+                                        sequence.append({'som': item.get('som', 'info'), 'delay': float(item.get('delay', 0.0))})
+                                    else:
+                                        sequence.append({'som': str(item), 'delay': 0.0})
+                            elif isinstance(val_som, str):
+                                sequence.append({'som': val_som, 'delay': 0.0})
+                            
+                            if not sequence:
+                                sequence.append({'som': 'info', 'delay': 0.0})
+
+                            sound_dropdowns[ocorrencia_nome] = sequence
+
+                            @ui.refreshable
+                            def render_sequence():
+                                ui.label(ocorrencia_nome).classes('text-xs text-white font-bold')
+                                with ui.column().classes('w-full gap-2 pl-4 border-l border-cyan-500/20 q-mb-md'):
+                                    for idx, seq_item in enumerate(sequence):
+                                        with ui.row().classes('w-full items-center gap-2'):
+                                            # Dropdown de seleção de som
+                                            sel = ui.select(
+                                                som_opcoes,
+                                                value=seq_item['som'],
+                                                on_change=lambda e, i=idx: [sequence[i].update({'som': e.value})]
+                                            ).props('dark dense outlined').classes('text-xs min-w-[200px]')
+                                            
+                                            # Campo de atraso (delay) antes do som
+                                            ui.label('Atraso:').classes('text-[11px] text-grey-5')
+                                            delay_input = ui.number(
+                                                value=seq_item['delay'],
+                                                min=0.0,
+                                                max=30.0,
+                                                step=0.5,
+                                                format='%.1f'
+                                            ).props('dark dense outlined').classes('w-16 text-xs').style('margin-right: 4px;')
+                                            delay_input.on('change', lambda e, i=idx: [sequence[i].update({'delay': float(e.value or 0.0)})])
+                                            
+                                            # Botão de teste para este som individual
+                                            ui.button(
+                                                icon='play_arrow',
+                                                on_click=lambda s=seq_item['som']: testar_som(s)
+                                            ).props('flat round dense color=primary').classes('text-xs')
+                                            
+                                            # Botão de remoção (se houver mais de 1 som)
+                                            if len(sequence) > 1:
+                                                ui.button(
+                                                    icon='delete',
+                                                    on_click=lambda i=idx: [sequence.pop(i), render_sequence.refresh()]
+                                                ).props('flat round dense color=red').classes('text-xs')
                                     
-                                    # Botão para reproduzir e testar o som correspondente localmente
-                                    def make_test_cb(key=ocorrencia_nome):
-                                        return lambda: testar_som(sound_dropdowns[key].value)
-                                    
+                                    # Botão para adicionar som na sequência
                                     ui.button(
-                                        icon='play_arrow', 
-                                        on_click=make_test_cb(ocorrencia_nome)
-                                    ).props('flat round dense color=primary').classes('text-xs')
+                                        'Adicionar Som na Sequência',
+                                        icon='add',
+                                        on_click=lambda: [sequence.append({'som': 'info', 'delay': 1.0}), render_sequence.refresh()]
+                                    ).props('outline dense no-caps color=primary').classes('text-[11px] self-start')
+
+                            render_sequence()
+
+                        for ocorrencia_nome, som_atual in sound_mappings.items():
+                            with ui.row().classes('w-full items-center justify-between gap-2 border-b border-white/5 py-2'):
+                                build_sound_sequence_editor(ocorrencia_nome, som_atual)
 
                 # --- CARD: GERENCIADOR DE ARQUIVOS DE SOM ---
                 with theme.card_base().classes('w-full q-pa-md'):
@@ -1881,7 +1929,7 @@ def render_page():
                 new_alerts_config = load_alerts_config()
                 new_alerts_config['tv_alert_vocativo'] = input_tv_vocativo.value
                 for key in sound_dropdowns:
-                    new_alerts_config['sound_mappings'][key] = sound_dropdowns[key].value
+                    new_alerts_config['sound_mappings'][key] = sound_dropdowns[key]
                     
                 # Salva os templates customizados de mensagens
                 new_alerts_config['message_templates'] = {}

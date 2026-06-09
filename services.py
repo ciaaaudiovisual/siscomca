@@ -60,7 +60,17 @@ class DataService:
         return self._cache[cache_key]
     
     def get_alunos_data(self, force_refresh: bool = False) -> pd.DataFrame:
-        return self.get_core_data(force_refresh).get('alunos', pd.DataFrame())
+        df = self.get_core_data(force_refresh).get('alunos', pd.DataFrame())
+        if not df.empty:
+            # Filtrar alunos com pelotão "BAIXA"
+            if 'pelotao' in df.columns:
+                df = df[df['pelotao'].str.strip().str.upper() != 'BAIXA']
+            # Filtrar alunos com status "BAIXA" ou "NÃO SE APRESENTOU" (qualquer variação case-insensitive)
+            # se houver coluna de status
+            if 'status' in df.columns:
+                mask = df['status'].astype(str).str.strip().str.upper().isin(['BAIXA', 'NÃO SE APRESENTOU', 'NAO SE APRESENTOU'])
+                df = df[~mask]
+        return df
     
     def get_acoes_data(self, force_refresh: bool = False) -> pd.DataFrame:
         return self.get_core_data(force_refresh).get('acoes', pd.DataFrame())

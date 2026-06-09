@@ -262,7 +262,7 @@ def _carregar_dados_tv(prog_date: datetime = None, active_year: str = '2026'):
     alunos_df = pd.DataFrame()
     if db_conn:
         try:
-            res_al = db_conn.table('Alunos').select('id,numero_interno,nome_guerra,pelotao,especialidade').eq('ano_letivo', active_year).execute()
+            res_al = db_conn.table('Alunos').select('id,numero_interno,nome_guerra,pelotao,especialidade,status').eq('ano_letivo', active_year).execute()
             alunos_df = pd.DataFrame(res_al.data) if res_al.data else pd.DataFrame()
         except Exception as e:
             print(f"[TV] Erro Alunos: {e}")
@@ -270,13 +270,22 @@ def _carregar_dados_tv(prog_date: datetime = None, active_year: str = '2026'):
     if is_offline or (not db_conn and alunos_df.empty):
         # Fallback Mock
         alunos_data = [
-            {'id': 1, 'numero_interno': 'M-1-101', 'nome_guerra': 'GUILHERME', 'pelotao': 'MIKE-1', 'especialidade': 'AD'},
-            {'id': 2, 'numero_interno': 'M-1-102', 'nome_guerra': 'SILVA', 'pelotao': 'MIKE-1', 'especialidade': 'AD'},
-            {'id': 3, 'numero_interno': 'M-2-207', 'nome_guerra': 'MARTINS', 'pelotao': 'MIKE-2', 'especialidade': 'EL'},
-            {'id': 4, 'numero_interno': 'M-2-208', 'nome_guerra': 'ALBUQUERQUE', 'pelotao': 'MIKE-2', 'especialidade': 'EL'},
-            {'id': 5, 'numero_interno': 'M-3-301', 'nome_guerra': 'GOMES', 'pelotao': 'MIKE-3', 'especialidade': 'AR'}
+            {'id': 1, 'numero_interno': 'M-1-101', 'nome_guerra': 'GUILHERME', 'pelotao': 'MIKE-1', 'especialidade': 'AD', 'status': 'Ativo'},
+            {'id': 2, 'numero_interno': 'M-1-102', 'nome_guerra': 'SILVA', 'pelotao': 'MIKE-1', 'especialidade': 'AD', 'status': 'Ativo'},
+            {'id': 3, 'numero_interno': 'M-2-207', 'nome_guerra': 'MARTINS', 'pelotao': 'MIKE-2', 'especialidade': 'EL', 'status': 'Ativo'},
+            {'id': 4, 'numero_interno': 'M-2-208', 'nome_guerra': 'ALBUQUERQUE', 'pelotao': 'MIKE-2', 'especialidade': 'EL', 'status': 'Ativo'},
+            {'id': 5, 'numero_interno': 'M-3-301', 'nome_guerra': 'GOMES', 'pelotao': 'MIKE-3', 'especialidade': 'AR', 'status': 'Ativo'}
         ]
         alunos_df = pd.DataFrame(alunos_data)
+
+    if not alunos_df.empty:
+        # Filtrar alunos com pelotão "BAIXA"
+        if 'pelotao' in alunos_df.columns:
+            alunos_df = alunos_df[alunos_df['pelotao'].str.strip().str.upper() != 'BAIXA']
+        # Filtrar alunos com status "BAIXA" ou "NÃO SE APRESENTOU"
+        if 'status' in alunos_df.columns:
+            mask = alunos_df['status'].astype(str).str.strip().str.upper().isin(['BAIXA', 'NÃO SE APRESENTOU', 'NAO SE APRESENTOU'])
+            alunos_df = alunos_df[~mask]
 
     dados['total_alunos'] = len(alunos_df)
 
@@ -1556,34 +1565,27 @@ def render_page():
                         }}
                     }}
 
-                    if (ctx && playSound && type !== 'silent') {{
-                        if (ctx.state === 'suspended') {{
-                            ctx.resume();
-                        }}
-                        
-                        const customMp3Url = supabaseBaseUrl + "/storage/v1/object/public/sons/" + encodeURIComponent(type) + ".mp3";
-                        const customMp3UrlUpper = supabaseBaseUrl + "/storage/v1/object/public/sons/" + encodeURIComponent(type) + ".MP3";
-                        
-                        if (type.startsWith('naval_bell_')) {{
+                    function playSingleSound(sndType) {
+                        if (sndType.startsWith('naval_bell_')) {
                             let count = 1;
-                            if (type === 'naval_bell_singela') {{
+                            if (sndType === 'naval_bell_singela') {
                                 count = 1;
-                            }} else if (type === 'naval_bell_dobrada') {{
+                            } else if (sndType === 'naval_bell_dobrada') {
                                 count = 2;
-                            }} else {{
-                                count = parseInt(type.split('_')[2]) || 1;
-                            }}
+                            } else {
+                                count = parseInt(sndType.split('_')[2]) || 1;
+                            }
                             
                             const singleMp3Url = supabaseBaseUrl + "/storage/v1/object/public/sons/bell_single.mp3";
                             const doubleMp3Url = supabaseBaseUrl + "/storage/v1/object/public/sons/bell_double.mp3";
                             
-                            function playSynthesizedBells(ctx, count) {{
-                                function playNavalBellStrike(ctx, time) {{
+                            function playSynthesizedBells(ctx, count) {
+                                function playNavalBellStrike(ctx, time) {
                                     const frequencies = [240, 480, 576, 720, 960, 1200, 1440, 1920];
                                     const gains = [0.35, 0.35, 0.25, 0.15, 0.15, 0.1, 0.08, 0.05];
                                     const decays = [3.2, 2.6, 2.2, 1.8, 1.4, 1.0, 0.6, 0.4];
 
-                                    frequencies.forEach((f, idx) => {{
+                                    frequencies.forEach((f, idx) => {
                                         let osc = ctx.createOscillator();
                                         let gainNode = ctx.createGain();
                                         osc.connect(gainNode);
@@ -1598,82 +1600,124 @@ def render_page():
                                         
                                         osc.start(time);
                                         osc.stop(time + decays[idx] + 0.1);
-                                    }});
-                                }}
+                                    });
+                                }
 
                                 let now = ctx.currentTime;
-                                for (let i = 0; i < count; i++) {{
+                                for (let i = 0; i < count; i++) {
                                     let pairIndex = Math.floor(i / 2);
                                     let inPairIndex = i % 2;
                                     let timeOffset = pairIndex * 2.0 + inPairIndex * 0.15;
                                     playNavalBellStrike(ctx, now + timeOffset);
-                                }}
-                            }}
+                                }
+                            }
 
                             fetch(singleMp3Url)
-                                .then(res => {{
-                                    if (res.ok) {{
+                                .then(res => {
+                                    if (res.ok) {
                                         let pairs = Math.floor(count / 2);
                                         let remainder = count % 2;
                                         
-                                        for (let p = 0; p < pairs; p++) {{
-                                            setTimeout(() => {{
+                                        for (let p = 0; p < pairs; p++) {
+                                            setTimeout(() => {
                                                 let audio = new Audio(doubleMp3Url);
                                                 audio.volume = 1.0;
-                                                audio.play().catch(() => {{}});
-                                            }}, p * 2000);
-                                        }}
+                                                audio.play().catch(() => {});
+                                            }, p * 2000);
+                                        }
                                         
-                                        if (remainder > 0) {{
-                                            setTimeout(() => {{
+                                        if (remainder > 0) {
+                                            setTimeout(() => {
                                                 let audio = new Audio(singleMp3Url);
                                                 audio.volume = 1.0;
-                                                audio.play().catch(() => {{}});
-                                            }}, pairs * 2000);
-                                        }}
-                                    }} else {{
+                                                audio.play().catch(() => {});
+                                            }, pairs * 2000);
+                                        }
+                                    } else {
                                         playSynthesizedBells(ctx, count);
-                                    }}
-                                }}).catch(() => {{
+                                    }
+                                }).catch(() => {
                                     playSynthesizedBells(ctx, count);
-                                }});
-                        }} else {{
+                                });
+                        } else {
+                            const customMp3Url = supabaseBaseUrl + "/storage/v1/object/public/sons/" + encodeURIComponent(sndType) + ".mp3";
+                            const customMp3UrlUpper = supabaseBaseUrl + "/storage/v1/object/public/sons/" + encodeURIComponent(sndType) + ".MP3";
                             fetch(customMp3Url)
-                                .then(res => {{
-                                    if (res.ok) {{
+                                .then(res => {
+                                    if (res.ok) {
                                         let audio = new Audio(customMp3Url);
                                         audio.volume = 1.0;
-                                        audio.play().catch(() => {{}});
-                                    }} else {{
+                                        audio.play().catch(() => {});
+                                    } else {
                                         fetch(customMp3UrlUpper)
-                                            .then(res2 => {{
-                                                if (res2.ok) {{
+                                            .then(res2 => {
+                                                if (res2.ok) {
                                                     let audio2 = new Audio(customMp3UrlUpper);
                                                     audio2.volume = 1.0;
-                                                    audio2.play().catch(() => {{}});
-                                                }} else {{
-                                                    playDefaultSynthesized(type);
-                                                }}
-                                            }}).catch(() => {{
-                                                playDefaultSynthesized(type);
-                                            }});
-                                    }}
-                                }}).catch(() => {{
+                                                    audio2.play().catch(() => {});
+                                                } else {
+                                                    playDefaultSynthesized(sndType);
+                                                }
+                                            }).catch(() => {
+                                                playDefaultSynthesized(sndType);
+                                            });
+                                    }
+                                }).catch(() => {
                                     fetch(customMp3UrlUpper)
-                                        .then(res2 => {{
-                                            if (res2.ok) {{
+                                        .then(res2 => {
+                                            if (res2.ok) {
                                                 let audio2 = new Audio(customMp3UrlUpper);
                                                 audio2.volume = 1.0;
-                                                audio2.play().catch(() => {{}});
-                                            }} else {{
-                                                playDefaultSynthesized(type);
-                                            }}
-                                        }}).catch(() => {{
-                                            playDefaultSynthesized(type);
-                                        }});
-                                }});
-                        }}
-                    }}
+                                                audio2.play().catch(() => {});
+                                            } else {
+                                                playDefaultSynthesized(sndType);
+                                            }
+                                        }).catch(() => {
+                                            playDefaultSynthesized(sndType);
+                                        });
+                                });
+                        }
+                    }
+
+                    if (ctx && playSound && type !== 'silent') {
+                        if (ctx.state === 'suspended') {
+                            ctx.resume();
+                        }
+                        
+                        let sequence = [];
+                        if (Array.isArray(type)) {
+                            sequence = type;
+                        } else if (typeof type === 'string') {
+                            try {
+                                let parsed = JSON.parse(type);
+                                if (Array.isArray(parsed)) {
+                                    sequence = parsed;
+                                } else {
+                                    sequence = [{som: type, delay: 0}];
+                                }
+                            } catch(e) {
+                                sequence = [{som: type, delay: 0}];
+                            }
+                        } else {
+                            sequence = [{som: String(type), delay: 0}];
+                        }
+
+                        let accumulatedDelay = 0;
+                        sequence.forEach(item => {
+                            let som = 'info';
+                            let delay = 0;
+                            if (typeof item === 'object' && item !== null) {
+                                som = item.som || 'info';
+                                delay = parseFloat(item.delay) || 0;
+                            } else {
+                                som = String(item);
+                            }
+                            accumulatedDelay += delay;
+                            setTimeout(() => {
+                                playSingleSound(som);
+                            }, accumulatedDelay * 1000);
+                        });
+                    }
 
                     if (playVoice) {{
                         let audioBase64 = {escaped_audio};
@@ -1735,7 +1779,6 @@ def render_page():
                 client.run_javascript(js_code)
         except Exception as e:
             print(f"[TV Alerta] Erro ao abrir diálogo no cliente: {e}")
-            return
             
         if visual_alert:
             from services import data_service
@@ -1748,21 +1791,20 @@ def render_page():
             fade_out = 0.6
             visible_duration = max(0.1, total_duration - fade_out)
             
-            await asyncio.sleep(visible_duration)
             try:
+                await asyncio.sleep(visible_duration)
                 with client:
                     # Fade Out: Altera opacidade para 0
                     dialog_card.style('opacity: 0;')
-            except Exception:
-                pass
-                
-            await asyncio.sleep(fade_out) # Aguarda transição terminar
-            
-            try:
-                with client:
-                    tactical_dialog.close()
+                await asyncio.sleep(fade_out)
             except Exception as e:
-                print(f"[TV Alerta] Erro ao fechar diálogo no cliente: {e}")
+                print(f"[TV Alerta] Erro no fade out: {e}")
+            finally:
+                try:
+                    with client:
+                        tactical_dialog.close()
+                except Exception as e:
+                    print(f"[TV Alerta] Erro ao fechar diálogo no cliente: {e}")
         else:
             # Apenas reprodução de áudio: aguarda tempo menor antes de liberar a fila
             await asyncio.sleep(6.0)
@@ -1961,6 +2003,8 @@ def render_page():
                                 border_color_style = f'border: 1px solid {cor} !important;'
                                 indicator_color_style = f'background-color: {cor} !important;'
                                 label_cat = str(status).upper()
+                                if label_cat in ['EM OBSERVAÇÃO', 'OBSERVAÇÃO', 'OBSERVACAO', 'EM OBSERVACAO']:
+                                    label_cat = 'NA ENFERMARIA'
                                 text_cat_color_style = f'color: {cor} !important;'
                                 bg_card = f'background: {bg_rgba};'
                                 is_hospital = status.lower() == 'hospital'
