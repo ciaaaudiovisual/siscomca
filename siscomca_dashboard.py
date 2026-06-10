@@ -39,10 +39,14 @@ def _calc_conceito(soma_pts: float, config_dict: dict) -> float:
     return max(0.0, min(linha_base + impacto, 10.0))
 
 
-def _carregar_dados_gerais():
+def _carregar_dados_gerais(active_year: str = None):
     """Carrega e processa todos os dados necessários para o dashboard."""
     alunos_df   = data_service.get_alunos_data()
-    active_year = app.storage.user.get('ano_letivo_ativo', '2026')
+    if active_year is None:
+        try:
+            active_year = app.storage.user.get('ano_letivo_ativo', '2026')
+        except RuntimeError:
+            active_year = '2026'
     if 'ano_letivo' in alunos_df.columns:
         alunos_df = alunos_df[alunos_df['ano_letivo'].fillna('2025').astype(str).str.strip() == active_year]
     acoes_df    = data_service.get_acoes_data()
@@ -293,10 +297,15 @@ def _carregar_dados_gerais():
 def render_page():
     client = ui.context.client
     
+    try:
+        initial_active_year = app.storage.user.get('ano_letivo_ativo', '2026')
+    except Exception:
+        initial_active_year = '2026'
+    
     async def handle_refresh():
         # Limpa o cache de dados e atualiza a tela
         data_service.clear_cache()
-        render_dashboard_content.refresh()
+        render_dashboard_content.refresh(active_year=initial_active_year)
         
     def setup_realtime():
         from alerts_manager import AlertsManager
@@ -309,12 +318,12 @@ def render_page():
     client.on_connect(setup_realtime)
     client.on_disconnect(cleanup_realtime)
 
-    render_dashboard_content()
+    render_dashboard_content(active_year=initial_active_year)
 
 
 @ui.refreshable
-def render_dashboard_content():
-    dados = _carregar_dados_gerais()
+def render_dashboard_content(active_year: str = None):
+    dados = _carregar_dados_gerais(active_year)
     escala_df = carregar_escala_diaria()
     hoje_str = datetime.now().strftime('%d/%m/%Y')
     dia_semana = datetime.now().strftime('%A').upper()
