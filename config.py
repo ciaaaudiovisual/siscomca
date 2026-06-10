@@ -1817,10 +1817,11 @@ def render_page():
                         
                         loading_label = ui.label('Carregando vozes do navegador...').classes('text-xs text-amber-5')
                         
+                        current_voice_val = current_configs.get('basic_tts_voice', '')
                         input_basic_tts_voice = ui.select(
-                            options={current_configs.get('basic_tts_voice', ''): current_configs.get('basic_tts_voice', '')} if current_configs.get('basic_tts_voice', '') else {},
+                            options={current_voice_val: current_voice_val} if current_voice_val else {'': 'Nenhuma voz configurada (será detectada automaticamente)'},
                             label='Voz Masculina/Feminina do Navegador',
-                            value=current_configs.get('basic_tts_voice', '')
+                            value=current_voice_val
                         ).props('dark dense outlined w-full').classes('w-full')
                         
                 # Google Translate Config Card
