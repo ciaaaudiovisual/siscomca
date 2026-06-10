@@ -427,27 +427,38 @@ def render_page():
             ui.notify('Sintetizando localmente via navegador...', color='info')
             return
 
-        ui.notify('Processando áudio no servidor...', color='info')
+        ui.notify('Processando áudio no servidor... (verifique o console F12 para logs)', color='info')
         audio_base64 = ""
         try:
             if engine == 'google':
                 from ai_helper import generate_google_tts
+                print(f"[CONFIG TEST] Testando Google TTS com texto: '{texto}'")
                 audio_base64 = generate_google_tts(texto)
             elif engine == 'elevenlabs':
                 from ai_helper import generate_elevenlabs_tts_custom
+                print(f"[CONFIG TEST] Testando ElevenLabs TTS")
+                print(f"[CONFIG TEST] Voice ID: {el_voice}")
+                print(f"[CONFIG TEST] API Key presente: {bool(el_key and len(el_key) > 0)}")
+                print(f"[CONFIG TEST] Texto: '{texto}'")
                 audio_base64 = generate_elevenlabs_tts_custom(texto, el_key, el_voice)
+                print(f"[CONFIG TEST] Resultado: {len(audio_base64) if audio_base64 else 0} bytes retornados")
             elif engine == 'piper':
                 import subprocess
                 import base64
+                print(f"[CONFIG TEST] Testando Piper TTS")
                 model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", f"{p_voice}.onnx")
                 if not os.path.exists(model_path):
                     model_path = os.path.join("models", f"{p_voice}.onnx")
                 
                 if not os.path.exists(model_path):
-                    ui.notify(f'Erro Piper: Modelo {p_voice}.onnx não encontrado.', color='negative')
+                    error_msg = f'Erro Piper: Modelo {p_voice}.onnx não encontrado em {model_path}.'
+                    print(f"[CONFIG TEST] ✗ {error_msg}")
+                    ui.notify(error_msg, color='negative')
                     return
                 if not os.path.exists(p_path):
-                    ui.notify(f'Erro Piper: executável {p_path} não encontrado.', color='negative')
+                    error_msg = f'Erro Piper: executável {p_path} não encontrado.'
+                    print(f"[CONFIG TEST] ✗ {error_msg}")
+                    ui.notify(error_msg, color='negative')
                     return
                     
                 import tempfile
@@ -455,21 +466,29 @@ def render_page():
                     temp_name = temp_wav.name
                 try:
                     cmd = [p_path, "-m", model_path, "-f", temp_name]
+                    print(f"[CONFIG TEST] Executando: {' '.join(cmd)}")
                     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                     proc.communicate(input=texto.encode('utf-8'), timeout=10)
                     if os.path.exists(temp_name) and os.path.getsize(temp_name) > 0:
                         with open(temp_name, "rb") as f:
                             audio_base64 = base64.b64encode(f.read()).decode('utf-8')
                         os.remove(temp_name)
+                        print(f"[CONFIG TEST] ✓ Áudio gerado com sucesso")
                 except Exception as e:
-                    ui.notify(f'Erro ao rodar Piper: {e}', color='negative')
+                    error_msg = f'Erro ao rodar Piper: {e}'
+                    print(f"[CONFIG TEST] ✗ {error_msg}")
+                    ui.notify(error_msg, color='negative')
                     return
         except Exception as e:
-            ui.notify(f'Erro na geração: {e}', color='negative')
+            error_msg = f'Erro na geração: {e}'
+            print(f"[CONFIG TEST] ✗ {error_msg}")
+            ui.notify(error_msg, color='negative')
             return
 
         if not audio_base64:
-            ui.notify('Falha ao gerar áudio. Verifique as credenciais ou conexão.', color='negative')
+            error_msg = 'Falha ao gerar áudio. Verifique o console (F12) para detalhes.'
+            print(f"[CONFIG TEST] ✗ {error_msg}")
+            ui.notify(error_msg, color='negative')
             return
             
         import json
@@ -479,12 +498,14 @@ def render_page():
             let mimeType = audioBase64.startsWith("UklGR") ? "audio/wav" : "audio/mp3";
             let audio = new Audio("data:" + mimeType + ";base64," + audioBase64);
             audio.volume = 1.0;
+            console.log("[AUDIO TEST] Reproduzindo áudio gerado (" + audioBase64.length + " caracteres base64)");
             audio.play().catch(e => console.error("Error playing test audio: ", e));
         }} catch(e) {{
             console.error(e);
         }}
         """
         ui.run_javascript(js_code)
+        print(f"[CONFIG TEST] ✓ Áudio gerado com sucesso. Reproduzindo...")
         ui.notify('Áudio gerado com sucesso. Reproduzindo...', color='success')
 
     active_tab = {'name': 'geral'}

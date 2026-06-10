@@ -315,8 +315,18 @@ def generate_piper_tts(text: str, voice: str) -> str:
 
 def generate_elevenlabs_tts_custom(text: str, api_key: str, voice_id: str) -> str:
     """Gera áudio usando ElevenLabs com chaves customizadas."""
-    if not api_key or not text:
+    if not api_key:
+        api_key = os.getenv("ELEVENLABS_API_KEY") or os.getenv("ELEVEN_LABS") or os.getenv("ELEVEN") or ""
+    if not api_key:
+        print("[ELEVENLABS ERROR] API Key nao configurada")
         return ""
+    if not text:
+        print("[ELEVENLABS ERROR] Texto vazio")
+        return ""
+    if not voice_id:
+        print("[ELEVENLABS ERROR] Voice ID nao configurado")
+        return ""
+        
     import requests
     import base64
     try:
@@ -334,11 +344,37 @@ def generate_elevenlabs_tts_custom(text: str, api_key: str, voice_id: str) -> st
                 "similarity_boost": 0.85
             }
         }
+        print(f"[ELEVENLABS] Enviando request para: {url}")
         response = requests.post(url, json=data, headers=headers, timeout=8)
+        
+        # Trata diferentes status codes com mensagens uteis
         if response.status_code == 200:
-            return base64.b64encode(response.content).decode('utf-8')
+            audio_data = base64.b64encode(response.content).decode('utf-8')
+            print(f"[ELEVENLABS] OK - Audio gerado com sucesso ({len(response.content)} bytes)")
+            return audio_data
+        elif response.status_code == 401:
+            error_msg = "API Key invalida ou expirada"
+            print(f"[ELEVENLABS ERROR] 401 Unauthorized: {error_msg}")
+        elif response.status_code == 403:
+            error_msg = "Acesso proibido (quota excedida ou plano insuficiente?)"
+            print(f"[ELEVENLABS ERROR] 403 Forbidden: {error_msg}")
+        elif response.status_code == 400:
+            error_detail = response.json() if response.headers.get('content-type', '').startswith('application/json') else response.text
+            error_msg = f"Bad Request: {error_detail}"
+            print(f"[ELEVENLABS ERROR] 400: {error_msg}")
+        elif response.status_code == 429:
+            error_msg = "Rate limit excedido. Tente novamente em alguns segundos"
+            print(f"[ELEVENLABS ERROR] 429: {error_msg}")
+        else:
+            error_msg = f"HTTP {response.status_code}: {response.text[:100]}"
+            print(f"[ELEVENLABS ERROR] {error_msg}")
+            
+    except requests.exceptions.Timeout:
+        print("[ELEVENLABS ERROR] Timeout: Servico demorou demais a responder (>8s)")
+    except requests.exceptions.ConnectionError as e:
+        print(f"[ELEVENLABS ERROR] Erro de conexao: {e}")
     except Exception as e:
-        print(f"[ELEVENLABS ERROR] {e}")
+        print(f"[ELEVENLABS ERROR] {type(e).__name__}: {e}")
     return ""
 
 
