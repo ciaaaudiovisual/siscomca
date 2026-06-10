@@ -262,7 +262,7 @@ def _carregar_dados_tv(prog_date: datetime = None, active_year: str = '2026'):
     alunos_df = pd.DataFrame()
     if db_conn:
         try:
-            res_al = db_conn.table('Alunos').select('id,numero_interno,nome_guerra,pelotao,especialidade,status').eq('ano_letivo', active_year).execute()
+            res_al = db_conn.table('Alunos').select('id,numero_interno,nome_guerra,pelotao,especialidade').eq('ano_letivo', active_year).execute()
             alunos_df = pd.DataFrame(res_al.data) if res_al.data else pd.DataFrame()
         except Exception as e:
             print(f"[TV] Erro Alunos: {e}")
