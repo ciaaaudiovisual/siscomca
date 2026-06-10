@@ -597,7 +597,8 @@ def setup_handlers(bot_instance):
         }
         
         markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-        markup.row(types.KeyboardButton("🆕 Novo Lançamento"), types.KeyboardButton("🏥 Listar Baixados"))
+        markup.row(types.KeyboardButton("🆕 Novo Lançamento"))
+        markup.row(types.KeyboardButton("🏥 Listar Baixados"), types.KeyboardButton("📋 Listar Dispensados"))
         markup.add(types.KeyboardButton("❌ Cancelar"))
         
         await bot_instance.reply_to(message, "🏥 Gestão de Saúde / Enfermaria: Selecione uma opção abaixo:", reply_markup=markup)
@@ -2522,10 +2523,13 @@ def setup_handlers(bot_instance):
                     clear_state(chat_id)
                     return
                 
+                is_baixados = "baixados" in text.lower() or "🏥" in text
+                is_dispensados = "dispensados" in text.lower() or "📋" in text
+                
                 if "novo" in text.lower() or "lançamento" in text.lower() or "lancamento" in text.lower() or "🆕" in text:
                     await prompt_pelotao_selection(bot_instance, message, state)
                     return
-                elif "baixados" in text.lower() or "listar" in text.lower() or "🏥" in text:
+                elif is_baixados or is_dispensados:
                     await bot_instance.send_chat_action(chat_id, 'typing')
                     try:
                         hoje_str = datetime.now().strftime('%Y-%m-%d')
@@ -2543,10 +2547,20 @@ def setup_handlers(bot_instance):
                                 except Exception:
                                     pass
                             if esta_valido:
-                                valid_records.append(row)
+                                status = row.get('status', '')
+                                categoria = row.get('categoria', '')
+                                if is_baixados:
+                                    # Baixados: Internado, Encaminhado para enfermaria, baixado, Hospital
+                                    if status in ('Internado', 'Encaminhado para enfermaria', 'baixado', 'Hospital') or categoria in ('enfermaria', 'hospital'):
+                                        valid_records.append(row)
+                                else:
+                                    # Dispensados: Dispensado
+                                    if status == 'Dispensado' or categoria == 'dispensa':
+                                        valid_records.append(row)
                                 
                         if not valid_records:
-                            await bot_instance.reply_to(message, "🟢 Não há alunos baixados ou com dispensas/licenças ativas no momento.", reply_markup=get_main_menu_keyboard())
+                            msg_vazio = "🟢 Não há alunos baixados na enfermaria ou hospitalizados no momento." if is_baixados else "🟢 Não há alunos com dispensas ativas no momento."
+                            await bot_instance.reply_to(message, msg_vazio, reply_markup=get_main_menu_keyboard())
                             clear_state(chat_id)
                             return
                             
@@ -2558,15 +2572,17 @@ def setup_handlers(bot_instance):
                             markup.add(types.KeyboardButton(f"{idx + 1} — {row['numero_interno']} : {row['nome_guerra']} ({row['status']})"))
                         markup.add(types.KeyboardButton("❌ Cancelar"))
                         
-                        prompt = "🏥 Militares Ativos na Enfermaria/Saúde:\nSelecione um para ver detalhes ou dar alta:\n\n"
+                        tipo_label = "Baixados (Enfermaria/Hospital)" if is_baixados else "Dispensados"
+                        prompt = f"🏥 Militares com registros ativos em {tipo_label}:\nSelecione um para ver detalhes ou dar alta/encerrar:\n\n"
                         for idx, row in enumerate(state['data']['active_cases']):
                             prompt += f"{idx + 1} — {row['numero_interno']} : {row['nome_guerra']} ({row['status']})\n"
                         await bot_instance.reply_to(message, prompt, reply_markup=markup)
                     except Exception as e:
-                        await bot_instance.reply_to(message, f"❌ Erro ao listar baixados: {e}", reply_markup=get_main_menu_keyboard())
+                        tipo_label = "baixados" if is_baixados else "dispensados"
+                        await bot_instance.reply_to(message, f"❌ Erro ao listar {tipo_label}: {e}", reply_markup=get_main_menu_keyboard())
                         clear_state(chat_id)
                 else:
-                    await bot_instance.reply_to(message, "⚠️ Escolha uma das opções: '🆕 Novo Lançamento' ou '🏥 Listar Baixados':")
+                    await bot_instance.reply_to(message, "⚠️ Escolha uma das opções: '🆕 Novo Lançamento', '🏥 Listar Baixados' ou '📋 Listar Dispensados':")
             
             elif step == 'choose_pelotao':
                 if text.lower() in ['cancelar', '❌ cancelar']:
@@ -2821,23 +2837,24 @@ def setup_handlers(bot_instance):
                         obs = state['data']['observacao']
                         usuario = state['user'].get('nome', 'TELEGRAM').upper()
                         
-                        data_ini = date.today().strftime('%Y-%m-%d') if status in ('Dispensado', 'Licença') else None
-                        data_fim = (date.today() + timedelta(days=dias)).strftime('%Y-%m-%d') if (status in ('Dispensado', 'Licença') and dias) else None
+                        data_ini = date.today().strftime('%Y-%m-%d') if status in ('Dispensado', 'Licença') else ''
+                        data_fim = (date.today() + timedelta(days=dias)).strftime('%Y-%m-%d') if (status in ('Dispensado', 'Licença') and dias) else ''
                         
-                        conn.table('enfermaria').insert({
-                            'numero_interno': str(student['numero_interno']),
-                            'nome_guerra': student['nome_guerra'],
-                            'turma': student.get('pelotao', ''),
-                            'status': status,
-                            'categoria': category,
-                            'motivo': motivo,
-                            'observacao': obs,
-                            'detalhe': detalhe,
-                            'data_ini': data_ini,
-                            'data_fim': data_fim,
-                            'data': date.today().strftime('%Y-%m-%d'),
-                            'hora': datetime.now().strftime('%H:%M')
-                        }).execute()
+                        from alunos_saude import _upsert_registro
+                        ok = _upsert_registro(
+                            numero_interno=str(student['numero_interno']),
+                            nome_guerra=student['nome_guerra'],
+                            turma=student.get('pelotao', ''),
+                            status=status,
+                            motivo=motivo,
+                            data_ini=data_ini,
+                            data_fim=data_fim,
+                            detalhe=detalhe,
+                            observacao=obs
+                        )
+                        
+                        if not ok:
+                            raise Exception("Falha ao salvar via _upsert_registro")
                         
                         # Alerta em tempo real na TV
                         health_title = "Alta Médica" if status == "Alta" else "Aviso de Saúde"
@@ -2888,8 +2905,11 @@ def setup_handlers(bot_instance):
                         state['data']['selected_case'] = selected
                         state['step'] = 'confirm_alta'
                         
+                        is_dispensa = selected.get('status') == 'Dispensado'
+                        acao_alta = "Encerrar Dispensa" if is_dispensa else "Dar Alta"
+                        
                         markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-                        markup.row(types.KeyboardButton("🟢 Dar Alta"), types.KeyboardButton("❌ Cancelar"))
+                        markup.row(types.KeyboardButton(f"🟢 {acao_alta}"), types.KeyboardButton("❌ Cancelar"))
                         
                         detalhe_str = f"\n📋 Detalhe: {selected['detalhe']}" if selected.get('detalhe') else ""
                         periodo_str = f"\n🕒 Período: {selected['data_ini']} a {selected['data_fim']}" if selected.get('data_ini') else ""
@@ -2901,7 +2921,7 @@ def setup_handlers(bot_instance):
                             f"🔬 Motivo: {selected['motivo'] or 'Sem motivo informado'}"
                             f"{detalhe_str}"
                             f"{periodo_str}\n\n"
-                            f"Deseja dar ALTA para este militar?"
+                            f"Deseja registrar a ALTA / ENCERRAMENTO para este militar?"
                         )
                         await bot_instance.reply_to(message, prompt, reply_markup=markup)
                     else:
@@ -2912,25 +2932,47 @@ def setup_handlers(bot_instance):
             # Passo 10: Confirmação de Alta
             elif step == 'confirm_alta':
                 ans = text.strip().lower()
-                if ans in ['s', 'sim', 'y', 'yes', '🟢 dar alta', 'dar alta', 's — dar alta']:
+                is_confirm = False
+                for possible_ans in ['s', 'sim', 'y', 'yes', '🟢 dar alta', 'dar alta', 's — dar alta', '🟢 encerrar dispensa', 'encerrar dispensa', 's — encerrar dispensa']:
+                    if possible_ans in ans:
+                        is_confirm = True
+                        break
+                        
+                if is_confirm:
                     try:
                         selected = state['data']['selected_case']
                         usuario = state['user'].get('nome', 'TELEGRAM').upper()
                         
-                        conn.table('enfermaria').update({
-                            'status': 'Alta',
-                            'categoria': 'alta',
-                            'atualizado_em': datetime.now().isoformat()
-                        }).eq('id', selected['id']).execute()
+                        from alunos_saude import _upsert_registro
+                        
+                        motive = "Alta médica concedida (Normal)"
+                        if selected.get('status') == 'Dispensado':
+                            motive = "Dispensa encerrada"
+                        elif selected.get('status') == 'Licença':
+                            motive = "Licença encerrada"
+                        
+                        ok = _upsert_registro(
+                            numero_interno=str(selected['numero_interno']),
+                            nome_guerra=selected['nome_guerra'],
+                            turma=selected.get('turma') or selected.get('turma_aluno') or selected.get('pelotao') or '',
+                            status='Alta',
+                            motivo=motive,
+                            registro_id=selected['id']
+                        )
+                        
+                        if not ok:
+                            raise Exception("Falha ao registrar alta/encerramento via _upsert_registro")
                         
                         # Alerta em tempo real na TV
+                        health_title = "Dispensa Encerrada" if selected.get('status') == 'Dispensado' else "Alta Médica"
                         AlertsManager.trigger_alert(
-                            "Alta Médica",
-                            f"{selected['numero_interno']} — {selected['nome_guerra'].upper()} ({selected.get('turma', '').upper()}) obteve alta médica por {usuario}!",
+                            health_title,
+                            f"{selected['numero_interno']} — {selected['nome_guerra'].upper()} ({selected.get('turma', '').upper()}) obteve alta/encerramento por {usuario}!",
                             "success"
                         )
                         
-                        await bot_instance.reply_to(message, f"✅ Alta para {selected['nome_guerra']} registrada com sucesso!", reply_markup=get_main_menu_keyboard())
+                        msg_sucesso = f"✅ Dispensa para {selected['nome_guerra']} encerrada com sucesso!" if selected.get('status') == 'Dispensado' else f"✅ Alta para {selected['nome_guerra']} registrada com sucesso!"
+                        await bot_instance.reply_to(message, msg_sucesso, reply_markup=get_main_menu_keyboard())
                     except Exception as e:
                         await bot_instance.reply_to(message, f"❌ Erro ao registrar alta: {e}", reply_markup=get_main_menu_keyboard())
                     finally:
@@ -2939,7 +2981,7 @@ def setup_handlers(bot_instance):
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
                 else:
-                    await bot_instance.reply_to(message, "⚠️ Escolha uma das opções: '🟢 Dar Alta' ou '❌ Cancelar':")
+                    await bot_instance.reply_to(message, "⚠️ Escolha uma das opções de confirmação ou '❌ Cancelar':")
 
         # ── PROCESSAMENTO DO LANÇAMENTO DE ESCALA ─────────────────────
         elif action == 'escala':
