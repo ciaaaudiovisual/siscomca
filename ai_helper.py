@@ -328,8 +328,18 @@ def generate_elevenlabs_tts_custom(text: str, api_key: str, voice_id: str, retur
     """
     error_msg = ""
     
+    # Limpar espaços extras
+    if api_key:
+        api_key = api_key.strip()
+    if voice_id:
+        voice_id = voice_id.strip()
+    if text:
+        text = text.strip()
+    
     if not api_key:
         api_key = os.getenv("ELEVENLABS_API_KEY") or os.getenv("ELEVEN_LABS") or os.getenv("ELEVEN") or ""
+        if api_key:
+            api_key = api_key.strip()
     if not api_key:
         error_msg = "API Key nao configurada"
         print(f"[ELEVENLABS ERROR] {error_msg}")
@@ -342,6 +352,10 @@ def generate_elevenlabs_tts_custom(text: str, api_key: str, voice_id: str, retur
         error_msg = "Voice ID nao configurado"
         print(f"[ELEVENLABS ERROR] {error_msg}")
         return {"audio": "", "error": error_msg} if return_error else ""
+    
+    # Debug: mostrar tamanho e primeiros chars da chave
+    print(f"[ELEVENLABS DEBUG] API Key tamanho: {len(api_key)}, comeca com: {api_key[:10]}...")
+    print(f"[ELEVENLABS DEBUG] Voice ID tamanho: {len(voice_id)}, valor: {voice_id}")
         
     import requests
     import base64

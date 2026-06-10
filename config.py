@@ -437,13 +437,16 @@ def render_page():
             elif engine == 'elevenlabs':
                 from ai_helper import generate_elevenlabs_tts_custom
                 # Tentar carregar API Key do ambiente se não estiver no input
-                api_key_to_use = el_key or os.getenv("ELEVENLABS_API_KEY") or os.getenv("ELEVEN_LABS") or os.getenv("ELEVEN") or ""
-                voice_id_to_use = el_voice or "N2lVS1w4EtoT3dr4eOWO"
+                api_key_to_use = (el_key.strip() if el_key else "") or os.getenv("ELEVENLABS_API_KEY") or os.getenv("ELEVEN_LABS") or os.getenv("ELEVEN") or ""
+                if api_key_to_use:
+                    api_key_to_use = api_key_to_use.strip()
+                voice_id_to_use = (el_voice.strip() if el_voice else "") or "N2lVS1w4EtoT3dr4eOWO"
                 
                 print(f"[CONFIG TEST] Testando ElevenLabs TTS")
-                print(f"[CONFIG TEST] Voice ID: {voice_id_to_use}")
-                print(f"[CONFIG TEST] API Key presente (input): {bool(el_key and len(el_key) > 0)}")
+                print(f"[CONFIG TEST] Voice ID: {voice_id_to_use} (tamanho: {len(voice_id_to_use)})")
+                print(f"[CONFIG TEST] API Key presente (input): {bool(el_key and len(el_key.strip()) > 0)}")
                 print(f"[CONFIG TEST] API Key presente (total): {bool(api_key_to_use and len(api_key_to_use) > 0)}")
+                print(f"[CONFIG TEST] API Key (primeiros 20 chars): {api_key_to_use[:20] if api_key_to_use else 'VAZIO'}...")
                 print(f"[CONFIG TEST] Texto: '{texto}'")
                 
                 if not api_key_to_use:
