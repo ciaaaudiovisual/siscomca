@@ -32,6 +32,10 @@ def student_matches(al: dict, query_normalized: str) -> bool:
     full_name_text = f"{nome} {nome_comp}"
     return all(word in full_name_text for word in query_words)
 
+def natural_sort_key(s):
+    import re
+    return [int(text) if text.isdigit() else text.lower() for text in re.split(r'(\d+)', str(s))]
+
 # Estado global da conversação do bot por chat_id
 chat_states = {}
 
@@ -361,8 +365,8 @@ async def handle_pelotao_selection(bot_instance, message, state):
     state['data']['alunos_pelotao'] = alunos_pelotao
     
     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-    # Ordena os alunos por ordem alfabética do nome de guerra
-    alunos_pelotao_sorted = sorted(alunos_pelotao, key=lambda x: str(x.get('nome_guerra', '')).upper())
+    # Ordena os alunos por número interno em ordem alfanumérica
+    alunos_pelotao_sorted = sorted(alunos_pelotao, key=lambda x: natural_sort_key(x.get('numero_interno', '')))
     for i in range(0, len(alunos_pelotao_sorted), 2):
         row = [types.KeyboardButton(f"MIKE {a['numero_interno']} - {a['nome_guerra']}") for a in alunos_pelotao_sorted[i:i+2]]
         markup.row(*row)
@@ -1703,34 +1707,59 @@ def setup_handlers(bot_instance):
                     clear_state(chat_id)
                     return
                 
+                is_batch = ',' in text
                 matches = []
-                query_normalized = normalize_text(text)
-                for al in alunos:
-                    if student_matches(al, query_normalized):
-                        matches.append(al)
                 
-                if not matches:
-                    await bot_instance.reply_to(message, f"⚠️ Nenhum aluno encontrado com '{text}'. Digite novamente ou selecione Cancelar:", reply_markup=get_cancel_keyboard())
-                    return
-                
-                # Ordena os resultados da busca por ordem alfabética do nome de guerra
-                matches = sorted(matches, key=lambda x: str(x.get('nome_guerra', '')).upper())
-                
-                if len(matches) > 1:
-                    state['step'] = 'choose_student'
-                    state['data']['matches'] = matches[:10] # Limita a 10 opções
+                if is_batch:
+                    # Parse comma-separated inputs
+                    parts = [p.strip() for p in text.split(',') if p.strip()]
+                    for part in parts:
+                        norm_part = normalize_text(part)
+                        part_matches = []
+                        for al in alunos:
+                            if student_matches(al, norm_part):
+                                part_matches.append(al)
+                        if part_matches:
+                            # Add the first match for this search criteria to avoid ambiguity choice inside batch
+                            matches.append(part_matches[0])
                     
-                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-                    for idx, al in enumerate(state['data']['matches']):
-                        markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al.get('especialidade') or 'Sem Esp.'})"))
-                    markup.add(types.KeyboardButton("❌ Cancelar"))
- 
-                    prompt = "🔍 Múltiplos alunos encontrados. Selecione o correspondente abaixo:\n\n"
-                    for idx, al in enumerate(state['data']['matches']):
-                        prompt += f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al['pelotao']} • {al.get('especialidade') or 'Sem Esp.'})\n"
-                    await bot_instance.reply_to(message, prompt, reply_markup=markup)
-                else:
+                    if not matches:
+                        await bot_instance.reply_to(message, f"⚠️ Nenhum aluno encontrado para o lote '{text}'. Digite novamente ou selecione Cancelar:", reply_markup=get_cancel_keyboard())
+                        return
+                    
+                    state['data']['is_mass_anotacao'] = True
+                    state['data']['mass_students'] = matches
+                    state['data']['student'] = matches[0]
+                    
                     await prompt_action_type(bot_instance, message, state, matches[0])
+                else:
+                    query_normalized = normalize_text(text)
+                    for al in alunos:
+                        if student_matches(al, query_normalized):
+                            matches.append(al)
+                    
+                    if not matches:
+                        await bot_instance.reply_to(message, f"⚠️ Nenhum aluno encontrado com '{text}'. Digite novamente ou selecione Cancelar:", reply_markup=get_cancel_keyboard())
+                        return
+                    
+                    # Ordena os resultados da busca por ordem alfabética do nome de guerra
+                    matches = sorted(matches, key=lambda x: str(x.get('nome_guerra', '')).upper())
+                    
+                    if len(matches) > 1:
+                        state['step'] = 'choose_student'
+                        state['data']['matches'] = matches[:10] # Limita a 10 opções
+                        
+                        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                        for idx, al in enumerate(state['data']['matches']):
+                            markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al.get('especialidade') or 'Sem Esp.'})"))
+                        markup.add(types.KeyboardButton("❌ Cancelar"))
+     
+                        prompt = "🔍 Múltiplos alunos encontrados. Selecione o correspondente abaixo:\n\n"
+                        for idx, al in enumerate(state['data']['matches']):
+                            prompt += f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al['pelotao']} • {al.get('especialidade') or 'Sem Esp.'})\n"
+                        await bot_instance.reply_to(message, prompt, reply_markup=markup)
+                    else:
+                        await prompt_action_type(bot_instance, message, state, matches[0])
             
             # Passo 2: Seleção de Aluno em Lista
             elif step == 'choose_student':
@@ -1796,13 +1825,23 @@ def setup_handlers(bot_instance):
                 markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
                 markup.row(types.KeyboardButton("S — Confirmar"), types.KeyboardButton("N — Cancelar"))
 
-                confirm_prompt = (
-                    "⚠️ Confirmar Lançamento?\n\n"
-                    f"👤 Aluno: {student['nome_guerra']} ({student['numero_interno']})\n"
-                    f"🛡️ Tipo: {tipo['nome']} ({pts:+.1f} pts)\n"
-                    f"📝 Justificativa: {desc or 'Nenhuma'}\n\n"
-                    "Selecione uma das opções abaixo:"
-                )
+                if state['data'].get('is_mass_anotacao') and state['data'].get('mass_students'):
+                    alunos_lbl = ", ".join([f"{a['nome_guerra']} ({a['numero_interno']})" for a in state['data']['mass_students']])
+                    confirm_prompt = (
+                        "⚠️ Confirmar Lançamento em Lote?\n\n"
+                        f"👥 Alunos: {alunos_lbl}\n"
+                        f"🛡️ Tipo: {tipo['nome']} ({pts:+.1f} pts)\n"
+                        f"📝 Justificativa: {desc or 'Nenhuma'}\n\n"
+                        "Selecione uma das opções abaixo:"
+                    )
+                else:
+                    confirm_prompt = (
+                        "⚠️ Confirmar Lançamento?\n\n"
+                        f"👤 Aluno: {student['nome_guerra']} ({student['numero_interno']})\n"
+                        f"🛡️ Tipo: {tipo['nome']} ({pts:+.1f} pts)\n"
+                        f"📝 Justificativa: {desc or 'Nenhuma'}\n\n"
+                        "Selecione uma das opções abaixo:"
+                    )
                 await bot_instance.reply_to(message, confirm_prompt, reply_markup=markup)
 
             # Passo 5: Confirmação Final
@@ -1810,22 +1849,9 @@ def setup_handlers(bot_instance):
                 ans = text.strip().lower()
                 if ans in ['s', 'sim', 'y', 'yes', 's — confirmar']:
                     try:
-                        student = state['data']['student']
                         tipo = state['data']['tipo']
                         desc = state['data']['description']
                         usuario = state['user'].get('nome', 'TELEGRAM').upper()
-                        
-                        conn.table('Acoes').insert({
-                            'aluno_id': str(student['id']),
-                            'tipo_acao_id': str(tipo['id']),
-                            'tipo': tipo['nome'],
-                            'descricao': desc,
-                            'data': date.today().strftime('%Y-%m-%d'),
-                            'usuario': usuario,
-                            'status': 'Pendente'
-                        }).execute()
-                        
-                        aluno_lbl = f"{student.get('numero_interno', '')} — {str(student.get('nome_guerra', '')).upper()} ({str(student.get('pelotao', '')).upper()})"
                         pts = float(tipo.get('pontuacao', 0.0) or 0.0)
                         
                         # Determina se é relacionado a saúde para ser laranja (warning)
@@ -1838,14 +1864,45 @@ def setup_handlers(bot_instance):
                         alert_type = "success" if pts > 0 else "alert" if pts < 0 else "info"
                         if is_saude:
                             alert_type = "warning"
+
+                        if state['data'].get('is_mass_anotacao') and state['data'].get('mass_students'):
+                            for student in state['data']['mass_students']:
+                                conn.table('Acoes').insert({
+                                    'aluno_id': str(student['id']),
+                                    'tipo_acao_id': str(tipo['id']),
+                                    'tipo': tipo['nome'],
+                                    'descricao': desc,
+                                    'data': date.today().strftime('%Y-%m-%d'),
+                                    'usuario': usuario,
+                                    'status': 'Pendente'
+                                }).execute()
+                                
+                                aluno_lbl = f"{student.get('numero_interno', '')} — {str(student.get('nome_guerra', '')).upper()} ({str(student.get('pelotao', '')).upper()})"
+                                AlertsManager.trigger_alert(
+                                    "Registro de Ocorrência",
+                                    f"{aluno_lbl} recebeu {tipo['nome'].upper()} por {usuario}!",
+                                    alert_type
+                                )
+                            await bot_instance.reply_to(message, f"✅ Ocorrências em lote ({len(state['data']['mass_students'])} alunos) registradas em status PENDENTE e transmitidas!", reply_markup=get_main_menu_keyboard())
+                        else:
+                            student = state['data']['student']
+                            conn.table('Acoes').insert({
+                                'aluno_id': str(student['id']),
+                                'tipo_acao_id': str(tipo['id']),
+                                'tipo': tipo['nome'],
+                                'descricao': desc,
+                                'data': date.today().strftime('%Y-%m-%d'),
+                                'usuario': usuario,
+                                'status': 'Pendente'
+                            }).execute()
                             
-                        AlertsManager.trigger_alert(
-                            "Registro de Ocorrência",
-                            f"{aluno_lbl} recebeu {tipo['nome'].upper()} por {usuario}!",
-                            alert_type
-                        )
-                        
-                        await bot_instance.reply_to(message, "✅ Ocorrência registrada em status PENDENTE e transmitida para a TV!", reply_markup=get_main_menu_keyboard())
+                            aluno_lbl = f"{student.get('numero_interno', '')} — {str(student.get('nome_guerra', '')).upper()} ({str(student.get('pelotao', '')).upper()})"
+                            AlertsManager.trigger_alert(
+                                    "Registro de Ocorrência",
+                                    f"{aluno_lbl} recebeu {tipo['nome'].upper()} por {usuario}!",
+                                    alert_type
+                                )
+                            await bot_instance.reply_to(message, "✅ Ocorrência registrada em status PENDENTE e transmitida para a TV!", reply_markup=get_main_menu_keyboard())
                     except Exception as e:
                         await bot_instance.reply_to(message, f"❌ Erro ao salvar ocorrência: {e}", reply_markup=get_main_menu_keyboard())
                     finally:
@@ -1917,10 +1974,11 @@ def setup_handlers(bot_instance):
                         return
                         
                     state['step'] = 'choose_faltoso_student'
-                    state['data']['faltosos_list'] = absent_students
+                    absent_students_sorted = sorted(absent_students, key=lambda x: natural_sort_key(x.get('numero_interno', '')))
+                    state['data']['faltosos_list'] = absent_students_sorted
                     
                     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-                    for idx, al in enumerate(absent_students):
+                    for idx, al in enumerate(absent_students_sorted):
                         markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al.get('especialidade') or 'Sem Esp.'})"))
                     markup.add(types.KeyboardButton("❌ Cancelar"))
                     
@@ -2095,6 +2153,7 @@ def setup_handlers(bot_instance):
                         try:
                             res_count = conn.table('Alunos').select('numero_interno, nome_guerra').eq('pelotao', pelotao).execute()
                             alunos_do_pelotao = res_count.data if res_count.data else []
+                            alunos_do_pelotao = sorted(alunos_do_pelotao, key=lambda x: natural_sort_key(x.get('numero_interno', '')))
                             total_alunos = len(alunos_do_pelotao)
                             # Lista os primeiros 10 para exibir
                             preview = alunos_do_pelotao[:10]
@@ -4112,17 +4171,16 @@ async def perform_consulta_search(bot_instance, message, profile, term):
                 message,
                 f"⚠️ Nenhum aluno encontrado com '{term}' no ano letivo ativo ({active_year}).\n\n"
                 f"🔍 Encontramos correspondência(s) no(s) ano(s) letivo(s): *{years_str}*.\n"
-                f"💡 Vá em *⚙️ Configurações -> 📅 Alterar Ano Letivo* para alternar o ano ativo e tentar novamente.",
-                reply_markup=get_main_menu_keyboard(),
+                f"💡 Vá em *⚙️ Configurações -> 📅 Alterar Ano Letivo* para alternar o ano ativo, ou digite outro nome para buscar:",
+                reply_markup=get_cancel_keyboard(),
                 parse_mode='Markdown'
             )
         else:
             await bot_instance.reply_to(
                 message, 
-                f"⚠️ Nenhum aluno encontrado com '{term}' em nenhum ano letivo cadastrado.", 
-                reply_markup=get_main_menu_keyboard()
+                f"⚠️ Nenhum aluno encontrado com '{term}'. Digite novamente ou envie Cancelar:", 
+                reply_markup=get_cancel_keyboard()
             )
-        clear_state(chat_id)
         return
         
     # Ordena os resultados da busca por ordem alfabética do nome de guerra
