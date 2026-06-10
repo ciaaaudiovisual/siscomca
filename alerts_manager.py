@@ -133,58 +133,73 @@ class AlertsManager:
 
     @classmethod
     def prune_dead_callbacks(cls):
-        """Remove callbacks de clientes que foram destruídos pelo NiceGUI."""
+        """Remove callbacks de clientes que foram DEFINITIVAMENTE destruídos pelo NiceGUI.
+        
+        IMPORTANTE: Não remove clientes em reconexão (has_socket_connection=False temporariamente)
+        """
         import nicegui
-        print(f"[ALERTA DEBUG] Callbacks registrados: {list(cls._tv_callbacks.keys())}")
-        print(f"[ALERTA DEBUG] Instâncias NiceGUI ativas: {list(nicegui.Client.instances.keys())}")
         dead_ids = []
         for cid, entry in list(cls._tv_callbacks.items()):
             client = entry.get('client')
-            # Verifica se o ID do cliente ainda é gerenciado pelo NiceGUI
-            is_alive = cid in nicegui.Client.instances
-            if not is_alive and client:
-                # Fallback: check if client has active socket connection
-                if hasattr(client, 'has_socket_connection') and client.has_socket_connection:
-                    is_alive = True
-                elif hasattr(client, 'connected') and client.connected:
-                    is_alive = True
-            
-            if not is_alive:
+            if not client:
+                # Sem referência ao client, pode remover
                 dead_ids.append(cid)
-                print(f"[ALERTA DEBUG] Client {cid} não está ativo. Marcado para pruning. instances={cid in nicegui.Client.instances}, has_socket={getattr(client, 'has_socket_connection', None)}")
+                continue
+            
+            # Check 1: Se o cliente tem socket ativo, está vivo
+            if hasattr(client, 'has_socket_connection') and client.has_socket_connection:
+                continue
+                
+            # Check 2: Se está em Client.instances, está vivo
+            if cid in nicegui.Client.instances:
+                continue
+                
+            # Check 3: Se tem atributo 'connected' e está True, está vivo
+            if hasattr(client, 'connected') and client.connected:
+                continue
+                
+            # Só marca para remoção se DEFINITIVAMENTE não estiver conectado
+            # Aguarda um pouco antes de remover para evitar race conditions de reconexão
+            dead_ids.append(cid)
+            print(f"[ALERTA] Client {cid} marcado para remoção (nenhum indicador de vida)")
         
         for cid in dead_ids:
             try:
                 del cls._tv_callbacks[cid]
-                print(f"[ALERTA] Removido callback morto de TV desconectada ({cid})")
+                print(f"[ALERTA] Removido callback morto de TV ({cid}). Restantes: {len(cls._tv_callbacks)}")
             except KeyError:
                 pass
-        print(f"[ALERTA DEBUG] Callbacks restantes após prune: {list(cls._tv_callbacks.keys())}")
 
     @classmethod
     def register_tv_callback(cls, client: Any, callback: Callable[[str, str, str], Any]):
-        """Registra a tela de TV (associada ao seu client NiceGUI) para receber alertas."""
-        cls.prune_dead_callbacks()
+        """Registra a tela de TV (associada ao seu client NiceGUI) para receber alertas.
+        
+        Preserva preferências de som/voz se já estava registrada (reconexão).
+        """
+        # Prune APENAS se for o primero registro ou se houver muitos callbacks
+        if len(cls._tv_callbacks) > 20:
+            cls.prune_dead_callbacks()
+        
+        # Preserva preferências se já estava registrada (reconexão)
+        old_prefs = cls._tv_callbacks.get(client.id, {})
         cls._tv_callbacks[client.id] = {
             'client': client,
             'callback': callback,
-            'voice': True,
-            'sound': True
+            'voice': old_prefs.get('voice', True),
+            'sound': old_prefs.get('sound', True)
         }
         try:
             cls._main_loop = asyncio.get_running_loop()
-            print(f"[ALERTA] Loop de eventos principal capturado ({cls._main_loop})")
         except RuntimeError:
             pass
-        print(f"[ALERTA] Nova TV registrada ({client.id}). Ativos: {len(cls._tv_callbacks)}")
+        print(f"[ALERTA] ✓ TV registrada/re-registrada ({client.id}). Total ativo: {len(cls._tv_callbacks)}")
 
     @classmethod
     def unregister_tv_callback(cls, client_id: str):
         """Remove a tela de TV do canal de alertas ao desconectar ou recarregar."""
         if client_id in cls._tv_callbacks:
             del cls._tv_callbacks[client_id]
-            print(f"[ALERTA] TV desregistrada ({client_id}). Restantes: {len(cls._tv_callbacks)}")
-        cls.prune_dead_callbacks()
+            print(f"[ALERTA] ✗ TV desregistrada ({client_id}). Restantes: {len(cls._tv_callbacks)}")
 
     @classmethod
     def update_tv_preferences(cls, client_id: str, voice: bool = None, sound: bool = None):

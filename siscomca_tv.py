@@ -1127,6 +1127,10 @@ def render_page():
                     status_dot = ui.icon('sensors', color='green').classes('text-2xl animate-pulse')
                     status_lbl = ui.label('ONLINE').classes('text-green-500 font-bold text-sm tracking-widest mr-2')
                     
+                    # Indicador de Alertas Ativos
+                    alerts_dot = ui.icon('notifications_active', color='cyan').classes('text-xl animate-pulse')
+                    alerts_lbl = ui.label('ALERTAS ON').classes('text-cyan-5 font-bold text-xs tracking-widest')
+                    
                     sound_btn = ui.button(
                         'SINAL: LIGADO', icon='volume_up'
                     ).props('outline color=amber dense no-caps').classes('text-xs font-bold px-2.5 py-1')
@@ -1459,13 +1463,26 @@ def render_page():
                 ui.icon('campaign', color='amber', size='2.5rem')
                 ticker_container = ui.element('div').classes('ticker-wrapper').style('flex: 1;')
     def _update_clock():
-        """Atualiza o relógio a cada segundo."""
+        """Atualiza o relógio a cada segundo e verifica status dos alertas."""
         from datetime import timezone, timedelta
         tz_gmt3 = timezone(timedelta(hours=-3))
         now_gmt3 = datetime.now(tz_gmt3)
         clock_lbl.set_text(now_gmt3.strftime('%H:%M:%S'))
         date_lbl.set_text(get_pt_date_string(now_gmt3))
         sunset_lbl.set_text(f"PÔR DO SOL: {estimate_sunset_time()}")
+        
+        # Atualiza status de alertas (a cada segundo)
+        try:
+            from alerts_manager import AlertsManager
+            num_callbacks = len(AlertsManager._tv_callbacks)
+            if num_callbacks > 0 and (queue_task is not None and not queue_task.done()):
+                alerts_lbl.set_text('✓ ALERTAS ON')
+                alerts_dot.props('color=green')
+            else:
+                alerts_lbl.set_text('⚠ ALERTAS OFF')
+                alerts_dot.props('color=orange')
+        except Exception as e:
+            pass
 
     # Fila de notificações em tempo real (evita colisão de modais e sons)
     toast_queue = asyncio.Queue()
@@ -2334,6 +2351,7 @@ def render_page():
     
     # Variável para rastrear o loop de processamento da fila
     queue_task = None
+    queue_health_check_counter = {'value': 0}
 
     def on_connect_setup():
         nonlocal queue_task
@@ -2342,13 +2360,16 @@ def render_page():
         # Garante que a fila de processamento esteja rodando
         if queue_task is None or queue_task.done():
             queue_task = asyncio.create_task(_process_toast_queue())
-            print(f"[TV] Loop de processamento de fila iniciado/restaurado para o cliente: {client.id}")
+            print(f"[TV] ✓ Loop de fila iniciado/RESTAURADO (Client: {client.id})")
+            queue_health_check_counter['value'] = 0
+        else:
+            print(f"[TV] ✓ Fila já está ativa (Client: {client.id})")
             
         # Registra a TV no AlertsManager para receber notificações em tempo real
         AlertsManager.register_tv_callback(client, trigger_toast)
         # Sincroniza o estado atual das preferências de som/voz
         AlertsManager.update_tv_preferences(client.id, voice=audio_config['voice'], sound=audio_config['sound'])
-        print(f"[TV] TV registrada no AlertsManager via on_connect (Client: {client.id})")
+        print(f"[TV] ✓ TV CONECTADA e pronta para alertas (Client: {client.id})")
 
     def on_disconnect_cleanup():
         nonlocal queue_task
@@ -2360,14 +2381,25 @@ def render_page():
         # Cancela o loop de processamento da fila para evitar vazamento de memória
         if queue_task is not None and not queue_task.done():
             queue_task.cancel()
-            print(f"[TV] Loop de processamento cancelado devido a desconexão (Client: {client.id})")
+            print(f"[TV] ✗ Fila cancelada (desconexão final, Client: {client.id})")
         
+    def _health_check_queue():
+        """Verifica a cada 5s se a fila está viva; se morrer, reconecta."""
+        nonlocal queue_task
+        if queue_task is None or queue_task.done():
+            print(f"[TV] ⚠ Fila está MORTA! Reiniciando... (Client: {client.id})")
+            queue_task = asyncio.create_task(_process_toast_queue())
+    
     client.on_connect(on_connect_setup)
-    client.on_disconnect(lambda: print(f"[TV] Desconexão temporária (reconexão automática pendente) do cliente: {client.id}"))
+    client.on_disconnect(lambda: print(f"[TV] ⚠ Desconexão (reconexão em andamento, Client: {client.id})"))
     client.on_delete(on_disconnect_cleanup)
+    
+    # Timer de health check: verifica se a fila morreu (a cada 5 segundos)
+    ui.timer(5.0, _health_check_queue)
     
     # Executa setup imediatamente se já estiver conectado (evita race condition de websocket)
     if client.has_socket_connection:
+        print(f"[TV] → Setup imediato (já conectado, Client: {client.id})")
         on_connect_setup()
     
     # Elemento visual flutuante para desbloquear áudio (Autoplay policy)
