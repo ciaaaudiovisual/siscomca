@@ -442,16 +442,16 @@ def render_page():
                     api_key_to_use = api_key_to_use.strip()
                 voice_id_to_use = (el_voice.strip() if el_voice else "") or "N2lVS1w4EtoT3dr4eOWO"
                 
-                print(f"[CONFIG TEST] Testando ElevenLabs TTS")
-                print(f"[CONFIG TEST] Voice ID: {voice_id_to_use} (tamanho: {len(voice_id_to_use)})")
-                print(f"[CONFIG TEST] API Key presente (input): {bool(el_key and len(el_key.strip()) > 0)}")
-                print(f"[CONFIG TEST] API Key presente (total): {bool(api_key_to_use and len(api_key_to_use) > 0)}")
-                print(f"[CONFIG TEST] API Key (primeiros 20 chars): {api_key_to_use[:20] if api_key_to_use else 'VAZIO'}...")
-                print(f"[CONFIG TEST] Texto: '{texto}'")
+                print(f"[CONFIG TEST] Testando ElevenLabs TTS", flush=True)
+                print(f"[CONFIG TEST] Voice ID: {voice_id_to_use} (tamanho: {len(voice_id_to_use)})", flush=True)
+                print(f"[CONFIG TEST] API Key presente (input): {bool(el_key and len(el_key.strip()) > 0)}", flush=True)
+                print(f"[CONFIG TEST] API Key presente (total): {bool(api_key_to_use and len(api_key_to_use) > 0)}", flush=True)
+                print(f"[CONFIG TEST] API Key (primeiros 20 chars): {api_key_to_use[:20] if api_key_to_use else 'VAZIO'}...", flush=True)
+                print(f"[CONFIG TEST] Texto: '{texto}'", flush=True)
                 
                 if not api_key_to_use:
                     error_msg = "ERRO: API Key do ElevenLabs nao configurada! Verifique Configuracoes -> TTS -> ElevenLabs"
-                    print(f"[CONFIG TEST] VALIDACAO: {error_msg}")
+                    print(f"[CONFIG TEST] VALIDACAO: {error_msg}", flush=True)
                     ui.notify(error_msg, color='negative')
                     return
                     
@@ -460,11 +460,11 @@ def render_page():
                 error_from_tts = result.get('error', '')
                 
                 if error_from_tts:
-                    print(f"[CONFIG TEST] Resultado: ERRO - {error_from_tts}")
+                    print(f"[CONFIG TEST] Resultado: ERRO - {error_from_tts}", flush=True)
                     ui.notify(f'Erro ao gerar audio: {error_from_tts}', color='negative')
                     return
                     
-                print(f"[CONFIG TEST] Resultado: {len(audio_base64) if audio_base64 else 0} caracteres (base64) retornados")
+                print(f"[CONFIG TEST] Resultado: {len(audio_base64) if audio_base64 else 0} caracteres (base64) retornados", flush=True)
             elif engine == 'piper':
                 import subprocess
                 import base64
