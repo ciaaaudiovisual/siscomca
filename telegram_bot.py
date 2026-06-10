@@ -1014,63 +1014,23 @@ def setup_handlers(bot_instance):
             await bot_instance.reply_to(message, "⚠️ Seu perfil de usuário não tem permissão correlata no app para visualizar a Programação.")
             return
             
-        conn = get_db_connection()
-        if not conn:
-            await bot_instance.reply_to(message, "❌ Sem conexão com o banco de dados.")
-            return
-            
-        await bot_instance.send_chat_action(chat_id, 'typing')
+        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+        markup.row(types.KeyboardButton("📅 Hoje"), types.KeyboardButton("📅 Amanhã"))
+        markup.add(types.KeyboardButton("❌ Cancelar"))
         
-        try:
-            hoje_str = datetime.now().strftime('%Y-%m-%d')
-            hoje_br = datetime.now().strftime('%d/%m/%Y')
-            
-            # Filtra por data de hoje
-            res_pr = conn.table('Programacao').select('*').gte('data', f"{hoje_str} 00:00:00").lte('data', f"{hoje_str} 23:59:59").execute()
-            prog_list = res_pr.data if res_pr.data else []
-            
-            if not prog_list:
-                await bot_instance.reply_to(
-                    message,
-                    f"📅 **PROGRAMAÇÃO DE HOJE — {hoje_br}**\n\n📭 Nenhuma instrução programada para hoje.",
-                    reply_markup=get_main_menu_keyboard(),
-                    parse_mode='Markdown'
-                )
-                return
-                
-            # Ordena por horário
-            prog_list = sorted(prog_list, key=lambda x: x.get('horario', ''))
-            
-            response_lines = [f"📅 **PROGRAMAÇÃO DE HOJE — {hoje_br}**\n"]
-            for idx, act in enumerate(prog_list, 1):
-                horario = act.get('horario') or '--:--'
-                descricao = (act.get('descricao') or 'Sem descrição').strip()
-                local = (act.get('local') or 'Não informado').strip()
-                responsavel = (act.get('responsavel') or 'Não informado').strip()
-                destinatarios = (act.get('destinatarios') or 'Não informado').strip()
-                status = (act.get('status') or 'A Realizar').strip()
-                
-                status_emoji = "🟢" if status == 'Concluído' else "🔵"
-                
-                item_text = (
-                    f"{idx}. ⏰ **{horario}** - **{descricao}**\n"
-                    f"    📍 *Local:* {local}\n"
-                    f"    👮 *Responsável:* {responsavel}\n"
-                    f"    🎯 *Público:* {destinatarios}\n"
-                    f"    {status_emoji} *Status:* {status}\n"
-                )
-                response_lines.append(item_text)
-                
-            full_response = "\n".join(response_lines)
-            await bot_instance.reply_to(
-                message, 
-                full_response, 
-                reply_markup=get_main_menu_keyboard(), 
-                parse_mode='Markdown'
-            )
-        except Exception as e:
-            print(f"[Bot] Erro ao carregar Programacao: {e}")
-            await bot_instance.reply_to(message, f"❌ Erro ao buscar programação: {e}")
+        chat_states[chat_id] = {
+            'action': 'programacao',
+            'step': 'choose_date',
+            'user': profile,
+            'data': {}
+        }
+        
+        await bot_instance.reply_to(
+            message, 
+            "📅 **Programação**: Selecione o dia desejado ou digite uma data no formato **DD/MM/AAAA** (ex: 15/06/2026):", 
+            reply_markup=markup,
+            parse_mode='Markdown'
+        )
 
     @bot_instance.callback_query_handler(func=lambda call: call.data.startswith('approve_req:') or call.data.startswith('reject_req:'))
     async def process_req_callback(call):
@@ -3183,6 +3143,94 @@ def setup_handlers(bot_instance):
                         clear_state(chat_id)
                 else:
                     await bot_instance.reply_to(message, "❌ Alteração de escala abortada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+        
+        # ── PROCESSAMENTO DA PROGRAMAÇÃO ──────────────────────────────
+        elif action == 'programacao':
+            if step == 'choose_date':
+                if text.lower() in ['cancelar', '❌ cancelar']:
+                    await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
+                    return
+                
+                target_date = None
+                date_lbl = ""
+                
+                if "hoje" in text.lower():
+                    target_date = datetime.now()
+                    date_lbl = "Hoje"
+                elif "amanhã" in text.lower() or "amanha" in text.lower():
+                    target_date = datetime.now() + timedelta(days=1)
+                    date_lbl = "Amanhã"
+                else:
+                    try:
+                        # Tenta parsear no formato brasileiro DD/MM/AAAA
+                        if len(text.split('/')) == 3:
+                            target_date = datetime.strptime(text, '%d/%m/%Y')
+                        elif len(text.split('/')) == 2:
+                            active_year = get_user_active_year(state['user'])
+                            target_date = datetime.strptime(f"{text}/{active_year}", '%d/%m/%Y')
+                        else:
+                            raise ValueError()
+                        date_lbl = target_date.strftime('%d/%m/%Y')
+                    except Exception:
+                        await bot_instance.reply_to(message, "⚠️ Opção ou data inválida. Escolha '📅 Hoje', '📅 Amanhã' ou digite uma data no formato 'DD/MM/AAAA' (ex: 15/06/2026):")
+                        return
+                
+                date_str = target_date.strftime('%Y-%m-%d')
+                date_br = target_date.strftime('%d/%m/%Y')
+                
+                await bot_instance.send_chat_action(chat_id, 'typing')
+                
+                try:
+                    # Filtra por data selecionada
+                    res_pr = conn.table('Programacao').select('*').gte('data', f"{date_str} 00:00:00").lte('data', f"{date_str} 23:59:59").execute()
+                    prog_list = res_pr.data if res_pr.data else []
+                    
+                    if not prog_list:
+                        await bot_instance.reply_to(
+                            message,
+                            f"📅 **PROGRAMAÇÃO ({date_lbl} — {date_br})**\n\n📭 Nenhuma instrução programada para esta data.",
+                            reply_markup=get_main_menu_keyboard(),
+                            parse_mode='Markdown'
+                        )
+                        clear_state(chat_id)
+                        return
+                        
+                    # Ordena por horário
+                    prog_list = sorted(prog_list, key=lambda x: x.get('horario', ''))
+                    
+                    response_lines = [f"📅 **PROGRAMAÇÃO ({date_lbl} — {date_br})**\n"]
+                    for idx, act in enumerate(prog_list, 1):
+                        horario = act.get('horario') or '--:--'
+                        descricao = (act.get('descricao') or 'Sem descrição').strip()
+                        local = (act.get('local') or 'Não informado').strip()
+                        responsavel = (act.get('responsavel') or 'Não informado').strip()
+                        destinatarios = (act.get('destinatarios') or 'Não informado').strip()
+                        status = (act.get('status') or 'A Realizar').strip()
+                        
+                        status_emoji = "🟢" if status == 'Concluído' else "🔵"
+                        
+                        item_text = (
+                            f"{idx}. ⏰ **{horario}** - **{descricao}**\n"
+                            f"    📍 *Local:* {local}\n"
+                            f"    👮 *Responsável:* {responsavel}\n"
+                            f"    🎯 *Público:* {destinatarios}\n"
+                            f"    {status_emoji} *Status:* {status}\n"
+                        )
+                        response_lines.append(item_text)
+                        
+                    full_response = "\n".join(response_lines)
+                    await bot_instance.reply_to(
+                        message, 
+                        full_response, 
+                        reply_markup=get_main_menu_keyboard(), 
+                        parse_mode='Markdown'
+                    )
+                except Exception as e:
+                    print(f"[Bot] Erro ao carregar Programacao: {e}")
+                    await bot_instance.reply_to(message, f"❌ Erro ao buscar programação: {e}", reply_markup=get_main_menu_keyboard())
+                finally:
                     clear_state(chat_id)
         
         # ── PROCESSAMENTO DO PERNOITE ─────────────────────────────────
