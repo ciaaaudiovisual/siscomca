@@ -765,6 +765,9 @@ def _carregar_dados_tv(prog_date: datetime = None, active_year: str = '2026'):
             primeira_anot = None
             
             for ac in all_acoes:
+                aluno_id = str(ac.get('aluno_id', ''))
+                if aluno_id not in aluno_turma_map:
+                    continue
                 tipo_acao_id = str(ac.get('tipo_acao_id', ''))
                 pts = tipos_map.get(tipo_acao_id, 0.0)
                 ac_date = ac.get('data', '')
