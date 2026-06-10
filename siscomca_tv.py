@@ -988,9 +988,16 @@ def render_page():
     # Container da Notificação Tática Flutuante
     toast_container = ui.column().classes('absolute-top w-full z-50 q-pa-md gap-2 pointer-events-none').style('top: 20px;')
 
-    # Dialog de Alertas Táticos em Tempo Real (Criado uma vez no contexto correto)
+    # Dialog de Alertas Táticos em Tempo Real (Definido estaticamente para máxima confiabilidade)
     with ui.dialog() as tactical_dialog:
-        ui.card() # Placeholder inicial
+        dialog_card = ui.card().classes('q-pa-xl items-center text-center rounded-2xl border-4').style(
+            'min-width: 700px; max-width: 90%; color: #fff; font-family: monospace;'
+        )
+        with dialog_card:
+            dialog_icon = ui.icon('campaign', size='7rem').classes('animate-bounce')
+            dialog_title = ui.label('AVISO').classes('cyber-title q-mt-md').style('font-size: 2.6rem; font-weight: 900; letter-spacing: 5px; line-height: 1.2;')
+            dialog_sep = ui.separator().classes('w-3/4 q-my-md').style('height: 3px;')
+            dialog_msg = ui.label('').style('color: #ffffff; font-size: 2.2rem; font-weight: 900; line-height: 1.4; white-space: normal;')
 
     # Estado de visualização da TV (Blur/Ocultar Anotações)
     tv_state = {'blurred': False}
@@ -1556,28 +1563,28 @@ def render_page():
         try:
             with client:
                 if visual_alert:
-                    tactical_dialog.clear()
-                    tactical_dialog.props('persistent')
-                    with tactical_dialog:
-                        dialog_card = ui.card().classes('q-pa-xl items-center text-center rounded-2xl border-4').style(
-                            f"background: {cfg['bg']} !important; border-color: {cfg['border']} !important; "
-                            f"box-shadow: 0 0 50px {cfg['glow']} !important; min-width: 700px; max-width: 90%; "
-                            f"color: #fff; font-family: monospace;"
-                        )
-                        with dialog_card:
-                            icon_map = {
-                                'success': 'stars',
-                                'alert': 'gavel',
-                                'warning': 'healing',
-                                'info': 'campaign'
-                            }
-                            icon_name = icon_map.get(theme_key, 'info')
-                            ui.icon(icon_name, size='7rem').style(f"color: {cfg['border']}; filter: drop-shadow(0 0 20px {cfg['glow']});").classes('animate-bounce')
-                            ui.label(title.upper()).style(f"color: {cfg['border']}; font-size: 2.6rem; font-weight: 900; letter-spacing: 5px; line-height: 1.2;").classes('cyber-title q-mt-md')
-                            ui.separator().style(f"background-color: {cfg['border']}; opacity: 0.4; height: 3px;").classes('w-3/4 q-my-md')
-                            ui.label(msg).style("color: #ffffff; font-size: 2.2rem; font-weight: 900; line-height: 1.4; white-space: normal;")
+                    icon_map = {
+                        'success': 'stars',
+                        'alert': 'gavel',
+                        'warning': 'healing',
+                        'info': 'campaign'
+                    }
+                    icon_name = icon_map.get(theme_key, 'info')
                     
-                    tactical_dialog.update()
+                    # Atualiza estilos e conteúdo dinamicamente no card estático
+                    dialog_card.style(
+                        f"background: {cfg['bg']} !important; border-color: {cfg['border']} !important; "
+                        f"box-shadow: 0 0 50px {cfg['glow']} !important; min-width: 700px; max-width: 90%; "
+                        f"color: #fff; font-family: monospace;"
+                    )
+                    dialog_icon.name = icon_name
+                    dialog_icon.style(f"color: {cfg['border']}; filter: drop-shadow(0 0 20px {cfg['glow']});")
+                    dialog_title.set_text(title.upper())
+                    dialog_title.style(f"color: {cfg['border']}; font-size: 2.6rem; font-weight: 900; letter-spacing: 5px; line-height: 1.2;")
+                    dialog_sep.style(f"background-color: {cfg['border']}; opacity: 0.4; height: 3px;")
+                    dialog_msg.set_text(msg)
+                    
+                    tactical_dialog.props('persistent')
                     tactical_dialog.open()
                 
                 play_sound_js = 'true' if (audio_config['sound'] and sound_enabled) else 'false'
