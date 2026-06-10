@@ -386,6 +386,8 @@ def _carregar_dados_tv(prog_date: datetime = None, active_year: str = '2026'):
             continue
 
         item = {
+            'id': row.get('id') or 0,
+            'criado_em': row.get('criado_em') or '',
             'ni': sanitize_text(row.get('numero_interno', '')),
             'nome': sanitize_text(row.get('nome_guerra', '')).upper(),
             'turma': sanitize_text(row.get('turma', row.get('pelotao', ''))).upper(),
@@ -2130,6 +2132,12 @@ def render_page():
                 # 4. Enfermaria / Dispensas (Marquee Vertical)
                 # Somente baixados e hospitalizados contam no totalizador da enfermaria
                 baixados_efetivos = [x for x in d['saude_ativos'] if x['categoria'] in ['enfermaria', 'hospital']]
+                # Ordena por horário de inclusão (criado_em desc, depois id desc)
+                baixados_efetivos = sorted(
+                    baixados_efetivos,
+                    key=lambda x: (x.get('criado_em') or '', x.get('id') or 0),
+                    reverse=True
+                )
                 enfermaria_total_lbl.set_text(f"TOTAL: {len(baixados_efetivos)}")
                 enfermaria_marquee_div.clear()
 
@@ -2139,53 +2147,53 @@ def render_page():
                             ui.icon('health_and_safety', color='green', size='2.5rem')
                             ui.label('ENFERMARIA SEM ALUNOS BAIXADOS').classes('text-green-500 font-bold text-[18px]')
                     else:
-                        use_marquee = len(baixados_efetivos) > 2
+                        use_marquee = len(baixados_efetivos) > 4
                         classes_inner = 'health-marquee-container w-full gap-1' if use_marquee else 'w-full gap-1'
-                        items_marquee = baixados_efetivos # Removido duplicação * 2 para permitir ir e voltar real
                         
                         with ui.column().classes(classes_inner):
-                            for item in items_marquee:
-                                cat = item.get('categoria') or 'enfermaria'
-                                status = item.get('status') or 'Baixado'
-                                motivo = item.get('motivo') or 'Sem motivo informado'
-                                detalhe = item.get('detalhe') or ''
-                            
-                                # Get status info color - com fallback inteligente por substring
-                                cor, bg_rgba, ico = STATUS_INFO.get(status, ('#ff1744', 'rgba(255, 23, 68, 0.15)', 'local_hospital'))
-                                if status not in STATUS_INFO:
-                                    for key, val_info in STATUS_INFO.items():
-                                        if key.lower() in status.lower() or status.lower() in key.lower():
-                                            cor, bg_rgba, ico = val_info
-                                            break
-                            
-                                border_color_style = f'border: 1px solid {cor} !important;'
-                                indicator_color_style = f'background-color: {cor} !important;'
-                                label_cat = str(status).upper()
-                                if label_cat in ['EM OBSERVAÇÃO', 'OBSERVAÇÃO', 'OBSERVACAO', 'EM OBSERVACAO', 'ENCAMINHADO PARA ENFERMARIA']:
-                                    label_cat = 'ENCAMINHADO PARA ENFERMARIA'
-                                text_cat_color_style = f'color: {cor} !important;'
-                                bg_card = f'background: {bg_rgba};'
-                                is_hospital = status.lower() == 'hospital'
-                                desc_extra = (detalhe if detalhe else 'Hospital') if is_hospital else ''
-
-                                item_turma = str(item.get('turma') or 'N/A').upper()
-                                item_nome = str(item.get('nome') or 'MILITAR').upper()
-
-                                with ui.card().classes(f'w-full q-pa-xs q-mb-xs').style(f'{bg_card} {border_color_style} margin-bottom: 4px;'):
-                                    with ui.row().classes('w-full items-center justify-between px-1'):
-                                        with ui.row().classes('items-center gap-1.5'):
-                                            ui.element('span').classes(f'w-1.5 h-1.5 rounded-full').style(indicator_color_style)
-                                            # Exibe somente Número Interno (NI) e Nome de Guerra (sem Platoon/Mike-1!)
-                                            item_ni = str(item.get('ni') or '').upper()
-                                            if item_ni:
-                                                ui.label(item_ni).classes('text-grey-5 font-mono text-[16px]')
-                                            ui.label(item_nome).classes('text-white font-black text-[16px] tracking-wider')
-                                        ui.label(label_cat).classes(f'font-bold text-[14px] tracking-wider').style(text_cat_color_style)
+                            with ui.grid(columns=2).classes('w-full gap-1.5'):
+                                for item in baixados_efetivos:
+                                    cat = item.get('categoria') or 'enfermaria'
+                                    status = item.get('status') or 'Baixado'
+                                    motivo = item.get('motivo') or 'Sem motivo informado'
+                                    detalhe = item.get('detalhe') or ''
                                 
-                                    with ui.row().classes('w-full justify-between items-baseline px-1 text-[16px] text-grey-3'):
-                                        ui.label(motivo).classes('text-white font-bold text-[16px]')
-                                        if desc_extra:
-                                            ui.label(desc_extra).classes('text-grey-4 font-bold text-[15px]')
+                                    # Get status info color - com fallback inteligente por substring
+                                    cor, bg_rgba, ico = STATUS_INFO.get(status, ('#ff1744', 'rgba(255, 23, 68, 0.15)', 'local_hospital'))
+                                    if status not in STATUS_INFO:
+                                        for key, val_info in STATUS_INFO.items():
+                                            if key.lower() in status.lower() or status.lower() in key.lower():
+                                                cor, bg_rgba, ico = val_info
+                                                break
+                                
+                                    border_color_style = f'border: 1px solid {cor} !important;'
+                                    indicator_color_style = f'background-color: {cor} !important;'
+                                    label_cat = str(status).upper()
+                                    if label_cat in ['EM OBSERVAÇÃO', 'OBSERVAÇÃO', 'OBSERVACAO', 'EM OBSERVACAO', 'ENCAMINHADO PARA ENFERMARIA']:
+                                        label_cat = 'ENCAMINHADO PARA ENFERMARIA'
+                                    text_cat_color_style = f'color: {cor} !important;'
+                                    bg_card = f'background: {bg_rgba};'
+                                    is_hospital = status.lower() == 'hospital'
+                                    desc_extra = (detalhe if detalhe else 'Hospital') if is_hospital else ''
+
+                                    item_turma = str(item.get('turma') or 'N/A').upper()
+                                    item_nome = str(item.get('nome') or 'MILITAR').upper()
+
+                                    with ui.card().classes(f'w-full q-pa-xs q-mb-xs').style(f'{bg_card} {border_color_style} margin-bottom: 4px;'):
+                                        with ui.row().classes('w-full items-center justify-between px-1'):
+                                            with ui.row().classes('items-center gap-1.5'):
+                                                ui.element('span').classes(f'w-1.5 h-1.5 rounded-full').style(indicator_color_style)
+                                                # Exibe somente Número Interno (NI) e Nome de Guerra (sem Platoon/Mike-1!)
+                                                item_ni = str(item.get('ni') or '').upper()
+                                                if item_ni:
+                                                    ui.label(item_ni).classes('text-grey-5 font-mono text-[16px]')
+                                                ui.label(item_nome).classes('text-white font-black text-[16px] tracking-wider')
+                                            ui.label(label_cat).classes(f'font-bold text-[14px] tracking-wider').style(text_cat_color_style)
+                                    
+                                        with ui.row().classes('w-full justify-between items-baseline px-1 text-[16px] text-grey-3'):
+                                            ui.label(motivo).classes('text-white font-bold text-[16px]')
+                                            if desc_extra:
+                                                ui.label(desc_extra).classes('text-grey-4 font-bold text-[15px]')
 
                 # 5. Licenciados e Dispensados (Marquee Vertical)
                 lic_disp_marquee_div.clear()

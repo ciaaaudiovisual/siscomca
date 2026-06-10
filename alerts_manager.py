@@ -139,8 +139,17 @@ class AlertsManager:
         print(f"[ALERTA DEBUG] Instâncias NiceGUI ativas: {list(nicegui.Client.instances.keys())}")
         dead_ids = []
         for cid, entry in list(cls._tv_callbacks.items()):
+            client = entry.get('client')
             # Verifica se o ID do cliente ainda é gerenciado pelo NiceGUI
-            if cid not in nicegui.Client.instances:
+            is_alive = cid in nicegui.Client.instances
+            if not is_alive and client:
+                # Fallback: check if client has active socket connection
+                if hasattr(client, 'has_socket_connection') and client.has_socket_connection:
+                    is_alive = True
+                elif hasattr(client, 'connected') and client.connected:
+                    is_alive = True
+            
+            if not is_alive:
                 dead_ids.append(cid)
         
         for cid in dead_ids:
