@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 import asyncio
 import theme
 from database import get_db_connection, load_data, get_bot_db_connection
+from services import data_service
 
 THEME = theme.colors
 
@@ -1552,6 +1553,7 @@ def render_page():
         sound_enabled = extra_options.get('sound_enabled', True) if extra_options else True
         
         import json
+        from services import data_service
         basic_voice = data_service.get_config_value('basic_tts_voice', '')
         escaped_title = json.dumps(title)
         escaped_msg = json.dumps(msg)

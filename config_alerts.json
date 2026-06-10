@@ -2,16 +2,86 @@
   "bell_enabled": true,
   "tv_alert_vocativo": "Atenção!",
   "sound_mappings": {
-    "Registro de Ocorrência": "dragon-studio-deepsea-sonar-386156",
-    "Novo Aviso": "info",
-    "Aviso de Saúde": "siren",
-    "Dispensa Médica": "siren",
-    "Licença Médica": "warning",
-    "Alta Médica": "siren",
-    "Escala de Serviço": "info",
-    "Escala de Serviço Atualizada": "info",
-    "Chamada Diária": "info",
-    "Atraso Registrado": "camera shutter sound effect"
+    "Registro de Ocorrência": [
+      {
+        "som": "success",
+        "delay": 0.0
+      }
+    ],
+    "Novo Aviso": [
+      {
+        "som": "info",
+        "delay": 0.0
+      }
+    ],
+    "Aviso de Saúde": [
+      {
+        "som": "success",
+        "delay": 0.0
+      },
+      {
+        "som": "siren",
+        "delay": 1.0
+      }
+    ],
+    "Dispensa Médica": [
+      {
+        "som": "siren",
+        "delay": 0.0
+      }
+    ],
+    "Licença Médica": [
+      {
+        "som": "warning",
+        "delay": 0.0
+      }
+    ],
+    "Alta Médica": [
+      {
+        "som": "siren",
+        "delay": 0.0
+      }
+    ],
+    "Escala de Serviço": [
+      {
+        "som": "info",
+        "delay": 0.0
+      }
+    ],
+    "Escala de Serviço Atualizada": [
+      {
+        "som": "info",
+        "delay": 0.0
+      },
+      {
+        "som": "naval_horn",
+        "delay": 1.0
+      },
+      {
+        "som": "DOBRADA",
+        "delay": 1.0
+      }
+    ],
+    "Chamada Diária": [
+      {
+        "som": "info",
+        "delay": 0.0
+      },
+      {
+        "som": "morse_sos",
+        "delay": 1.0
+      },
+      {
+        "som": "SINGELA",
+        "delay": 1.0
+      }
+    ],
+    "Atraso Registrado": [
+      {
+        "som": "camera shutter sound effect",
+        "delay": 0.0
+      }
+    ]
   },
   "message_templates": {
     "Registro de Ocorrência": "🚨 {message}",
