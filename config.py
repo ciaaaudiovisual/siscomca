@@ -436,12 +436,24 @@ def render_page():
                 audio_base64 = generate_google_tts(texto)
             elif engine == 'elevenlabs':
                 from ai_helper import generate_elevenlabs_tts_custom
+                # Tentar carregar API Key do ambiente se não estiver no input
+                api_key_to_use = el_key or os.getenv("ELEVENLABS_API_KEY") or os.getenv("ELEVEN_LABS") or os.getenv("ELEVEN") or ""
+                voice_id_to_use = el_voice or "N2lVS1w4EtoT3dr4eOWO"
+                
                 print(f"[CONFIG TEST] Testando ElevenLabs TTS")
-                print(f"[CONFIG TEST] Voice ID: {el_voice}")
-                print(f"[CONFIG TEST] API Key presente: {bool(el_key and len(el_key) > 0)}")
+                print(f"[CONFIG TEST] Voice ID: {voice_id_to_use}")
+                print(f"[CONFIG TEST] API Key presente (input): {bool(el_key and len(el_key) > 0)}")
+                print(f"[CONFIG TEST] API Key presente (total): {bool(api_key_to_use and len(api_key_to_use) > 0)}")
                 print(f"[CONFIG TEST] Texto: '{texto}'")
-                audio_base64 = generate_elevenlabs_tts_custom(texto, el_key, el_voice)
-                print(f"[CONFIG TEST] Resultado: {len(audio_base64) if audio_base64 else 0} bytes retornados")
+                
+                if not api_key_to_use:
+                    error_msg = "ERRO: API Key do ElevenLabs nao configurada! Verifique Configuracoes -> TTS -> ElevenLabs"
+                    print(f"[CONFIG TEST] VALIDACAO: {error_msg}")
+                    ui.notify(error_msg, color='negative')
+                    return
+                    
+                audio_base64 = generate_elevenlabs_tts_custom(texto, api_key_to_use, voice_id_to_use)
+                print(f"[CONFIG TEST] Resultado: {len(audio_base64) if audio_base64 else 0} caracteres (base64) retornados")
             elif engine == 'piper':
                 import subprocess
                 import base64
