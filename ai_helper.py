@@ -336,8 +336,10 @@ def generate_elevenlabs_tts_custom(text: str, api_key: str, voice_id: str, retur
     if text:
         text = text.strip()
     
+    source = "database"
     if not api_key or all(c in '•●* ' for c in api_key) or len(api_key) < 5:
         api_key = os.getenv("ELEVENLABS_API_KEY") or os.getenv("ELEVEN_LABS") or os.getenv("ELEVEN") or ""
+        source = "environment"
         if api_key:
             api_key = api_key.strip()
     if not api_key:
@@ -353,8 +355,9 @@ def generate_elevenlabs_tts_custom(text: str, api_key: str, voice_id: str, retur
         print(f"[ELEVENLABS ERROR] {error_msg}")
         return {"audio": "", "error": error_msg} if return_error else ""
     
-    # Debug: mostrar tamanho e primeiros chars da chave
-    print(f"[ELEVENLABS DEBUG] API Key tamanho: {len(api_key)}, comeca com: {api_key[:10]}...")
+    # Debug: mostrar origem, tamanho, e um preview seguro da chave
+    masked_key_preview = f"{api_key[:4]}...{api_key[-4:]}" if len(api_key) > 8 else "short_key"
+    print(f"[ELEVENLABS DEBUG] API Key origem: {source}, tamanho: {len(api_key)}, preview: {masked_key_preview}")
     print(f"[ELEVENLABS DEBUG] Voice ID tamanho: {len(voice_id)}, valor: {voice_id}")
         
     import requests
