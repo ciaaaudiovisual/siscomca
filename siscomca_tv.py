@@ -1487,10 +1487,10 @@ def render_page():
             from alerts_manager import AlertsManager
             num_callbacks = len(AlertsManager._tv_callbacks)
             if num_callbacks > 0 and (queue_task is not None and not queue_task.done()):
-                alerts_lbl.set_text('✓ ALERTAS ON')
+                alerts_lbl.set_text('ALERTAS ON')
                 alerts_dot.props('color=green')
             else:
-                alerts_lbl.set_text('⚠ ALERTAS OFF')
+                alerts_lbl.set_text('ALERTAS OFF')
                 alerts_dot.props('color=orange')
         except Exception as e:
             pass
@@ -2385,16 +2385,16 @@ def render_page():
         # Garante que a fila de processamento esteja rodando
         if queue_task is None or queue_task.done():
             queue_task = asyncio.create_task(_process_toast_queue())
-            print(f"[TV] ✓ Loop de fila iniciado/RESTAURADO (Client: {client.id})")
+            print(f"[TV] [OK] Loop de fila iniciado/RESTAURADO (Client: {client.id})")
             queue_health_check_counter['value'] = 0
         else:
-            print(f"[TV] ✓ Fila já está ativa (Client: {client.id})")
+            print(f"[TV] [OK] Fila ja esta ativa (Client: {client.id})")
             
         # Registra a TV no AlertsManager para receber notificações em tempo real
         AlertsManager.register_tv_callback(client, trigger_toast)
         # Sincroniza o estado atual das preferências de som/voz
         AlertsManager.update_tv_preferences(client.id, voice=audio_config['voice'], sound=audio_config['sound'])
-        print(f"[TV] ✓ TV CONECTADA e pronta para alertas (Client: {client.id})")
+        print(f"[TV] [OK] TV CONECTADA e pronta para alertas (Client: {client.id})")
         # Força uma atualização imediata ao conectar/reconectar
         asyncio.create_task(_refresh())
 
@@ -2408,13 +2408,13 @@ def render_page():
         # Cancela o loop de processamento da fila para evitar vazamento de memória
         if queue_task is not None and not queue_task.done():
             queue_task.cancel()
-            print(f"[TV] ✗ Fila cancelada (desconexão final, Client: {client.id})")
+            print(f"[TV] [X] Fila cancelada (desconexao final, Client: {client.id})")
         
     def _health_check_queue():
         """Verifica a cada 5s se a fila está viva; se morrer, reconecta."""
         nonlocal queue_task
         if queue_task is None or queue_task.done():
-            print(f"[TV] ⚠ Fila está MORTA! Reiniciando... (Client: {client.id})")
+            print(f"[TV] [WARN] Fila esta MORTA! Reiniciando... (Client: {client.id})")
             queue_task = asyncio.create_task(_process_toast_queue())
     
     client.on_connect(on_connect_setup)

@@ -117,14 +117,14 @@ class AlertsManager:
         """Registra um callback genérico para atualização de dados em tempo real."""
         if callback not in cls._refresh_callbacks:
             cls._refresh_callbacks.append(callback)
-            print(f"[ALERTA] Callback de atualização registrado. Total: {len(cls._refresh_callbacks)}")
+            print(f"[ALERTA] Callback de atualizacao registrado. Total: {len(cls._refresh_callbacks)}")
 
     @classmethod
     def unregister_refresh_callback(cls, callback: Callable[[], Any]):
         """Remove o callback genérico de atualização."""
         if callback in cls._refresh_callbacks:
             cls._refresh_callbacks.remove(callback)
-            print(f"[ALERTA] Callback de atualização desregistrado. Restantes: {len(cls._refresh_callbacks)}")
+            print(f"[ALERTA] Callback de atualizacao desregistrado. Restantes: {len(cls._refresh_callbacks)}")
     
     # Controladores internos do Scheduler
     _last_triggered_bell_slot = None  # (hour, minute)
@@ -192,14 +192,14 @@ class AlertsManager:
             cls._main_loop = asyncio.get_running_loop()
         except RuntimeError:
             pass
-        print(f"[ALERTA] ✓ TV registrada/re-registrada ({client.id}). Total ativo: {len(cls._tv_callbacks)}")
+        print(f"[ALERTA] [OK] TV registrada/re-registrada ({client.id}). Total ativo: {len(cls._tv_callbacks)}")
 
     @classmethod
     def unregister_tv_callback(cls, client_id: str):
         """Remove a tela de TV do canal de alertas ao desconectar ou recarregar."""
         if client_id in cls._tv_callbacks:
             del cls._tv_callbacks[client_id]
-            print(f"[ALERTA] ✗ TV desregistrada ({client_id}). Restantes: {len(cls._tv_callbacks)}")
+            print(f"[ALERTA] [X] TV desregistrada ({client_id}). Restantes: {len(cls._tv_callbacks)}")
 
     @classmethod
     def update_tv_preferences(cls, client_id: str, voice: bool = None, sound: bool = None):
