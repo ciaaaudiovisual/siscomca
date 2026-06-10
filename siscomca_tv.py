@@ -1562,7 +1562,7 @@ def render_page():
                         dialog_card = ui.card().classes('q-pa-xl items-center text-center rounded-2xl border-4').style(
                             f"background: {cfg['bg']} !important; border-color: {cfg['border']} !important; "
                             f"box-shadow: 0 0 50px {cfg['glow']} !important; min-width: 700px; max-width: 90%; "
-                            f"color: #fff; font-family: monospace; opacity: 0; transition: opacity 0.5s ease-in-out;"
+                            f"color: #fff; font-family: monospace;"
                         )
                         with dialog_card:
                             icon_map = {
@@ -1577,8 +1577,8 @@ def render_page():
                             ui.separator().style(f"background-color: {cfg['border']}; opacity: 0.4; height: 3px;").classes('w-3/4 q-my-md')
                             ui.label(msg).style("color: #ffffff; font-size: 2.2rem; font-weight: 900; line-height: 1.4; white-space: normal;")
                     
+                    tactical_dialog.update()
                     tactical_dialog.open()
-                    ui.timer(0.1, lambda: dialog_card.style('opacity: 1;'), once=True)
                 
                 play_sound_js = 'true' if (audio_config['sound'] and sound_enabled) else 'false'
                 play_voice_js = 'true' if (audio_config['voice'] and voice_enabled) else 'false'
@@ -2062,25 +2062,12 @@ def render_page():
             except Exception:
                 total_duration = 10.0
             
-            fade_out = 0.6
-            visible_duration = max(0.1, total_duration - fade_out)
-            
             try:
-                await asyncio.sleep(visible_duration)
-                with client:
-                    # Fade Out: Altera opacidade para 0
-                    dialog_card.style('opacity: 0;')
-                await asyncio.sleep(fade_out)
+                await asyncio.sleep(total_duration)
                 with client:
                     tactical_dialog.close()
             except Exception as e:
-                print(f"[TV Alerta] Erro no fade out: {e}")
-            finally:
-                try:
-                    with client:
-                        tactical_dialog.close()
-                except Exception as e:
-                    print(f"[TV Alerta] Erro ao fechar diálogo no cliente: {e}")
+                print(f"[TV Alerta] Erro ao fechar diálogo no cliente: {e}")
         else:
             # Apenas reprodução de áudio: aguarda tempo menor antes de liberar a fila
             await asyncio.sleep(6.0)
