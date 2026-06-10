@@ -1952,6 +1952,53 @@ def render_page():
                                         .then(res2 => {{
                                             if (res2.ok) {{
                                                 let audio2 = new Audio(customMp3UrlUpper);
+                                                audio2.volume = 1.0;
+                                                audio2.play().catch(() => {{}});
+                                            }} else {{
+                                                playDefaultSynthesized(sndType);
+                                            }}
+                                        }}).catch(() => {{
+                                            playDefaultSynthesized(sndType);
+                                        }});
+                                }});
+                        }}
+                    }}
+
+                    function getSoundDuration(sndType) {{
+                        if (!sndType) return 0;
+                        if (sndType === 'submarine_sonar') return 2.2;
+                        if (sndType === 'morse_sos') return 2.2;
+                        if (sndType === 'naval_horn') return 2.8;
+                        if (sndType === 'success') return 0.6;
+                        if (sndType === 'warning') return 0.6;
+                        if (sndType === 'alert') return 0.7;
+                        if (sndType === 'chime_simple') return 0.9;
+                        if (sndType === 'bell_ring') return 1.1;
+                        if (sndType === 'digital_warning') return 0.7;
+                        if (sndType === 'info') return 0.6;
+                        if (sndType.startsWith('naval_bell_')) {{
+                            let count = 1;
+                            if (sndType === 'naval_bell_singela') {{
+                                count = 1;
+                            }} else if (sndType === 'naval_bell_dobrada') {{
+                                count = 2;
+                            }} else {{
+                                count = parseInt(sndType.split('_')[2]) || 1;
+                            }}
+                            let pairs = Math.floor(count / 2);
+                            let remainder = count % 2;
+                            let lastStrikeTime = 0;
+                            if (pairs > 0) {{
+                                lastStrikeTime = (pairs - 1) * 2.0 + 0.15;
+                            }}
+                            if (remainder > 0) {{
+                                lastStrikeTime = pairs * 2.0;
+                            }}
+                            return lastStrikeTime + 3.5;
+                        }}
+                        return 3.0; // estimativa padrão para MP3 customizados
+                    }}
+
                     let voiceDelay = 0; // delay em milissegundos
                     
                     if (ctx && playSound && type !== 'silent') {{
@@ -1978,6 +2025,8 @@ def render_page():
                         }}
 
                         let accumulatedDelay = 0;
+                        let soundEndTime = 0;
+                        
                         sequence.forEach(item => {{
                             let som = 'info';
                             let delay = 0;
@@ -1991,10 +2040,16 @@ def render_page():
                             setTimeout(() => {{
                                 playSingleSound(som);
                             }}, accumulatedDelay * 1000);
+                            
+                            let itemDuration = getSoundDuration(som);
+                            let finishTime = accumulatedDelay + itemDuration;
+                            if (finishTime > soundEndTime) {{
+                                soundEndTime = finishTime;
+                            }}
                         }});
                         
-                        // A voz deve aguardar o fim da sequência de sons para iniciar (som + folga de 2.2s)
-                        voiceDelay = (accumulatedDelay + 2.2) * 1000;
+                        // A voz deve aguardar o fim da sequência de sons para iniciar (som + folga de 0.5s)
+                        voiceDelay = (soundEndTime + 0.5) * 1000;
                     }}
 
                     if (playVoice) {{
@@ -2062,7 +2117,7 @@ def render_page():
                                 }}
                                 utterance.onerror = (err) => console.error("[TV ALERT JS] Erro na síntese de voz (SpeechSynthesis):", err);
                                 window.speechSynthesis.speak(utterance);
-                            }}, voiceDelay + 500);
+                            }}, voiceDelay);
                         }}
                     }}
                 }} catch(e) {{
