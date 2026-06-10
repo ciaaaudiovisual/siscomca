@@ -1513,7 +1513,21 @@ def render_page():
             'alert':   {'border': '#ff1744', 'bg': '#190005', 'glow': 'rgba(255, 23, 68, 0.4)'},
             'warning': {'border': '#ff9100', 'bg': '#190a00', 'glow': 'rgba(255, 145, 0, 0.4)'}
         }
-        cfg = color_theme.get(type_, color_theme['info'])
+        # Resolve a chave de tema a partir do tipo do alerta (que pode ser uma lista de sons)
+        theme_key = 'info'
+        if isinstance(type_, str):
+            theme_key = type_
+        elif isinstance(type_, list) and type_:
+            first_item = type_[0]
+            if isinstance(first_item, dict):
+                theme_key = first_item.get('som', 'info')
+            else:
+                theme_key = str(first_item)
+        
+        if theme_key not in color_theme:
+            theme_key = 'info'
+
+        cfg = color_theme.get(theme_key, color_theme['info'])
         from alerts_manager import load_alerts_config
         from database import SUPABASE_URL
         alerts_config = load_alerts_config()
@@ -1551,7 +1565,7 @@ def render_page():
                                 'warning': 'healing',
                                 'info': 'campaign'
                             }
-                            icon_name = icon_map.get(type_, 'info')
+                            icon_name = icon_map.get(theme_key, 'info')
                             ui.icon(icon_name, size='7rem').style(f"color: {cfg['border']}; filter: drop-shadow(0 0 20px {cfg['glow']});").classes('animate-bounce')
                             ui.label(title.upper()).style(f"color: {cfg['border']}; font-size: 2.6rem; font-weight: 900; letter-spacing: 5px; line-height: 1.2;").classes('cyber-title q-mt-md')
                             ui.separator().style(f"background-color: {cfg['border']}; opacity: 0.4; height: 3px;").classes('w-3/4 q-my-md')
