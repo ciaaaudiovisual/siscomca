@@ -471,7 +471,9 @@ def _carregar_dados_tv(prog_date: datetime = None, active_year: str = '2026'):
     escala_map = {}
     if not escala_df.empty:
         for _, row in escala_df.iterrows():
-            escala_map[row['cargo'].upper()] = row['nome']
+            cargo_name = str(row['cargo']).upper() if row['cargo'] else ""
+            if cargo_name:
+                escala_map[cargo_name] = row['nome'] if row['nome'] else ""
 
     # 4.1 Inspetor (Destaque Principal)
     inspetor_nome = ''
@@ -498,8 +500,8 @@ def _carregar_dados_tv(prog_date: datetime = None, active_year: str = '2026'):
         inspetor_nome = 'Cap. Calaça' if is_offline else 'NÃO ESCALADO'
 
     dados['inspetor_dia'] = {
-        'nome': inspetor_nome.upper(),
-        'cargo_title': inspetor_cargo_exibido.upper(),
+        'nome': str(inspetor_nome or '').upper(),
+        'cargo_title': str(inspetor_cargo_exibido or '').upper(),
         'photo_url': 'https://cdn.quasar.dev/img/boy-avatar.png'
     }
 
@@ -513,20 +515,22 @@ def _carregar_dados_tv(prog_date: datetime = None, active_year: str = '2026'):
             pass
 
     # 4.2 OSCA e AJOSCA (Menor destaque)
-    dados['osca_servico'] = escala_map.get('OSCA', 'Cap. Calaça' if is_offline else 'NÃO ESCALADO').upper()
-    dados['ajosca_servico'] = escala_map.get('AJOSCA', 'Ten. Santos' if is_offline else 'NÃO ESCALADO').upper()
+    osca_val = escala_map.get('OSCA') or ('Cap. Calaça' if is_offline else 'NÃO ESCALADO')
+    ajosca_val = escala_map.get('AJOSCA') or ('Ten. Santos' if is_offline else 'NÃO ESCALADO')
+    dados['osca_servico'] = str(osca_val).upper()
+    dados['ajosca_servico'] = str(ajosca_val).upper()
 
     # 4.3 Outros Escalados (excluindo o Inspetor selecionado, OSCA e AJOSCA)
-    excluir_cargos = {'OSCA', 'AJOSCA', inspetor_cargo_exibido.upper()}
+    excluir_cargos = {'OSCA', 'AJOSCA', str(inspetor_cargo_exibido).upper()}
     dados['outros_escalados'] = []
     for cargo in cargos_config:
         cargo_upper = cargo.upper()
         if cargo_upper in excluir_cargos:
             continue
-        nome_cargo = escala_map.get(cargo_upper, escala_map.get(cargo, 'Maj. Lima' if is_offline and cargo_upper == 'SUPERVISOR' else 'NÃO ESCALADO'))
+        nome_cargo = escala_map.get(cargo_upper) or escala_map.get(cargo) or ('Maj. Lima' if is_offline and cargo_upper == 'SUPERVISOR' else 'NÃO ESCALADO')
         dados['outros_escalados'].append({
-            'cargo': cargo.upper(),
-            'nome': nome_cargo.upper()
+            'cargo': str(cargo).upper(),
+            'nome': str(nome_cargo).upper()
         })
 
     # 5. Letreiro Ticker (Avisos / Ordens Diárias)
@@ -2104,7 +2108,7 @@ def render_page():
             with client:
 
                 # Atualiza título do cabeçalho
-                title_lbl.set_text(d.get('cabecalho_tv_title', 'SITUAÇÃO CONSOLIDADA DO CORPO DE ALUNOS').upper())
+                title_lbl.set_text(str(d.get('cabecalho_tv_title') or 'SITUAÇÃO CONSOLIDADA DO CORPO DE ALUNOS').upper())
 
                 # Status de Conectividade
                 if d['is_offline']:
