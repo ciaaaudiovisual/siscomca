@@ -878,14 +878,14 @@ def render_page():
                                             # Botão de teste para este som individual
                                             ui.button(
                                                 icon='play_arrow',
-                                                on_click=lambda s=seq_item['som']: testar_som(s)
+                                                on_click=lambda _, idx=idx: testar_som(sequence[idx]['som'])
                                             ).props('flat round dense color=primary').classes('text-xs')
                                             
                                             # Botão de remoção (se houver mais de 1 som)
                                             if len(sequence) > 1:
                                                 ui.button(
                                                     icon='delete',
-                                                    on_click=lambda i=idx: [sequence.pop(i), render_sequence.refresh()]
+                                                    on_click=lambda _, i=idx: [sequence.pop(i), render_sequence.refresh()]
                                                 ).props('flat round dense color=red').classes('text-xs')
                                     
                                     # Botão para adicionar som na sequência
@@ -1102,8 +1102,8 @@ def render_page():
                                             
                                             with ui.row().classes('items-center gap-1'):
                                                 ui.button(icon='play_arrow', on_click=make_play_cb(f)).props('flat round dense color=primary').classes('text-xs')
-                                                ui.button(icon='edit', on_click=lambda fn=f: abrir_renomear(fn)).props('flat round dense color=primary').classes('text-xs')
-                                                ui.button(icon='delete', on_click=lambda fn=f: excluir_som(fn)).props('flat round dense color=red').classes('text-xs')
+                                                ui.button(icon='edit', on_click=lambda _, fn=f: abrir_renomear(fn)).props('flat round dense color=primary').classes('text-xs')
+                                                ui.button(icon='delete', on_click=lambda _, fn=f: excluir_som(fn)).props('flat round dense color=red').classes('text-xs')
                                                 
                         render_sound_files_list()
 
@@ -1165,14 +1165,11 @@ def render_page():
                                     def salvar_edicao():
                                         a_id = alerta_editando_id.text
                                         time_val = edit_time.value.strip()
-                                        title_val = edit_title.value.strip() or 'Aviso'
+                                        title_val = edit_title.value.strip()
                                         msg_val = edit_msg.value.strip()
                                         
                                         if not time_val or len(time_val) < 5:
                                             ui.notify('Digite o horário no formato HH:MM (ex: 07:30)', color='red')
-                                            return
-                                        if not msg_val:
-                                            ui.notify('Digite a mensagem do alerta.', color='red')
                                             return
                                             
                                         c_config = load_alerts_config()
@@ -1199,6 +1196,52 @@ def render_page():
                                         ui.button('Cancelar', on_click=edit_dialog.close).props('outline dense color=grey')
                                         ui.button('Salvar', on_click=salvar_edicao).props('unelevated dense color=primary')
 
+                        alerta_duplicar_item = [None]
+                        with ui.dialog() as duplicate_dialog:
+                            with theme.card_base().classes('q-pa-md').style('min-width: 320px;'):
+                                with ui.column().classes('w-full gap-4'):
+                                    ui.label('👯 Duplicar Alerta Agendado').classes('text-md font-bold text-white')
+                                    ui.separator().style('background-color: rgba(255,255,255,0.1);')
+                                    
+                                    dup_time = ui.input('Novo Horário', placeholder='07:30').props('dark dense outlined mask=##:##').classes('w-full')
+                                    
+                                    def salvar_duplicacao():
+                                        time_val = dup_time.value.strip()
+                                        if not time_val or len(time_val) < 5:
+                                            ui.notify('Digite o horário no formato HH:MM (ex: 07:30)', color='red')
+                                            return
+                                        ref_item = alerta_duplicar_item[0]
+                                        if not ref_item:
+                                            return
+                                        
+                                        import uuid
+                                        c_config = load_alerts_config()
+                                        novo = {
+                                            'id': str(uuid.uuid4())[:8],
+                                            'time': time_val,
+                                            'title': ref_item.get('title', ''),
+                                            'message': ref_item.get('message', ''),
+                                            'sound': ref_item.get('sound', 'info'),
+                                            'visual_alert': ref_item.get('visual_alert', True),
+                                            'voice_enabled': ref_item.get('voice_enabled', True),
+                                            'sound_enabled': ref_item.get('sound_enabled', True),
+                                            'enabled': True
+                                        }
+                                        c_config.setdefault('custom_alerts', []).append(novo)
+                                        save_alerts_config(c_config)
+                                        ui.notify('Alerta duplicado com sucesso!', color='success')
+                                        duplicate_dialog.close()
+                                        render_custom_alerts_list.refresh()
+                                    
+                                    with ui.row().classes('w-full justify-end gap-2 q-mt-md'):
+                                        ui.button('Cancelar', on_click=duplicate_dialog.close).props('outline dense color=grey')
+                                        ui.button('Duplicar', on_click=salvar_duplicacao).props('unelevated dense color=primary')
+                                        
+                        def abrir_duplicar(alerta_item):
+                            alerta_duplicar_item[0] = alerta_item
+                            dup_time.value = alerta_item['time']
+                            duplicate_dialog.open()
+
                         @ui.refreshable
                         def render_custom_alerts_list():
                             curr_config = load_alerts_config()
@@ -1221,7 +1264,7 @@ def render_page():
                                                     opts_str = " | ".join(opts) if opts else "Silencioso"
                                                     ui.label(f"Som: {som_opcoes.get(a['sound'], a['sound'])} ({opts_str})").classes('text-[9px] text-grey-5')
                                             
-                                            def excluir_alerta(a_id=a['id']):
+                                            def excluir_alerta(a_id):
                                                 c_config = load_alerts_config()
                                                 c_config['custom_alerts'] = [item for item in c_config['custom_alerts'] if item.get('id') != a_id]
                                                 save_alerts_config(c_config)
@@ -1242,29 +1285,30 @@ def render_page():
                                             with ui.row().classes('items-center gap-1'):
                                                 ui.button(
                                                     icon='play_arrow', 
-                                                    on_click=lambda s=a['sound']: testar_som(s)
-                                                ).props('flat round dense color=primary').classes('text-xs')
+                                                    on_click=lambda _, s=a['sound']: testar_som(s)
+                                                ).props('flat round dense color=primary').classes('text-xs').tooltip('Testar')
+                                                ui.button(
+                                                    icon='content_copy', 
+                                                    on_click=lambda _, a_item=a: abrir_duplicar(a_item)
+                                                ).props('flat round dense color=primary').classes('text-xs').tooltip('Duplicar')
                                                 ui.button(
                                                     icon='edit', 
-                                                    on_click=lambda a_item=a: carregar_e_abrir_editar(a_item)
-                                                ).props('flat round dense color=primary').classes('text-xs')
+                                                    on_click=lambda _, a_item=a: carregar_e_abrir_editar(a_item)
+                                                ).props('flat round dense color=primary').classes('text-xs').tooltip('Editar')
                                                 ui.button(
                                                     icon='delete', 
-                                                    on_click=excluir_alerta
-                                                ).props('flat round dense color=red').classes('text-xs')
+                                                    on_click=lambda _, a_id=a['id']: excluir_alerta(a_id)
+                                                ).props('flat round dense color=red').classes('text-xs').tooltip('Excluir')
                         
                         render_custom_alerts_list()
                         
                         def cadastrar_novo_alerta():
                             time_val = input_alerta_time.value.strip()
-                            title_val = input_alerta_title.value.strip() or 'Aviso'
+                            title_val = input_alerta_title.value.strip()
                             msg_val = input_alerta_msg.value.strip()
                             
                             if not time_val or len(time_val) < 5:
                                 ui.notify('Digite o horário no formato HH:MM (ex: 07:30)', color='red')
-                                return
-                            if not msg_val:
-                                ui.notify('Digite o texto da mensagem do alerta.', color='red')
                                 return
                                 
                             import uuid
