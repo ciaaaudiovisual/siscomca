@@ -867,7 +867,7 @@ def setup_handlers(bot_instance):
                 f"🛌 **PERNOITE (A BORDO):**\n"
                 f"• 🛌 Autorizados: `{total_pernoite}`{pernoite_str}\n\n"
                 f"🏥 **SITUAÇÃO DE SAÚDE / LICENÇAS:**\n"
-                f"• 🏥 Internado/Observação: `{len(baixados)}`{format_list(baixados)}\n"
+                f"• 🏥 Internado/Encaminhado para enfermaria: `{len(baixados)}`{format_list(baixados)}\n"
                 f"• 🚑 Hospitalizado: `{len(hospitalizados)}`{format_list(hospitalizados)}\n"
                 f"• 📝 Dispensas Ativas: `{len(dispensados)}`{format_list(dispensados, show_motivo=True)}\n"
                 f"• ✈️ Licenças Ativas: `{len(licenciados)}`{format_list(licenciados, show_motivo=True)}"
@@ -2601,7 +2601,7 @@ def setup_handlers(bot_instance):
                     return
                 status_map = {
                     1: ('Internado', 'enfermaria'),
-                    2: ('Em Observação', 'enfermaria'),
+                    2: ('Encaminhado para enfermaria', 'enfermaria'),
                     3: ('Hospital', 'enfermaria'),
                     4: ('Dispensado', 'dispensa'),
                     5: ('Licença', 'licenca'),
@@ -3924,7 +3924,7 @@ async def prompt_health_status(bot_instance, message, state, student):
     
     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
     markup.add(types.KeyboardButton("1 — 🏥 Internado (Enfermaria)"))
-    markup.add(types.KeyboardButton("2 — 👁️ Em Observação (Enfermaria)"))
+    markup.add(types.KeyboardButton("2 — 👁️ Encaminhado para enfermaria"))
     markup.add(types.KeyboardButton("3 — 🚑 Hospital (Hospitalizado)"))
     markup.add(types.KeyboardButton("4 — 📝 Dispensado (Dispensa Médica)"))
     markup.add(types.KeyboardButton("5 — ✈️ Licença (Afastado da Unidade)"))
@@ -4185,6 +4185,8 @@ async def display_student_dossier(bot_instance, message, conn, student):
                             pass
                     if esta_valido:
                         status = row.get('status')
+                        if status == 'Em Observação':
+                            status = 'Encaminhado para enfermaria'
                         motivo = row.get('motivo') or 'Sem motivo'
                         detalhe = row.get('detalhe')
                         detalhe_str = f" - {detalhe}" if detalhe else ""

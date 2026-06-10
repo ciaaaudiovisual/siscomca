@@ -16,6 +16,7 @@ THEME = theme.colors
 STATUS_INFO = {
     'Internado':      ('#ff1744', 'rgba(255, 23, 68, 0.15)', 'local_hospital'),
     'Em Observação':  ('#ff9100', 'rgba(255, 145, 0, 0.15)', 'visibility'),
+    'Encaminhado para enfermaria': ('#ff9100', 'rgba(255, 145, 0, 0.15)', 'visibility'),
     'baixado':        ('#ff1744', 'rgba(255, 23, 68, 0.15)', 'local_hospital'),
     'Hospital':       ('#d500f9', 'rgba(213, 0, 249, 0.15)', 'emergency'),
     'Dispensado':     ('#00b0ff', 'rgba(0, 176, 255, 0.15)', 'medical_services'),
@@ -367,6 +368,8 @@ def _carregar_dados_tv(prog_date: datetime = None, active_year: str = '2026'):
     for _, row in enfermaria_df.iterrows():
         cat = sanitize_text(row.get('categoria') or 'enfermaria')
         status = sanitize_text(row.get('status') or 'Ativo')
+        if status == 'Em Observação':
+            status = 'Encaminhado para enfermaria'
         
         # Filtro de validade de datas se houver data_ini/data_fim
         data_ini = row.get('data_ini')
@@ -400,7 +403,7 @@ def _carregar_dados_tv(prog_date: datetime = None, active_year: str = '2026'):
         else:
             if status == 'Hospital':
                 item['categoria'] = 'hospital'
-            elif status in ['Internado', 'Em Observação', 'baixado']:
+            elif status in ['Internado', 'Em Observação', 'Encaminhado para enfermaria', 'baixado']:
                 item['categoria'] = 'enfermaria'
             elif status == 'Dispensado':
                 item['categoria'] = 'dispensa'
@@ -1950,7 +1953,8 @@ def render_page():
                     if (playVoice) {{
                         let audioBase64 = {escaped_audio};
                         if (audioBase64 && audioBase64 !== "null" && audioBase64 !== "") {{
-                            let audio = new Audio("data:audio/mp3;base64," + audioBase64);
+                            let mimeType = audioBase64.startsWith("UklGR") ? "audio/wav" : "audio/mp3";
+                            let audio = new Audio("data:" + mimeType + ";base64," + audioBase64);
                             audio.volume = 1.0;
                             audio.play().catch(e => console.error("Error playing TTS audio: ", e));
                         }} else {{
@@ -2162,8 +2166,8 @@ def render_page():
                                 border_color_style = f'border: 1px solid {cor} !important;'
                                 indicator_color_style = f'background-color: {cor} !important;'
                                 label_cat = str(status).upper()
-                                if label_cat in ['EM OBSERVAÇÃO', 'OBSERVAÇÃO', 'OBSERVACAO', 'EM OBSERVACAO']:
-                                    label_cat = 'NA ENFERMARIA'
+                                if label_cat in ['EM OBSERVAÇÃO', 'OBSERVAÇÃO', 'OBSERVACAO', 'EM OBSERVACAO', 'ENCAMINHADO PARA ENFERMARIA']:
+                                    label_cat = 'ENCAMINHADO PARA ENFERMARIA'
                                 text_cat_color_style = f'color: {cor} !important;'
                                 bg_card = f'background: {bg_rgba};'
                                 is_hospital = status.lower() == 'hospital'

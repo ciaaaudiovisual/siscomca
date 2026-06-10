@@ -1,7 +1,7 @@
 """
 Módulo de Saúde — SisCOMCA
 Separa claramente:
-  🏥 ENFERMARIA      → Internado / Em Observação (na enfermaria fisicamente)
+  🏥 ENFERMARIA      → Internado / Encaminhado para enfermaria (na enfermaria fisicamente)
   📋 DISPENSA MÉDICA → Presente na unidade mas dispensado de atividade(s)
   🏠 LICENÇA         → Afastado da unidade por dias autorizados
 
@@ -41,7 +41,7 @@ TIPOS_LICENCA = [
 # Mapeamento status → (cor_texto, cor_fundo, ícone)
 STATUS_INFO = {
     'Internado':      ('#ff1744', 'rgba(255, 23, 68, 0.05)', 'local_hospital'),
-    'Em Observação':  ('#ff9100', 'rgba(255, 145, 0, 0.05)', 'visibility'),
+    'Encaminhado para enfermaria':  ('#ff9100', 'rgba(255, 145, 0, 0.05)', 'visibility'),
     'baixado':        ('#ff1744', 'rgba(255, 23, 68, 0.05)', 'local_hospital'),
     'Hospital':       ('#d500f9', 'rgba(213, 0, 249, 0.05)', 'emergency'),
     'Dispensado':     ('#00b0ff', 'rgba(0, 176, 255, 0.05)', 'medical_services'),
@@ -51,7 +51,7 @@ STATUS_INFO = {
 
 TIPO_CATEGORIA = {
     'Internado':     'enfermaria',
-    'Em Observação': 'enfermaria',
+    'Encaminhado para enfermaria': 'enfermaria',
     'baixado':       'enfermaria',
     'Hospital':      'hospital',
     'Dispensado':    'dispensa',
@@ -79,7 +79,7 @@ def _carregar_registros_hoje(pelotao_filtro=None) -> list[dict]:
     if not db_conn:
         mock = [
             {'id': 1, 'numero_interno': 201, 'nome_guerra': 'OLIVEIRA', 'turma': 'Bravo',
-             'status': 'Em Observação', 'categoria': 'enfermaria',
+             'status': 'Encaminhado para enfermaria', 'categoria': 'enfermaria',
              'motivo': 'Cefaleia forte', 'hora': '07:45',
              'data_ini': None, 'data_fim': None, 'detalhe': '', 'observacao': ''},
             {'id': 2, 'numero_interno': 302, 'nome_guerra': 'PEREIRA', 'turma': 'Charlie',
@@ -116,6 +116,9 @@ def _carregar_registros_hoje(pelotao_filtro=None) -> list[dict]:
             r.setdefault('observacao', '')
             
             status = r.get('status', '')
+            if status == 'Em Observação':
+                status = 'Encaminhado para enfermaria'
+                r['status'] = status
             categoria = TIPO_CATEGORIA.get(status, 'outro')
             r.setdefault('categoria', categoria)
             
@@ -210,7 +213,7 @@ def _upsert_registro(
                 tipo_nome = 'DISPENSA MÉDICA'
             elif status == 'Hospital':
                 tipo_nome = 'HOSPITAL'
-            elif status in ['Em Observação', 'Internado', 'baixado']:
+            elif status in ['Encaminhado para enfermaria', 'Internado', 'baixado']:
                 tipo_nome = 'ENFERMARIA'
             
             tipo_acao_id = '0'
@@ -273,7 +276,7 @@ def _upsert_registro(
                     f"Militar {militar_lbl} obteve alta médica por {usuario}!",
                     "success"
                 )
-            elif status in ['Internado', 'baixado', 'Hospital', 'Em Observação']:
+            elif status in ['Internado', 'baixado', 'Hospital', 'Encaminhado para enfermaria']:
                 AlertsManager.trigger_alert(
                     "Aviso de Saúde",
                     f"Militar {militar_lbl} está {str(status).upper()}. Consulte o sistema para detalhes. (Registrado por: {usuario})",
@@ -426,12 +429,12 @@ def _build_marquee(pelotao_filtro):
     if not registros:
         # Mock se offline
         registros = [
-            {'nome_guerra': 'OLIVEIRA', 'turma': 'Bravo', 'status': 'Em Observação',
+            {'nome_guerra': 'OLIVEIRA', 'turma': 'Bravo', 'status': 'Encaminhado para enfermaria',
              'motivo': 'Cefaleia', 'hora': '07:45', 'data': data_hoje},
         ]
 
     def _icone_status(st):
-        return {'Internado':'🔴','Em Observação':'🟡','baixado':'🔴',
+        return {'Internado':'🔴','Em Observação':'🟡','Encaminhado para enfermaria':'🟡','baixado':'🔴',
                 'Hospital':'🟣','Dispensado':'🔵','Licença':'🩵','Alta':'🟢'}.get(st,'⚪')
 
     # Constrói texto do letreiro
@@ -748,7 +751,7 @@ def _abrir_alta_dialog(rid, ni, ng, t, alunos_df):
 
 
 def _card_ativo(r: dict, alunos_df, mostrar_alta=False):
-    status = r.get('status') or 'Em Observação'
+    status = r.get('status') or 'Encaminhado para enfermaria'
     cor, bg, ico = STATUS_INFO.get(status, ('#888', '#111', 'help'))
     reg_id = r.get('id', 0)
     num_int = str(r.get('numero_interno') or '')
@@ -957,8 +960,8 @@ def _render_form_enfermaria(alunos_view, alunos_df):
                           for _, r in alunos_view.iterrows()}
                 aluno_sel  = ui.select(opcoes, label='Aluno').props('dark outlined dense').classes('w-full')
                 status_sel = ui.select(
-                    ['Em Observação', 'Internado', 'Hospital'],
-                    value='Em Observação', label='Status'
+                    ['Encaminhado para enfermaria', 'Internado', 'Hospital'],
+                    value='Encaminhado para enfermaria', label='Status'
                 ).props('dark outlined dense').classes('w-full')
                 motivo_inp = ui.input('Motivo / Queixa Principal').props('dark outlined dense').classes('w-full')
                 obs_inp    = ui.textarea('Observações Adicionais').props('dark outlined dense rows=2').classes('w-full')
@@ -999,7 +1002,7 @@ def _render_form_enfermaria(alunos_view, alunos_df):
             ):
                 ui.label('ℹ️ Sobre o módulo de Enfermaria').classes('text-amber-5 font-bold text-xs q-mb-sm')
                 for item in [
-                    ('🏥 Em Observação', 'Aluno está na enfermaria aguardando avaliação médica.'),
+                    ('🏥 Encaminhado para enfermaria', 'Aluno está na enfermaria aguardando avaliação médica.'),
                     ('🔴 Internado', 'Aluno está internado, sem previsão de alta imediata.'),
                     ('🟣 Hospital', 'Aluno foi encaminhado para unidade hospitalar externa.'),
                     ('✅ Alta', 'Alta médica concedida — aluno retorna às atividades normais.'),

@@ -66,7 +66,7 @@ def render_page():
                     ni = str(e['numero_interno'])
                     saude_dict[ni] = {
                         'categoria': e.get('categoria') or 'enfermaria',
-                        'status': e.get('status') or 'Em Observação',
+                        'status': 'Encaminhado para enfermaria' if e.get('status') == 'Em Observação' else (e.get('status') or 'Encaminhado para enfermaria'),
                         'motivo': e.get('motivo') or e.get('observacao') or 'Restrição médica'
                     }
             except Exception as ex:
@@ -320,7 +320,7 @@ def render_page():
                                         saude_badge_text = f"🏥 BAIXADO ENFERMARIA: {mot}"
                                         saude_badge_color = 'red-5'
                                     else:
-                                        saude_badge_text = f"🏥 EM OBSERVAÇÃO: {mot}"
+                                        saude_badge_text = f"🏥 ENCAMINHADO PARA ENFERMARIA: {mot}"
                                         saude_badge_color = 'red-4'
                                 elif cat == 'licenca':
                                     saude_badge_text = f"✈️ LICENCIADO: {mot}"

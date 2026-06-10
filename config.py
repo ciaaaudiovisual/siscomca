@@ -401,6 +401,92 @@ def render_page():
         }
         </style>
         ''')
+    def testar_tts(texto: str, engine: str, el_key: str, el_voice: str, p_path: str, p_voice: str):
+        if not texto:
+            ui.notify('Digite um texto para testar!', color='warning')
+            return
+            
+        if engine == 'basic':
+            import json
+            escaped_text = json.dumps(texto)
+            js_code = f"""
+            try {{
+                window.speechSynthesis.cancel();
+                let utterance = new SpeechSynthesisUtterance({escaped_text});
+                utterance.lang = 'pt-BR';
+                let voices = window.speechSynthesis.getVoices();
+                let ptVoices = voices.filter(v => v.lang.toLowerCase().includes('pt-br') || v.lang.toLowerCase().includes('pt_br') || v.lang === 'pt');
+                let bestVoice = ptVoices.find(v => v.name.toLowerCase().includes('google')) || ptVoices[0];
+                if (bestVoice) utterance.voice = bestVoice;
+                window.speechSynthesis.speak(utterance);
+            }} catch(e) {{
+                console.error(e);
+            }}
+            """
+            ui.run_javascript(js_code)
+            ui.notify('Sintetizando localmente via navegador...', color='info')
+            return
+
+        ui.notify('Processando áudio no servidor...', color='info')
+        audio_base64 = ""
+        try:
+            if engine == 'google':
+                from ai_helper import generate_google_tts
+                audio_base64 = generate_google_tts(texto)
+            elif engine == 'elevenlabs':
+                from ai_helper import generate_elevenlabs_tts_custom
+                audio_base64 = generate_elevenlabs_tts_custom(texto, el_key, el_voice)
+            elif engine == 'piper':
+                import subprocess
+                import base64
+                model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models", f"{p_voice}.onnx")
+                if not os.path.exists(model_path):
+                    model_path = os.path.join("models", f"{p_voice}.onnx")
+                
+                if not os.path.exists(model_path):
+                    ui.notify(f'Erro Piper: Modelo {p_voice}.onnx não encontrado.', color='negative')
+                    return
+                if not os.path.exists(p_path):
+                    ui.notify(f'Erro Piper: executável {p_path} não encontrado.', color='negative')
+                    return
+                    
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_wav:
+                    temp_name = temp_wav.name
+                try:
+                    cmd = [p_path, "-m", model_path, "-f", temp_name]
+                    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    proc.communicate(input=texto.encode('utf-8'), timeout=10)
+                    if os.path.exists(temp_name) and os.path.getsize(temp_name) > 0:
+                        with open(temp_name, "rb") as f:
+                            audio_base64 = base64.b64encode(f.read()).decode('utf-8')
+                        os.remove(temp_name)
+                except Exception as e:
+                    ui.notify(f'Erro ao rodar Piper: {e}', color='negative')
+                    return
+        except Exception as e:
+            ui.notify(f'Erro na geração: {e}', color='negative')
+            return
+
+        if not audio_base64:
+            ui.notify('Falha ao gerar áudio. Verifique as credenciais ou conexão.', color='negative')
+            return
+            
+        import json
+        js_code = f"""
+        try {{
+            let audioBase64 = {json.dumps(audio_base64)};
+            let mimeType = audioBase64.startsWith("UklGR") ? "audio/wav" : "audio/mp3";
+            let audio = new Audio("data:" + mimeType + ";base64," + audioBase64);
+            audio.volume = 1.0;
+            audio.play().catch(e => console.error("Error playing test audio: ", e));
+        }} catch(e) {{
+            console.error(e);
+        }}
+        """
+        ui.run_javascript(js_code)
+        ui.notify('Áudio gerado com sucesso. Reproduzindo...', color='success')
+
         active_tab = {'name': 'geral'}
         
         @ui.refreshable
@@ -1692,6 +1778,28 @@ def render_page():
                             
                     elevenlabs_card.bind_visibility_from(input_tts_engine, 'value', backward=lambda x: x == 'elevenlabs')
                     piper_card.bind_visibility_from(input_tts_engine, 'value', backward=lambda x: x == 'piper')
+
+                    # Card de Teste de TTS
+                    with theme.card_base().classes('w-full q-pa-md'):
+                        with ui.column().classes('w-full gap-4'):
+                            with ui.row().classes('items-center gap-2'):
+                                ui.icon('hearing', size='2rem').style(f'color: {THEME["accent"]}')
+                                ui.label('Testar Sintetização de Voz (TTS)').classes('text-lg font-bold').style(f'color: {THEME["text_main"]}')
+                            ui.separator().style(f'background-color: rgba(0, 229, 255, 0.15);')
+                            
+                            input_teste_tts = ui.input('Texto de Teste', value='Atenção, teste de voz do sistema. O motor de voz está funcionando perfeitamente.').props('dark dense outlined w-full').classes('w-full')
+                            
+                            ui.button(
+                                'Testar Reprodução de Voz', 
+                                on_click=lambda: testar_tts(
+                                    input_teste_tts.value,
+                                    input_tts_engine.value,
+                                    input_elevenlabs_api_key.value,
+                                    input_elevenlabs_voice_id.value,
+                                    input_tts_piper_path.value,
+                                    input_tts_piper_voice.value
+                                )
+                            ).props('unelevated color=amber-9 text-color=black dense w-full').classes('bold q-mt-md')
 
             # --- ABA 7: TIPOS DE AÇÕES (PONTOS/NOTAS) ---
             with ui.tab_panel('tipos_acao').classes('bg-transparent q-pa-none gap-6'):
