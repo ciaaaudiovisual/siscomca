@@ -1609,6 +1609,11 @@ def render_page():
                         }}
                     }}
 
+                    console.log("[TV ALERT JS] --- NOVO ALERTA TÁTICO ---");
+                    console.log("[TV ALERT JS] Tipo/Som:", type);
+                    console.log("[TV ALERT JS] playSound (config):", playSound, "| playVoice (config):", playVoice);
+                    console.log("[TV ALERT JS] AudioContext state:", ctx ? ctx.state : 'não suportado');
+
                     function playDefaultSynthesized(type) {{
                         if (!ctx) return;
                         if (type === 'submarine_sonar') {{
@@ -1998,15 +2003,17 @@ def render_page():
                     if (playVoice) {{
                         let audioBase64 = {escaped_audio};
                         if (audioBase64 && audioBase64 !== "null" && audioBase64 !== "") {{
+                            console.log("[TV ALERT JS] Reproduzindo áudio ElevenLabs/Google (Base64)...");
                             let mimeType = audioBase64.startsWith("UklGR") ? "audio/wav" : "audio/mp3";
                             let audio = new Audio("data:" + mimeType + ";base64," + audioBase64);
                             audio.volume = 1.0;
-                            audio.play().catch(e => console.error("Error playing TTS audio: ", e));
+                            audio.play().catch(e => console.error("[TV ALERT JS] Erro ao tocar áudio ElevenLabs:", e));
                         }} else {{
                             let text = {escaped_jarvis};
                             if (!text || text === "null" || text === "") {{
                                 text = {escaped_vocativo} + ". " + {escaped_msg};
                             }}
+                            console.log("[TV ALERT JS] Usando SpeechSynthesis (Local) para falar:", text);
                             
                             let getBestVoice = () => {{
                                 let voices = window.speechSynthesis.getVoices();
@@ -2049,8 +2056,12 @@ def render_page():
                                 utterance.lang = 'pt-BR';
                                 let bestVoice = getBestVoice();
                                 if (bestVoice) {{
+                                    console.log("[TV ALERT JS] Utilizando voz do navegador selecionada:", bestVoice.name);
                                     utterance.voice = bestVoice;
+                                }} else {{
+                                    console.log("[TV ALERT JS] Voz favorita indisponível. Utilizando padrão do navegador pt-BR.");
                                 }}
+                                utterance.onerror = (err) => console.error("[TV ALERT JS] Erro na síntese de voz (SpeechSynthesis):", err);
                                 window.speechSynthesis.speak(utterance);
                             }}, 1000);
                         }}
