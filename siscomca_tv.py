@@ -1525,11 +1525,13 @@ def render_page():
         sound_enabled = extra_options.get('sound_enabled', True) if extra_options else True
         
         import json
+        basic_voice = data_service.get_config_value('basic_tts_voice', '')
         escaped_title = json.dumps(title)
         escaped_msg = json.dumps(msg)
         escaped_jarvis = json.dumps(jarvis_text) if jarvis_text else "null"
         escaped_audio = json.dumps(jarvis_audio) if jarvis_audio else "null"
         escaped_vocativo = json.dumps(vocativo)
+        escaped_basic_voice = json.dumps(basic_voice)
         
         try:
             with client:
@@ -1979,6 +1981,12 @@ def render_page():
                             
                             let getBestVoice = () => {{
                                 let voices = window.speechSynthesis.getVoices();
+                                let preferredName = {escaped_basic_voice};
+                                if (preferredName) {{
+                                    let pref = voices.find(v => v.name === preferredName);
+                                    if (pref) return pref;
+                                }}
+                                
                                 let ptVoices = voices.filter(v => {{
                                     let l = v.lang.toLowerCase();
                                     return l.includes('pt-br') || l.includes('pt_br') || l === 'pt';

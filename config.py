@@ -29,7 +29,8 @@ DEFAULT_CONFIGS = {
     'elevenlabs_voice_id': 'N2lVS1w4EtoT3dr4eOWO',
     'tts_piper_path': 'piper.exe',
     'tts_piper_voice': 'pt_BR-fabricio-medium',
-    'google_tts_lang': 'pt-br'
+    'google_tts_lang': 'pt-br',
+    'basic_tts_voice': ''
 }
 
 def render_page():
@@ -402,7 +403,7 @@ def render_page():
         }
         </style>
         ''')
-    def testar_tts(texto: str, engine: str, el_key: str, el_voice: str, p_path: str, p_voice: str, google_lang: str = None):
+    def testar_tts(texto: str, engine: str, el_key: str, el_voice: str, p_path: str, p_voice: str, google_lang: str = None, basic_voice: str = None):
         if not texto:
             ui.notify('Digite um texto para testar!', color='warning')
             return
@@ -410,15 +411,22 @@ def render_page():
         if engine == 'basic':
             import json
             escaped_text = json.dumps(texto)
+            escaped_voice = json.dumps(basic_voice)
             js_code = f"""
             try {{
                 window.speechSynthesis.cancel();
                 let utterance = new SpeechSynthesisUtterance({escaped_text});
                 utterance.lang = 'pt-BR';
                 let voices = window.speechSynthesis.getVoices();
-                let ptVoices = voices.filter(v => v.lang.toLowerCase().includes('pt-br') || v.lang.toLowerCase().includes('pt_br') || v.lang === 'pt');
-                let bestVoice = ptVoices.find(v => v.name.toLowerCase().includes('google')) || ptVoices[0];
-                if (bestVoice) utterance.voice = bestVoice;
+                let targetVoiceName = {escaped_voice};
+                let selectedVoice = voices.find(v => v.name === targetVoiceName);
+                if (selectedVoice) {{
+                    utterance.voice = selectedVoice;
+                }} else {{
+                    let ptVoices = voices.filter(v => v.lang.toLowerCase().includes('pt-br') || v.lang.toLowerCase().includes('pt_br') || v.lang === 'pt');
+                    let bestVoice = ptVoices.find(v => v.name.toLowerCase().includes('google')) || ptVoices[0];
+                    if (bestVoice) utterance.voice = bestVoice;
+                }}
                 window.speechSynthesis.speak(utterance);
             }} catch(e) {{
                 console.error(e);
@@ -1799,6 +1807,22 @@ def render_page():
                         }
                         input_tts_engine = ui.select(tts_engines_opts, label='Motor TTS Ativo', value=current_configs.get('tts_engine', 'basic')).props('dark dense outlined w-full').classes('w-full')
                         
+                # Basic SpeechSynthesis Config Card
+                with theme.card_base().classes('w-full q-pa-md') as basic_card:
+                    with ui.column().classes('w-full gap-4'):
+                        with ui.row().classes('items-center gap-2'):
+                            ui.icon('volume_up', size='2rem').style(f'color: {THEME["accent"]}')
+                            ui.label('Configuração do SpeechSynthesis (Navegador)').classes('text-lg font-bold').style(f'color: {THEME["text_main"]}')
+                        ui.separator().style(f'background-color: rgba(0, 229, 255, 0.15);')
+                        
+                        loading_label = ui.label('Carregando vozes do navegador...').classes('text-xs text-amber-5')
+                        
+                        input_basic_tts_voice = ui.select(
+                            options={current_configs.get('basic_tts_voice', ''): current_configs.get('basic_tts_voice', '')} if current_configs.get('basic_tts_voice', '') else {},
+                            label='Voz Masculina/Feminina do Navegador',
+                            value=current_configs.get('basic_tts_voice', '')
+                        ).props('dark dense outlined w-full').classes('w-full')
+                        
                 # Google Translate Config Card
                 with theme.card_base().classes('w-full q-pa-md') as google_card:
                     with ui.column().classes('w-full gap-4'):
@@ -1843,6 +1867,7 @@ def render_page():
                         input_tts_piper_voice = ui.input('Modelo de voz (.onnx)', value=current_configs.get('tts_piper_voice', 'pt_BR-fabricio-medium')).props('dark dense outlined w-full').classes('w-full')
                         
                 google_card.bind_visibility_from(input_tts_engine, 'value', backward=lambda x: x == 'google')
+                basic_card.bind_visibility_from(input_tts_engine, 'value', backward=lambda x: x == 'basic')
                 elevenlabs_card.bind_visibility_from(input_tts_engine, 'value', backward=lambda x: x == 'elevenlabs')
                 piper_card.bind_visibility_from(input_tts_engine, 'value', backward=lambda x: x == 'piper')
 
@@ -1865,9 +1890,74 @@ def render_page():
                                 input_elevenlabs_voice_id.value,
                                 input_tts_piper_path.value,
                                 input_tts_piper_voice.value,
-                                input_google_tts_lang.value
+                                input_google_tts_lang.value,
+                                input_basic_tts_voice.value
                             )
                         ).props('unelevated color=amber-9 text-color=black dense w-full').classes('bold q-mt-md')
+
+                async def load_voices():
+                    try:
+                        voices_data = await ui.run_javascript('''
+                            new Promise((resolve) => {
+                                let getList = () => {
+                                    let voices = window.speechSynthesis.getVoices();
+                                    return voices.map(v => ({ name: v.name, lang: v.lang }));
+                                };
+                                let list = getList();
+                                if (list.length > 0) {
+                                    resolve(list);
+                                } else {
+                                    window.speechSynthesis.onvoiceschanged = () => {
+                                        resolve(getList());
+                                    };
+                                    setTimeout(() => resolve(getList()), 1000);
+                                }
+                            })
+                        ''', timeout=5.0)
+                        if voices_data:
+                            opts = {}
+                            pt_voices = []
+                            other_voices = []
+                            for v in voices_data:
+                                name = v['name']
+                                lang = v['lang']
+                                lower_name = name.lower()
+                                lower_lang = lang.lower()
+                                
+                                gender = "Feminino" if any(w in lower_name for w in ['female', 'maria', 'zira', 'google português', 'heloisa', 'luciana', 'vitoria', 'samantha', 'sara', 'vitória', 'francisca', 'joana']) else "Masculino/Indefinido"
+                                if any(w in lower_name for w in ['male', 'daniel', 'antonio', 'antónio', 'felipe', 'valerio', 'valério', 'fabio', 'fábio']):
+                                    gender = "Masculino"
+                                
+                                display_text = f"{name} ({lang} - {gender})"
+                                if 'pt' in lower_lang:
+                                    pt_voices.append((name, display_text))
+                                else:
+                                    other_voices.append((name, display_text))
+                            
+                            all_opts = pt_voices + other_voices
+                            opts = {name: display for name, display in all_opts}
+                            
+                            current_val = input_basic_tts_voice.value
+                            input_basic_tts_voice.options = opts
+                            if current_val in opts:
+                                input_basic_tts_voice.value = current_val
+                            elif pt_voices:
+                                input_basic_tts_voice.value = pt_voices[0][0]
+                            elif opts:
+                                input_basic_tts_voice.value = list(opts.keys())[0]
+                                
+                            input_basic_tts_voice.update()
+                            loading_label.text = f"{len(opts)} vozes disponíveis no navegador (priorizando Português)"
+                            loading_label.style('color: #00e5ff;')
+                        else:
+                            loading_label.text = "Nenhuma voz de síntese encontrada no navegador."
+                            loading_label.style('color: #ff1744;')
+                    except Exception as e:
+                        print(f"[VOICES LOAD ERROR] {e}", flush=True)
+                        loading_label.text = "Erro ao carregar vozes do navegador local."
+                        loading_label.style('color: #ff1744;')
+
+                ui.timer(1.0, load_voices, once=True)
 
         # --- ABA 7: TIPOS DE AÇÕES (PONTOS/NOTAS) ---
         with ui.tab_panel('tipos_acao').classes('bg-transparent q-pa-none gap-6'):
@@ -2166,6 +2256,7 @@ def render_page():
                 {'chave': 'telegram_bot_token', 'valor': str(input_telegram_token.value)},
                 {'chave': 'tts_engine', 'valor': str(input_tts_engine.value)},
                 {'chave': 'google_tts_lang', 'valor': str(input_google_tts_lang.value)},
+                {'chave': 'basic_tts_voice', 'valor': str(input_basic_tts_voice.value)},
                 {'chave': 'elevenlabs_api_key', 'valor': str(input_elevenlabs_api_key.value)},
                 {'chave': 'elevenlabs_voice_id', 'valor': str(input_elevenlabs_voice_id.value)},
                 {'chave': 'tts_piper_path', 'valor': str(input_tts_piper_path.value)},
