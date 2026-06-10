@@ -1952,18 +1952,8 @@ def render_page():
                                         .then(res2 => {{
                                             if (res2.ok) {{
                                                 let audio2 = new Audio(customMp3UrlUpper);
-                                                audio2.volume = 1.0;
-                                                audio2.play().catch(() => {{}});
-                                            }} else {{
-                                                playDefaultSynthesized(sndType);
-                                            }}
-                                        }}).catch(() => {{
-                                            playDefaultSynthesized(sndType);
-                                        }});
-                                }});
-                        }}
-                    }}
-
+                    let voiceDelay = 0; // delay em milissegundos
+                    
                     if (ctx && playSound && type !== 'silent') {{
                         if (ctx.state === 'suspended') {{
                             ctx.resume();
@@ -2002,16 +1992,21 @@ def render_page():
                                 playSingleSound(som);
                             }}, accumulatedDelay * 1000);
                         }});
+                        
+                        // A voz deve aguardar o fim da sequência de sons para iniciar (som + folga de 2.2s)
+                        voiceDelay = (accumulatedDelay + 2.2) * 1000;
                     }}
 
                     if (playVoice) {{
                         let audioBase64 = {escaped_audio};
                         if (audioBase64 && audioBase64 !== "null" && audioBase64 !== "") {{
-                            console.log("[TV ALERT JS] Reproduzindo áudio ElevenLabs/Google (Base64)...");
-                            let mimeType = audioBase64.startsWith("UklGR") ? "audio/wav" : "audio/mp3";
-                            let audio = new Audio("data:" + mimeType + ";base64," + audioBase64);
-                            audio.volume = 1.0;
-                            audio.play().catch(e => console.error("[TV ALERT JS] Erro ao tocar áudio ElevenLabs:", e));
+                            setTimeout(() => {{
+                                console.log("[TV ALERT JS] Reproduzindo áudio ElevenLabs/Google (Base64)...");
+                                let mimeType = audioBase64.startsWith("UklGR") ? "audio/wav" : "audio/mp3";
+                                let audio = new Audio("data:" + mimeType + ";base64," + audioBase64);
+                                audio.volume = 1.0;
+                                audio.play().catch(e => console.error("[TV ALERT JS] Erro ao tocar áudio ElevenLabs:", e));
+                            }}, voiceDelay);
                         }} else {{
                             let text = {escaped_jarvis};
                             if (!text || text === "null" || text === "") {{
@@ -2067,7 +2062,7 @@ def render_page():
                                 }}
                                 utterance.onerror = (err) => console.error("[TV ALERT JS] Erro na síntese de voz (SpeechSynthesis):", err);
                                 window.speechSynthesis.speak(utterance);
-                            }}, 1000);
+                            }}, voiceDelay + 500);
                         }}
                     }}
                 }} catch(e) {{
