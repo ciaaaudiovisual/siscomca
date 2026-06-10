@@ -2179,21 +2179,21 @@ def render_page():
                                     item_turma = str(item.get('turma') or 'N/A').upper()
                                     item_nome = str(item.get('nome') or 'MILITAR').upper()
 
-                                    with ui.card().classes(f'w-full q-pa-xs q-mb-xs').style(f'{bg_card} {border_color_style} margin-bottom: 4px;'):
+                                    with ui.card().classes(f'w-full q-pa-xs q-mb-xs').style(f'{bg_card} {border_color_style} margin-bottom: 4px; gap: 2px !important; padding: 6px !important;'):
                                         with ui.row().classes('w-full items-center justify-between px-1'):
                                             with ui.row().classes('items-center gap-1.5'):
                                                 ui.element('span').classes(f'w-1.5 h-1.5 rounded-full').style(indicator_color_style)
                                                 # Exibe somente Número Interno (NI) e Nome de Guerra (sem Platoon/Mike-1!)
                                                 item_ni = str(item.get('ni') or '').upper()
                                                 if item_ni:
-                                                    ui.label(item_ni).classes('text-grey-5 font-mono text-[16px]')
-                                                ui.label(item_nome).classes('text-white font-black text-[16px] tracking-wider')
-                                            ui.label(label_cat).classes(f'font-bold text-[14px] tracking-wider').style(text_cat_color_style)
+                                                    ui.label(item_ni).classes('text-grey-5 font-mono text-[15px]')
+                                                ui.label(item_nome).classes('text-white font-black text-[15px] tracking-wider')
+                                            ui.label(label_cat).classes(f'font-bold text-[13px] tracking-wider').style(text_cat_color_style)
                                     
-                                        with ui.row().classes('w-full justify-between items-baseline px-1 text-[16px] text-grey-3'):
-                                            ui.label(motivo).classes('text-white font-bold text-[16px]')
+                                        with ui.row().classes('w-full justify-between items-baseline px-1 text-[14px] text-grey-3').style('margin-top: -2px;'):
+                                            ui.label(motivo).classes('text-white font-bold text-[14px]')
                                             if desc_extra:
-                                                ui.label(desc_extra).classes('text-grey-4 font-bold text-[15px]')
+                                                ui.label(desc_extra).classes('text-grey-4 font-bold text-[13px]')
 
                 # 5. Licenciados e Dispensados (Marquee Vertical)
                 lic_disp_marquee_div.clear()
@@ -2362,6 +2362,10 @@ def render_page():
         
     client.on_connect(on_connect_setup)
     client.on_disconnect(on_disconnect_cleanup)
+    
+    # Executa setup imediatamente se já estiver conectado (evita race condition de websocket)
+    if client.has_socket_connection:
+        on_connect_setup()
     
     # Elemento visual flutuante para desbloquear áudio (Autoplay policy)
     ui.html("""
