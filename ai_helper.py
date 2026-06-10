@@ -238,7 +238,7 @@ Diretrizes de Personalidade do J.A.R.V.I.S.:
         return f"{title}."
 
 
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY") or ""
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY") or os.getenv("ELEVEN_LABS") or os.getenv("ELEVEN") or ""
 ELEVENLABS_VOICE_ID = os.getenv("ELEVENLABS_VOICE_ID") or "N2lVS1w4EtoT3dr4eOWO" # Callum (British)
 
 
@@ -358,7 +358,7 @@ def generate_elevenlabs_tts(text: str) -> str:
         api_key = get_config_value('elevenlabs_api_key', '')
         if not api_key:
             # Fallback para a variável de ambiente se não houver no banco
-            api_key = os.getenv("ELEVENLABS_API_KEY") or ""
+            api_key = os.getenv("ELEVENLABS_API_KEY") or os.getenv("ELEVEN_LABS") or os.getenv("ELEVEN") or ""
         return generate_elevenlabs_tts_custom(text, api_key, voice_id)
         
     if engine == 'piper':

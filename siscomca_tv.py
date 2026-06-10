@@ -2005,7 +2005,7 @@ def render_page():
                     console.error(e);
                 }}
                 """
-                client.run_javascript(js_code)
+                client.run_javascript(js_code, respond=False)
         except Exception as e:
             print(f"[TV Alerta] Erro ao abrir diálogo no cliente: {e}")
             
@@ -2026,6 +2026,8 @@ def render_page():
                     # Fade Out: Altera opacidade para 0
                     dialog_card.style('opacity: 0;')
                 await asyncio.sleep(fade_out)
+                with client:
+                    tactical_dialog.close()
             except Exception as e:
                 print(f"[TV Alerta] Erro no fade out: {e}")
             finally:
