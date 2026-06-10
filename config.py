@@ -28,7 +28,8 @@ DEFAULT_CONFIGS = {
     'elevenlabs_api_key': '',
     'elevenlabs_voice_id': 'N2lVS1w4EtoT3dr4eOWO',
     'tts_piper_path': 'piper.exe',
-    'tts_piper_voice': 'pt_BR-fabricio-medium'
+    'tts_piper_voice': 'pt_BR-fabricio-medium',
+    'google_tts_lang': 'pt-br'
 }
 
 def render_page():
@@ -401,7 +402,7 @@ def render_page():
         }
         </style>
         ''')
-    def testar_tts(texto: str, engine: str, el_key: str, el_voice: str, p_path: str, p_voice: str):
+    def testar_tts(texto: str, engine: str, el_key: str, el_voice: str, p_path: str, p_voice: str, google_lang: str = None):
         if not texto:
             ui.notify('Digite um texto para testar!', color='warning')
             return
@@ -432,8 +433,8 @@ def render_page():
         try:
             if engine == 'google':
                 from ai_helper import generate_google_tts
-                print(f"[CONFIG TEST] Testando Google TTS com texto: '{texto}'")
-                audio_base64 = generate_google_tts(texto)
+                print(f"[CONFIG TEST] Testando Google TTS com texto: '{texto}' (idioma: {google_lang})")
+                audio_base64 = generate_google_tts(texto, lang=google_lang)
             elif engine == 'elevenlabs':
                 from ai_helper import generate_elevenlabs_tts_custom
                 # Tentar carregar API Key do ambiente se não estiver no input
@@ -1798,6 +1799,27 @@ def render_page():
                         }
                         input_tts_engine = ui.select(tts_engines_opts, label='Motor TTS Ativo', value=current_configs.get('tts_engine', 'basic')).props('dark dense outlined w-full').classes('w-full')
                         
+                # Google Translate Config Card
+                with theme.card_base().classes('w-full q-pa-md') as google_card:
+                    with ui.column().classes('w-full gap-4'):
+                        with ui.row().classes('items-center gap-2'):
+                            ui.icon('g_translate', size='2rem').style(f'color: {THEME["accent"]}')
+                            ui.label('Configuração do Google Translate').classes('text-lg font-bold').style(f'color: {THEME["text_main"]}')
+                        ui.separator().style(f'background-color: rgba(0, 229, 255, 0.15);')
+                        
+                        input_google_tts_lang = ui.select(
+                            options={
+                                'pt-br': 'Português (Brasil)',
+                                'pt-pt': 'Português (Portugal)',
+                                'en': 'Inglês (Estados Unidos)',
+                                'es': 'Espanhol',
+                                'fr': 'Francês',
+                                'it': 'Italiano'
+                            },
+                            label='Idioma/Voz do Google Translate',
+                            value=current_configs.get('google_tts_lang', 'pt-br')
+                        ).props('dark dense outlined w-full').classes('w-full')
+                        
                 # ElevenLabs Config Card
                 with theme.card_base().classes('w-full q-pa-md') as elevenlabs_card:
                     with ui.column().classes('w-full gap-4'):
@@ -1820,6 +1842,7 @@ def render_page():
                         input_tts_piper_path = ui.input('Caminho para o piper.exe', value=current_configs.get('tts_piper_path', 'piper.exe')).props('dark dense outlined w-full').classes('w-full')
                         input_tts_piper_voice = ui.input('Modelo de voz (.onnx)', value=current_configs.get('tts_piper_voice', 'pt_BR-fabricio-medium')).props('dark dense outlined w-full').classes('w-full')
                         
+                google_card.bind_visibility_from(input_tts_engine, 'value', backward=lambda x: x == 'google')
                 elevenlabs_card.bind_visibility_from(input_tts_engine, 'value', backward=lambda x: x == 'elevenlabs')
                 piper_card.bind_visibility_from(input_tts_engine, 'value', backward=lambda x: x == 'piper')
 
@@ -1841,7 +1864,8 @@ def render_page():
                                 input_elevenlabs_api_key.value,
                                 input_elevenlabs_voice_id.value,
                                 input_tts_piper_path.value,
-                                input_tts_piper_voice.value
+                                input_tts_piper_voice.value,
+                                input_google_tts_lang.value
                             )
                         ).props('unelevated color=amber-9 text-color=black dense w-full').classes('bold q-mt-md')
 
@@ -2141,6 +2165,7 @@ def render_page():
                 {'chave': 'tempo_alerta_tv', 'valor': str(input_alerta_tv.value)},
                 {'chave': 'telegram_bot_token', 'valor': str(input_telegram_token.value)},
                 {'chave': 'tts_engine', 'valor': str(input_tts_engine.value)},
+                {'chave': 'google_tts_lang', 'valor': str(input_google_tts_lang.value)},
                 {'chave': 'elevenlabs_api_key', 'valor': str(input_elevenlabs_api_key.value)},
                 {'chave': 'elevenlabs_voice_id', 'valor': str(input_elevenlabs_voice_id.value)},
                 {'chave': 'tts_piper_path', 'valor': str(input_tts_piper_path.value)},

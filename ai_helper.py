@@ -256,14 +256,16 @@ def get_config_value(key: str, default: str = "") -> str:
     return default
 
 
-def generate_google_tts(text: str) -> str:
+def generate_google_tts(text: str, lang: str = None) -> str:
     """Gera áudio usando a API gratuita do Google Translate, retornando base64."""
     import requests
     import urllib.parse
     import base64
+    
+    google_tts_lang = lang or get_config_value('google_tts_lang', 'pt-br')
     try:
         encoded_text = urllib.parse.quote(text)
-        url = f"https://translate.google.com/translate_tts?ie=UTF-8&tl=pt-br&client=tw-ob&q={encoded_text}"
+        url = f"https://translate.google.com/translate_tts?ie=UTF-8&tl={google_tts_lang}&client=tw-ob&q={encoded_text}"
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
         }
