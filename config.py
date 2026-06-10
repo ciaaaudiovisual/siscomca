@@ -452,7 +452,15 @@ def render_page():
                     ui.notify(error_msg, color='negative')
                     return
                     
-                audio_base64 = generate_elevenlabs_tts_custom(texto, api_key_to_use, voice_id_to_use)
+                result = generate_elevenlabs_tts_custom(texto, api_key_to_use, voice_id_to_use, return_error=True)
+                audio_base64 = result.get('audio', '')
+                error_from_tts = result.get('error', '')
+                
+                if error_from_tts:
+                    print(f"[CONFIG TEST] Resultado: ERRO - {error_from_tts}")
+                    ui.notify(f'Erro ao gerar audio: {error_from_tts}', color='negative')
+                    return
+                    
                 print(f"[CONFIG TEST] Resultado: {len(audio_base64) if audio_base64 else 0} caracteres (base64) retornados")
             elif engine == 'piper':
                 import subprocess

@@ -313,19 +313,35 @@ def generate_piper_tts(text: str, voice: str) -> str:
     return ""
 
 
-def generate_elevenlabs_tts_custom(text: str, api_key: str, voice_id: str) -> str:
-    """Gera áudio usando ElevenLabs com chaves customizadas."""
+def generate_elevenlabs_tts_custom(text: str, api_key: str, voice_id: str, return_error: bool = False):
+    """Gera áudio usando ElevenLabs com chaves customizadas.
+    
+    Args:
+        text: Texto para sintetizar
+        api_key: API Key do ElevenLabs
+        voice_id: ID da voz a usar
+        return_error: Se True, retorna dict {'audio': str, 'error': str} ao invés de só string
+        
+    Returns:
+        Se return_error=False: string (audio base64 ou vazio)
+        Se return_error=True: dict {'audio': str, 'error': str}
+    """
+    error_msg = ""
+    
     if not api_key:
         api_key = os.getenv("ELEVENLABS_API_KEY") or os.getenv("ELEVEN_LABS") or os.getenv("ELEVEN") or ""
     if not api_key:
-        print("[ELEVENLABS ERROR] API Key nao configurada")
-        return ""
+        error_msg = "API Key nao configurada"
+        print(f"[ELEVENLABS ERROR] {error_msg}")
+        return {"audio": "", "error": error_msg} if return_error else ""
     if not text:
-        print("[ELEVENLABS ERROR] Texto vazio")
-        return ""
+        error_msg = "Texto vazio"
+        print(f"[ELEVENLABS ERROR] {error_msg}")
+        return {"audio": "", "error": error_msg} if return_error else ""
     if not voice_id:
-        print("[ELEVENLABS ERROR] Voice ID nao configurado")
-        return ""
+        error_msg = "Voice ID nao configurado"
+        print(f"[ELEVENLABS ERROR] {error_msg}")
+        return {"audio": "", "error": error_msg} if return_error else ""
         
     import requests
     import base64
@@ -351,7 +367,7 @@ def generate_elevenlabs_tts_custom(text: str, api_key: str, voice_id: str) -> st
         if response.status_code == 200:
             audio_data = base64.b64encode(response.content).decode('utf-8')
             print(f"[ELEVENLABS] OK - Audio gerado com sucesso ({len(response.content)} bytes)")
-            return audio_data
+            return {"audio": audio_data, "error": ""} if return_error else audio_data
         elif response.status_code == 401:
             error_msg = "API Key invalida ou expirada"
             print(f"[ELEVENLABS ERROR] 401 Unauthorized: {error_msg}")
@@ -370,12 +386,16 @@ def generate_elevenlabs_tts_custom(text: str, api_key: str, voice_id: str) -> st
             print(f"[ELEVENLABS ERROR] {error_msg}")
             
     except requests.exceptions.Timeout:
-        print("[ELEVENLABS ERROR] Timeout: Servico demorou demais a responder (>8s)")
+        error_msg = "Timeout: Servico demorou demais a responder (>8s)"
+        print(f"[ELEVENLABS ERROR] {error_msg}")
     except requests.exceptions.ConnectionError as e:
-        print(f"[ELEVENLABS ERROR] Erro de conexao: {e}")
+        error_msg = f"Erro de conexao: {e}"
+        print(f"[ELEVENLABS ERROR] {error_msg}")
     except Exception as e:
-        print(f"[ELEVENLABS ERROR] {type(e).__name__}: {e}")
-    return ""
+        error_msg = f"{type(e).__name__}: {e}"
+        print(f"[ELEVENLABS ERROR] {error_msg}")
+    
+    return {"audio": "", "error": error_msg} if return_error else ""
 
 
 def generate_elevenlabs_tts(text: str) -> str:
