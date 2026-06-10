@@ -23,11 +23,17 @@ THEME = theme.colors
 # ─────────────────────────────────────────────────────────────────────────────
 
 TIPOS_DISPENSA = [
-    'Total (todas as atividades)',
-    'Para Esforço Físico',
-    'Para Atividades Externas',
-    'Para Armamento',
-    'Parcial — Especificar abaixo',
+    'Dispensa de todas as atividades',
+    'Dispensa com repouso domiciliar',
+    'Dispensa de todo serviço',
+    'Formatura/Ordem unida',
+    'TAF/TFM',
+    'Serviços pesados',
+    'Uso de sapato fechado',
+    'Fazer a barba',
+    'Serviço Armado',
+    'Serviço de Rancho',
+    'Serviço de Enfermaria',
 ]
 
 TIPOS_LICENCA = [
