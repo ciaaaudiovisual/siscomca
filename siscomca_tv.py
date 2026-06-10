@@ -1491,6 +1491,8 @@ def render_page():
     async def trigger_toast(title, msg, type_='info', jarvis_text=None, jarvis_audio=None, extra_options=None):
         """Enfileira o alerta em tempo real para ser exibido sequencialmente na TV."""
         await toast_queue.put((title, msg, type_, jarvis_text, jarvis_audio, extra_options))
+        # Dispara uma atualização imediata dos dados da tela
+        asyncio.create_task(_refresh())
 
     async def _process_toast_queue():
         """Processa a fila de alertas sequencialmente, garantindo o tempo de exibição e sons."""
@@ -2392,6 +2394,8 @@ def render_page():
         # Sincroniza o estado atual das preferências de som/voz
         AlertsManager.update_tv_preferences(client.id, voice=audio_config['voice'], sound=audio_config['sound'])
         print(f"[TV] ✓ TV CONECTADA e pronta para alertas (Client: {client.id})")
+        # Força uma atualização imediata ao conectar/reconectar
+        asyncio.create_task(_refresh())
 
     def on_disconnect_cleanup():
         nonlocal queue_task
