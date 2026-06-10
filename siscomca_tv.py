@@ -2074,7 +2074,7 @@ def render_page():
                     console.error(e);
                 }}
                 """
-                client.run_javascript(js_code, respond=False)
+                client.run_javascript(js_code)
         except Exception as e:
             print(f"[TV Alerta] Erro ao abrir diálogo no cliente: {e}")
             

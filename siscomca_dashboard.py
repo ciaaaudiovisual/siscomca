@@ -383,7 +383,7 @@ def render_dashboard_content(active_year: str = None):
         # ── SEÇÃO 1: ACÕES E AVISOS (3 Colunas) ────────────────────────────
         with ui.element('div').classes('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 w-full gap-4 items-start'):
             # 1. Anotação Rápida
-            _build_anotacao_rapida_card()
+            _build_anotacao_rapida_card(active_year)
             
             # 2. Aviso Rápido (TV)
             _build_aviso_rapido_card()
@@ -522,7 +522,7 @@ def render_dashboard_content(active_year: str = None):
                                     ui.label(label_dia).style(f'color:{cor_dia}; font-size:0.6rem; font-weight:bold;')
 
             # 3. Controle de Pernoite para aquele dia
-            _build_pernoite_dashboard_card(dados.get('pernoite_hoje_ids', []))
+            _build_pernoite_dashboard_card(dados.get('pernoite_hoje_ids', []), active_year)
 
         # ── SEÇÃO 3: QUANTITATIVO (2 COLUNAS) E DESEMPENHO (1 COLUNA) ───────
         with ui.element('div').classes('grid grid-cols-1 lg:grid-cols-3 w-full gap-4 items-start'):
@@ -1003,10 +1003,9 @@ def _build_escala_semanal_dialog():
     ).props('flat dense no-caps').classes('text-xs text-amber-5 font-bold')
 
 
-def _build_anotacao_rapida_card():
+def _build_anotacao_rapida_card(active_year: str = '2026'):
     """Card de anotação rápida de aluno no dashboard."""
     alunos_df = data_service.get_alunos_data()
-    active_year = app.storage.user.get('ano_letivo_ativo', '2026')
     if 'ano_letivo' in alunos_df.columns:
         alunos_df = alunos_df[alunos_df['ano_letivo'].fillna('2025').astype(str).str.strip() == active_year]
     tipos_df  = data_service.get_tipos_acao_data()
@@ -1334,10 +1333,9 @@ def _build_aviso_rapido_card():
             render_avisos()
 
 
-def _build_pernoite_dashboard_card(pernoite_ids: list):
+def _build_pernoite_dashboard_card(pernoite_ids: list, active_year: str = '2026'):
     """Card para controle rápido de pernoite do dia no dashboard."""
     alunos_df = data_service.get_alunos_data()
-    active_year = app.storage.user.get('ano_letivo_ativo', '2026')
     if 'ano_letivo' in alunos_df.columns:
         alunos_df = alunos_df[alunos_df['ano_letivo'].fillna('2025').astype(str).str.strip() == active_year]
     hoje_str = datetime.now().strftime('%Y-%m-%d')
