@@ -9,7 +9,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import asyncio
 import theme
-from database import get_db_connection, load_data
+from database import get_db_connection, load_data, get_bot_db_connection
 
 THEME = theme.colors
 
@@ -227,7 +227,7 @@ def sanitize_text(val) -> str:
 
 def _carregar_dados_tv(prog_date: datetime = None, active_year: str = '2026'):
     """Carrega dados consolidados do Supabase para o Modo TV com fallbacks offline robustos."""
-    db_conn = get_db_connection()
+    db_conn = get_bot_db_connection()
     hoje_str = datetime.now().strftime('%Y-%m-%d')
     if prog_date is None:
         prog_date = datetime.now()
