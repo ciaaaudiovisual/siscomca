@@ -2361,7 +2361,8 @@ def render_page():
             print(f"[TV] Loop de processamento cancelado devido a desconexão (Client: {client.id})")
         
     client.on_connect(on_connect_setup)
-    client.on_disconnect(on_disconnect_cleanup)
+    client.on_disconnect(lambda: print(f"[TV] Desconexão temporária (reconexão automática pendente) do cliente: {client.id}"))
+    client.on_delete(on_disconnect_cleanup)
     
     # Executa setup imediatamente se já estiver conectado (evita race condition de websocket)
     if client.has_socket_connection:

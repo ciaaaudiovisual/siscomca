@@ -151,6 +151,7 @@ class AlertsManager:
             
             if not is_alive:
                 dead_ids.append(cid)
+                print(f"[ALERTA DEBUG] Client {cid} não está ativo. Marcado para pruning. instances={cid in nicegui.Client.instances}, has_socket={getattr(client, 'has_socket_connection', None)}")
         
         for cid in dead_ids:
             try:
