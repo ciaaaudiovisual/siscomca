@@ -336,7 +336,7 @@ def generate_elevenlabs_tts_custom(text: str, api_key: str, voice_id: str, retur
     if text:
         text = text.strip()
     
-    if not api_key:
+    if not api_key or all(c in '•●* ' for c in api_key) or len(api_key) < 5:
         api_key = os.getenv("ELEVENLABS_API_KEY") or os.getenv("ELEVEN_LABS") or os.getenv("ELEVEN") or ""
         if api_key:
             api_key = api_key.strip()
@@ -426,7 +426,7 @@ def generate_elevenlabs_tts(text: str) -> str:
     if engine == 'elevenlabs':
         voice_id = get_config_value('elevenlabs_voice_id', 'N2lVS1w4EtoT3dr4eOWO')
         api_key = get_config_value('elevenlabs_api_key', '')
-        if not api_key:
+        if not api_key or all(c in '•●* ' for c in api_key) or len(api_key) < 5:
             # Fallback para a variável de ambiente se não houver no banco
             api_key = os.getenv("ELEVENLABS_API_KEY") or os.getenv("ELEVEN_LABS") or os.getenv("ELEVEN") or ""
         return generate_elevenlabs_tts_custom(text, api_key, voice_id)

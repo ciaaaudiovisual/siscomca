@@ -1806,7 +1806,7 @@ def render_page():
                             ui.label('Configuração do ElevenLabs').classes('text-lg font-bold').style(f'color: {THEME["text_main"]}')
                         ui.separator().style(f'background-color: rgba(0, 229, 255, 0.15);')
                         
-                        input_elevenlabs_api_key = ui.input('ElevenLabs API Key', value=current_configs.get('elevenlabs_api_key', ''), password=True, password_toggle_button=True).props('dark dense outlined w-full').classes('w-full')
+                        input_elevenlabs_api_key = ui.input('ElevenLabs API Key', value=current_configs.get('elevenlabs_api_key', ''), password=True, password_toggle_button=True).props('dark dense outlined w-full autocomplete=new-password').classes('w-full')
                         input_elevenlabs_voice_id = ui.input('Voice ID', value=current_configs.get('elevenlabs_voice_id', 'N2lVS1w4EtoT3dr4eOWO')).props('dark dense outlined w-full').classes('w-full')
                 
                 # Piper Config Card
