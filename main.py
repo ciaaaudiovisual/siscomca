@@ -986,6 +986,7 @@ ui.run(
     title='SisCOMCA', 
     dark=True, 
     storage_secret=secret_env, 
+    session_middleware_kwargs={'max_age': 30 * 24 * 60 * 60}, # 30 dias de persistência para "Manter conectado"
     host=host_env,
     port=port_env,
     reload=False
