@@ -815,8 +815,8 @@ def _carregar_dados_tv(prog_date: datetime = None, active_year: str = '2026'):
         except Exception as ex_stats:
             print(f"[TV] Erro ao carregar estatísticas de ações: {ex_stats}")
             
-    # Fallback se estiver vazio para exibição rica na TV
-    if stats_anotacoes['pos_geral'] == 0 and stats_anotacoes['neg_geral'] == 0:
+    # Fallback se estiver vazio para exibição rica na TV (apenas se offline)
+    if is_offline and stats_anotacoes['pos_geral'] == 0 and stats_anotacoes['neg_geral'] == 0:
         stats_anotacoes.update({
             'pos_semana': 12,
             'neg_semana': 3,
