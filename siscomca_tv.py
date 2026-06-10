@@ -1350,15 +1350,10 @@ def render_page():
                                                     else:
                                                         ui.icon('info', color='grey-5', size='1.3rem')
                                                 
-                                                m_name = f"{anot['nome']}"
-                                                if anot.get('ni'):
-                                                    m_name = f"{anot['ni']} : {m_name}"
+                                                m_name = f"{anot.get('ni', '')}"
+                                                if anot.get('motivo'):
+                                                    m_name = f"{m_name} : {anot['motivo']}"
                                                 ui.label(m_name).classes('text-white font-bold text-[15px] truncate')
-                                                
-                                            with ui.row().classes('items-center gap-1 no-wrap'):
-                                                ui.label(f"[{anot['pelotao']}]").classes('text-grey-4 text-[13px]')
-                                                pts_lbl = f"+{pts}" if pts > 0 else f"{pts}"
-                                                ui.label(pts_lbl).style(f'color: {icon_color}; font-size: 14px; font-weight: 900; font-family: monospace;')
                 else:
                     # PAINEL 2: ESTATÍSTICAS DE ANOTAÇÕES (FLIP CARD)
                     stats = d.get('stats_anotacoes', {})
@@ -2188,9 +2183,9 @@ def render_page():
                                         ui.label(label_cat).classes(f'font-bold text-[14px] tracking-wider').style(text_cat_color_style)
                                 
                                     with ui.row().classes('w-full justify-between items-baseline px-1 text-[16px] text-grey-3'):
-                                        # SEGURANÇA: Omitido motivo médico na TV pública por privacidade (LGPD)
+                                        ui.label(motivo).classes('text-white font-bold text-[16px]')
                                         if desc_extra:
-                                            ui.label(desc_extra).classes('text-white font-bold text-[16px]')
+                                            ui.label(desc_extra).classes('text-grey-4 font-bold text-[15px]')
 
                 # 5. Licenciados e Dispensados (Marquee Vertical)
                 lic_disp_marquee_div.clear()
@@ -2212,6 +2207,7 @@ def render_page():
                         'turma': str(lic.get('turma') or 'N/A').upper(),
                         'nome': str(lic.get('nome') or 'MILITAR').upper(),
                         'motivo': str(lic.get('motivo') or 'Sem motivo informado'),
+                        'detalhe': str(lic.get('detalhe') or '').upper(),
                         'tipo': 'LICENÇA',
                         'retorno': retorno_str,
                         'color_tag': f'color: {cor}; border-color: {cor}; background: {bg_rgba};'
@@ -2234,6 +2230,7 @@ def render_page():
                             'turma': str(disp.get('turma') or 'N/A').upper(),
                             'nome': str(disp.get('nome') or 'MILITAR').upper(),
                             'motivo': str(disp.get('motivo') or 'Sem motivo informado'),
+                            'detalhe': str(disp.get('detalhe') or '').upper(),
                             'tipo': 'DISPENSA',
                             'retorno': retorno_str,
                             'color_tag': f'color: {cor}; border-color: {cor}; background: {bg_rgba};'
@@ -2261,8 +2258,9 @@ def render_page():
                                         ui.label(item['tipo']).classes(f"px-1 py-0.2 rounded border text-[13px] font-bold").style(item['color_tag'])
                                     
                                     with ui.row().classes('w-full justify-between items-baseline px-1 text-[16px] text-grey-3'):
-                                        # SEGURANÇA: Omitido motivo médico na TV pública por privacidade (LGPD)
                                         ui.label(f"TÉRMINO: {item['retorno']}").style(item['color_tag'].split(';')[0])
+                                        if item.get('detalhe'):
+                                            ui.label(item['detalhe']).classes('text-white font-black text-[15px]')
 
                 # 6. Programação do Dia (Atividades) - Lado direito (1/3 width)
                 atividades_marquee_container.clear()
