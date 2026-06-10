@@ -980,6 +980,10 @@ def render_page():
             return dt.strftime('%A, %d de %B de %Y').upper()
 
     client = ui.context.client
+    try:
+        default_active_year = app.storage.user.get('ano_letivo_ativo', '2026')
+    except Exception:
+        default_active_year = '2026'
 
     # Container da Notificação Tática Flutuante
     toast_container = ui.column().classes('absolute-top w-full z-50 q-pa-md gap-2 pointer-events-none').style('top: 20px;')
@@ -2084,7 +2088,10 @@ def render_page():
 
     async def _refresh():
         try:
-            active_year = app.storage.user.get('ano_letivo_ativo', '2026')
+            try:
+                active_year = app.storage.user.get('ano_letivo_ativo', default_active_year)
+            except Exception:
+                active_year = default_active_year
             # Executa a busca no banco em outra thread para evitar o travamento da thread principal (WebSocket heartbeat)
             d = await asyncio.to_thread(_carregar_dados_tv, None, active_year)
             with client:
