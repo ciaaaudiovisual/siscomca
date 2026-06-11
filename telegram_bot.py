@@ -2698,12 +2698,18 @@ def setup_handlers(bot_instance):
                         
                         if status == 'Dispensado':
                             state['step'] = 'choose_dispensa_type'
+                            state['data']['selected_dispensas'] = []
                             markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                            
+                            prompt = "📋 **Selecione os Tipos de Dispensa (Múltiplas Opções):**\n"
+                            prompt += "_Selecione os números correspondentes para marcar/desmarcar. Quando terminar, clique no botão '👉 Concluir Seleção'._\n\n"
+                            
                             for idx, val in enumerate(TIPOS_DISPENSA):
                                 markup.add(types.KeyboardButton(f"{idx + 1} — {val}"))
+                                prompt += f"{idx + 1} — {val}\n"
+                            
                             markup.add(types.KeyboardButton("❌ Cancelar"))
-                            prompt = "📋 Selecione o Tipo de Dispensa:"
-                            await bot_instance.reply_to(message, prompt, reply_markup=markup)
+                            await bot_instance.reply_to(message, prompt, reply_markup=markup, parse_mode='Markdown')
                         elif status == 'Licença':
                             state['step'] = 'choose_licenca_type'
                             markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
@@ -2721,23 +2727,60 @@ def setup_handlers(bot_instance):
                 except ValueError:
                     await bot_instance.reply_to(message, "⚠️ Digite apenas o número correspondente à sua escolha:")
 
-            # Passo 4a: Tipo de Dispensa
+            # Passo 4a: Tipo de Dispensa (Múltiplas Opções)
             elif step == 'choose_dispensa_type':
                 if text.lower() in ['cancelar', '❌ cancelar']:
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
                     return
+                
+                if 'selected_dispensas' not in state['data']:
+                    state['data']['selected_dispensas'] = []
+                    
+                selected = state['data']['selected_dispensas']
+                
+                # Se clicou em concluir
+                if "concluir" in text.lower() or "continuar" in text.lower() or "👉" in text:
+                    if not selected:
+                        await bot_instance.reply_to(message, "⚠️ Selecione pelo menos uma opção de dispensa antes de prosseguir:")
+                        return
+                    state['data']['detalhe'] = ", ".join(selected)
+                    state['step'] = 'get_health_motive'
+                    await bot_instance.reply_to(message, "🩺 Digite o Motivo/Diagnóstico (ex: Cefaleia, Entorse, Cirurgia):", reply_markup=get_cancel_keyboard())
+                    return
+                
                 try:
-                    clean_text = text.split('—')[0].strip()
-                    choice = int(clean_text)
+                    # Remove o prefixo de checkmark ✅ para pegar o número correto
+                    clean_text = text.replace('✅', '').strip()
+                    choice = int(clean_text.split('—')[0].strip())
                     if 1 <= choice <= len(TIPOS_DISPENSA):
-                        state['data']['detalhe'] = TIPOS_DISPENSA[choice - 1]
-                        state['step'] = 'get_health_motive'
-                        await bot_instance.reply_to(message, "🩺 Digite o Motivo/Diagnóstico (ex: Cefaleia, Entorse, Cirurgia):", reply_markup=get_cancel_keyboard())
+                        val = TIPOS_DISPENSA[choice - 1]
+                        if val in selected:
+                            selected.remove(val)
+                        else:
+                            selected.append(val)
                     else:
                         await bot_instance.reply_to(message, f"⚠️ Opção inválida. Digite um número de 1 a {len(TIPOS_DISPENSA)}:")
-                except ValueError:
-                    await bot_instance.reply_to(message, "⚠️ Digite apenas o número correspondente à sua escolha:")
+                        return
+                except (ValueError, IndexError):
+                    # Ignora se clicou em algo sem número ou inválido
+                    pass
+                
+                # Reconstrói teclado
+                markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                markup.add(types.KeyboardButton("👉 Concluir Seleção"))
+                
+                prompt = "📋 **Selecione os Tipos de Dispensa (Múltiplas Opções):**\n"
+                prompt += "_Selecione os números correspondentes para marcar/desmarcar. Quando terminar, clique no botão '👉 Concluir Seleção'._\n\n"
+                
+                for idx, val in enumerate(TIPOS_DISPENSA):
+                    is_sel = val in selected
+                    check_icon = "✅ " if is_sel else ""
+                    markup.add(types.KeyboardButton(f"{check_icon}{idx + 1} — {val}"))
+                    prompt += f"{check_icon}{idx + 1} — {val}\n"
+                    
+                markup.add(types.KeyboardButton("❌ Cancelar"))
+                await bot_instance.reply_to(message, prompt, reply_markup=markup, parse_mode='Markdown')
 
             # Passo 4b: Tipo de Licença
             elif step == 'choose_licenca_type':

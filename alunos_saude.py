@@ -697,7 +697,7 @@ def _abrir_alta_dialog(rid, ni, ng, t, alunos_df):
         
         # Cria os campos dentro do container de dispensa
         with disp_container:
-            tipo_disp  = ui.select(TIPOS_DISPENSA, value=TIPOS_DISPENSA[0], label='Tipo de Dispensa').props('dark outlined dense').classes('w-full')
+            tipo_disp  = ui.select(TIPOS_DISPENSA, value=[], label='Tipo de Dispensa', multiple=True).props('dark outlined dense use-chips').classes('w-full')
             with ui.row().classes('w-full gap-2'):
                 d_ini = ui.input('Início', value=datetime.now().strftime('%Y-%m-%d')).props('dark outlined dense type=date').classes('col-grow')
                 d_fim = ui.input('Fim', value=(datetime.now() + timedelta(days=3)).strftime('%Y-%m-%d')).props('dark outlined dense type=date').classes('col-grow')
@@ -722,6 +722,9 @@ def _abrir_alta_dialog(rid, ni, ng, t, alunos_df):
                     err.text = 'Erro ao registrar alta.'
             else:
                 # Alta com Dispensa
+                if not tipo_disp.value:
+                    err.text = 'Selecione pelo menos um tipo de dispensa.'
+                    return
                 if not motivo_inp.value:
                     err.text = 'Preencha o motivo da dispensa.'
                     return
@@ -730,13 +733,14 @@ def _abrir_alta_dialog(rid, ni, ng, t, alunos_df):
                 ok1 = _upsert_registro(ni, ng, t, 'Alta', f'Alta concedida com restrições: {motivo_inp.value}', registro_id=rid)
                 
                 # 2. Registrar nova Dispensa
+                detalhe_val = ", ".join(tipo_disp.value) if isinstance(tipo_disp.value, list) else str(tipo_disp.value or '')
                 ok2 = _upsert_registro(
                     ni, ng, t,
                     'Dispensado',
                     motivo_inp.value,
                     data_ini=d_ini.value,
                     data_fim=d_fim.value,
-                    detalhe=tipo_disp.value,
+                    detalhe=detalhe_val,
                     observacao=obs_inp.value or '',
                 )
                 
@@ -1031,7 +1035,7 @@ def _render_form_dispensa(alunos_view, alunos_df, acoes_df, tipos_acao_df, pelot
                 opcoes = {str(r['id']): f"{r['numero_interno']} — {r['nome_guerra']} ({r['pelotao']})"
                           for _, r in alunos_view.iterrows()}
                 aluno_sel  = ui.select(opcoes, label='Aluno').props('dark outlined dense').classes('w-full')
-                tipo_disp  = ui.select(TIPOS_DISPENSA, value=TIPOS_DISPENSA[0], label='Tipo de Dispensa').props('dark outlined dense').classes('w-full')
+                tipo_disp  = ui.select(TIPOS_DISPENSA, value=[], label='Tipo de Dispensa', multiple=True).props('dark outlined dense use-chips').classes('w-full')
 
                 with ui.row().classes('w-full gap-3'):
                     data_ini = ui.input('Início', value=datetime.now().strftime('%Y-%m-%d')).props('dark outlined dense type=date').classes('col-grow')
@@ -1042,6 +1046,9 @@ def _render_form_dispensa(alunos_view, alunos_df, acoes_df, tipos_acao_df, pelot
                 err        = ui.label('').classes('text-caption text-red')
 
                 def _salvar():
+                    if not tipo_disp.value:
+                        err.text = 'Selecione pelo menos um tipo de dispensa.'
+                        return
                     if not aluno_sel.value or not motivo_inp.value:
                         err.text = 'Selecione o aluno e informe o motivo.'
                         return
@@ -1050,6 +1057,7 @@ def _render_form_dispensa(alunos_view, alunos_df, acoes_df, tipos_acao_df, pelot
                         err.text = 'Aluno não encontrado.'
                         return
                     r = row.iloc[0]
+                    detalhe_val = ", ".join(tipo_disp.value) if isinstance(tipo_disp.value, list) else str(tipo_disp.value or '')
                     ok = _upsert_registro(
                         str(r.get('numero_interno', '')),
                         str(r.get('nome_guerra', '')),
@@ -1058,7 +1066,7 @@ def _render_form_dispensa(alunos_view, alunos_df, acoes_df, tipos_acao_df, pelot
                         motivo_inp.value,
                         data_ini=data_ini.value,
                         data_fim=data_fim.value,
-                        detalhe=tipo_disp.value,
+                        detalhe=detalhe_val,
                         observacao=obs_inp.value or '',
                     )
                     # Também registra na tabela Acoes para histórico de conceito (removido duplicidade, já tratado em _upsert_registro)
