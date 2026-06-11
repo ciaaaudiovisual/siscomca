@@ -3347,8 +3347,8 @@ def setup_handlers(bot_instance):
                         clear_state(chat_id)
                         return
                         
-                    # Ordena por horário
-                    prog_list = sorted(prog_list, key=lambda x: x.get('horario', ''))
+                    # Ordena por ID do banco de dados (Ordem Numérica)
+                    prog_list = sorted(prog_list, key=lambda x: int(x.get('id') or 0))
                     
                     response_lines = [f"📅 **PROGRAMAÇÃO ({date_lbl} — {date_br})**\n"]
                     for idx, act in enumerate(prog_list, 1):
