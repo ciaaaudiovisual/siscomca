@@ -1372,10 +1372,10 @@ def render_page():
                                                     else:
                                                         ui.icon('info', color='grey-5', size='1.3rem')
                                                 
-                                                m_name = f"{anot.get('ni', '')}"
-                                                if anot.get('motivo'):
-                                                    m_name = f"{m_name} : {anot['motivo']}"
-                                                ui.label(m_name).classes('text-white font-bold text-[15px] truncate')
+                                                with ui.column().classes('gap-0'):
+                                                    ui.label(anot.get('pelotao', '').upper()).classes('text-white font-bold text-[15px] truncate')
+                                                    ui.label(anot.get('tipo', '').upper()).classes('text-grey-4 text-[12px] truncate')
+                                                
                 else:
                     # PAINEL 2: ESTATÍSTICAS DE ANOTAÇÕES (FLIP CARD)
                     stats = d.get('stats_anotacoes', {})
@@ -1406,20 +1406,7 @@ def render_page():
                                 ui.label('NEGATIVAS (GERAL)').classes('text-red-400 text-[10px] font-bold')
                                 ui.label(str(stats.get('neg_geral', 0))).classes('text-white text-[20px] font-black font-mono')
                         
-                        # Primeira anotação da turma/histórico
-                        prim = stats.get('primeira_anotacao')
-                        if prim:
-                            ui.separator().props('dark').classes('q-my-xs')
-                            with ui.card().classes('w-full q-pa-xs border border-gray-800 bg-black/30').style('min-height: 60px;'):
-                                with ui.row().classes('w-full items-center justify-between no-wrap px-1'):
-                                    ui.label('📌 PRIMEIRA ANOTAÇÃO').classes('text-amber-5 text-[10px] font-bold')
-                                    ui.label(prim.get('data', '')).classes('text-grey-4 text-[10px] font-mono')
-                                
-                                with ui.row().classes('w-full items-center gap-1.5 no-wrap px-1'):
-                                    ui.label(f"{prim.get('ni', '')} : {prim.get('nome', '')}").classes('text-white font-bold text-[12px] truncate')
-                                    ui.label(f"[{prim.get('pelotao', '')}]").classes('text-grey text-[11px]')
-                                
-                                ui.label(prim.get('descricao', '')).classes('text-grey-4 italic text-[11px] px-1 truncate w-full')
+                        # (Primeira anotação removida)
 
         # ── CORPO PRINCIPAL DO PAINEL (GRID DUPLO) ─────────────────────────────
         with ui.element('div').classes('tv-main-row'):
