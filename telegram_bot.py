@@ -127,7 +127,7 @@ def get_main_menu_keyboard():
 
 def get_cancel_keyboard():
     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-    markup.add(types.KeyboardButton("❌ Cancelar"))
+    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
     return markup
 
 def get_settings_keyboard(is_authorized=True, is_admin=False):
@@ -169,7 +169,8 @@ def get_duration_keyboard():
     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
     markup.row(types.KeyboardButton("1"), types.KeyboardButton("2"), types.KeyboardButton("3"))
     markup.row(types.KeyboardButton("5"), types.KeyboardButton("7"), types.KeyboardButton("10"))
-    markup.row(types.KeyboardButton("15"), types.KeyboardButton("30"), types.KeyboardButton("❌ Cancelar"))
+    markup.row(types.KeyboardButton("15"), types.KeyboardButton("30"))
+    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
     return markup
 
 
@@ -210,7 +211,7 @@ async def get_allowed_features_for_user(profile) -> set:
     conn = get_db_connection()
     if conn:
         try:
-            res = conn.table('Permissoes').select('*').execute()
+            res = conn.table('Permissions').select('*').execute()
             if res.data:
                 for row in res.data:
                     fk = row.get('feature_key')
@@ -218,7 +219,7 @@ async def get_allowed_features_for_user(profile) -> set:
                     if fk and allowed:
                         defaults[fk] = [r.strip().lower() for r in allowed.split(',') if r.strip()]
         except Exception as e:
-            print(f"[Bot] Erro ao ler Permissoes do banco: {e}")
+            print(f"[Bot] Erro ao ler Permissions do banco: {e}")
             
     for fk, roles in defaults.items():
         if user_role in roles:
@@ -307,7 +308,7 @@ async def prompt_pelotao_selection(bot_instance, message, state):
     for i in range(0, len(pelotoes), 2):
         row = [types.KeyboardButton(p) for p in pelotoes[i:i+2]]
         markup.row(*row)
-    markup.row(types.KeyboardButton("❌ Cancelar"))
+    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
     
     action_map = {
         'anotacao': 'Anotação',
@@ -1195,10 +1196,10 @@ def setup_handlers(bot_instance):
         if message.from_user.id not in USER_PERMISSIONS_CACHE:
             await check_authorized_user(message.from_user.id)
             
-        # Cancelamento global/Voltar ao menu: trata "cancelar", "voltar", "menu principal", etc.
+        # Cancelamento global/Voltar ao menu: trata "cancelar", "menu principal", etc.
         clean_text = text.lower()
         cancel_terms = ["cancelar", "menu principal", "voltar pro menu", "voltar para o menu", "voltar ao menu"]
-        is_cancel = any(term in clean_text for term in cancel_terms) or clean_text in ["voltar", "⬅️ voltar"]
+        is_cancel = any(term in clean_text for term in cancel_terms)
         
         if is_cancel:
             clear_state(chat_id)
@@ -1677,7 +1678,7 @@ def setup_handlers(bot_instance):
         # ── PROCESSAMENTO DA ANOTAÇÃO ─────────────────────────────────
         elif action == 'anotacao':
             if step == 'choose_pelotao':
-                if text.lower() in ['cancelar', '❌ cancelar']:
+                if text.lower() in ['cancelar', '❌ cancelar', 'voltar', '⬅️ voltar']:
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
                     return
@@ -1704,6 +1705,9 @@ def setup_handlers(bot_instance):
                 if text.lower() in ['cancelar', '❌ cancelar']:
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
+                    return
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    await prompt_pelotao_selection(bot_instance, message, state)
                     return
                 try:
                     active_year = get_user_active_year(state.get('user'))
@@ -1759,7 +1763,7 @@ def setup_handlers(bot_instance):
                         markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
                         for idx, al in enumerate(state['data']['matches']):
                             markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al.get('especialidade') or 'Sem Esp.'})"))
-                        markup.add(types.KeyboardButton("❌ Cancelar"))
+                        markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
      
                         prompt = "🔍 Múltiplos alunos encontrados. Selecione o correspondente abaixo:\n\n"
                         for idx, al in enumerate(state['data']['matches']):
@@ -1773,6 +1777,10 @@ def setup_handlers(bot_instance):
                 if text.lower() in ['cancelar', '❌ cancelar']:
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
+                    return
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    state['step'] = 'search_student'
+                    await bot_instance.reply_to(message, "🔍 Digite o nome de guerra ou número interno do aluno:", reply_markup=get_cancel_keyboard())
                     return
                 matches = state['data'].get('matches', [])
                 try:
@@ -1791,6 +1799,36 @@ def setup_handlers(bot_instance):
                 if text.lower() in ['cancelar', '❌ cancelar']:
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
+                    return
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    if state['data'].get('is_mass_anotacao'):
+                        state['step'] = 'search_student'
+                        await bot_instance.reply_to(message, "🔍 Digite o nome de guerra ou número interno do aluno:", reply_markup=get_cancel_keyboard())
+                    elif state['data'].get('alunos_pelotao'):
+                        state['step'] = 'choose_student_button'
+                        alunos_pelotao = state['data']['alunos_pelotao']
+                        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                        alunos_pelotao_sorted = sorted(alunos_pelotao, key=lambda x: natural_sort_key(x.get('numero_interno', '')))
+                        for i in range(0, len(alunos_pelotao_sorted), 2):
+                            row = [types.KeyboardButton(f"MIKE {a['numero_interno']} - {a['nome_guerra']}") for a in alunos_pelotao_sorted[i:i+2]]
+                            markup.row(*row)
+                        markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
+                        pelotao = alunos_pelotao[0].get('pelotao', '')
+                        await bot_instance.reply_to(message, f"📋 Alunos do {pelotao}: Selecione o militar desejado abaixo:", reply_markup=markup)
+                    elif state['data'].get('matches'):
+                        state['step'] = 'choose_student'
+                        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                        for idx, al in enumerate(state['data']['matches']):
+                            markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al.get('especialidade') or 'Sem Esp.'})"))
+                        markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
+                        
+                        prompt = "🔍 Múltiplos alunos encontrados. Selecione o correspondente abaixo:\n\n"
+                        for idx, al in enumerate(state['data']['matches']):
+                            prompt += f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al['pelotao']} • {al.get('especialidade') or 'Sem Esp.'})\n"
+                        await bot_instance.reply_to(message, prompt, reply_markup=markup)
+                    else:
+                        state['step'] = 'search_student'
+                        await bot_instance.reply_to(message, "🔍 Digite o nome de guerra ou número interno do aluno:", reply_markup=get_cancel_keyboard())
                     return
                 tipos = state['data'].get('tipos', [])
                 try:
@@ -1820,6 +1858,9 @@ def setup_handlers(bot_instance):
                 if text.lower() in ['cancelar', '❌ cancelar']:
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
+                    return
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    await prompt_action_type(bot_instance, message, state, state['data']['student'])
                     return
                 desc = "" if text in ("/pular", "⏭️ Pular", "⏭️ pular", "pular") else text
                 state['step'] = 'confirm_submit'
@@ -1853,6 +1894,17 @@ def setup_handlers(bot_instance):
 
             # Passo 5: Confirmação Final
             elif step == 'confirm_submit':
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    state['step'] = 'get_description'
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    markup.row(types.KeyboardButton("⏭️ Pular"))
+                    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
+                    await bot_instance.reply_to(
+                        message,
+                        "Digite a descrição/justificativa para esta ocorrência (ou escolha Pular):",
+                        reply_markup=markup
+                    )
+                    return
                 ans = text.strip().lower()
                 if ans in ['s', 'sim', 'y', 'yes', 's — confirmar']:
                     try:
@@ -1923,7 +1975,7 @@ def setup_handlers(bot_instance):
         elif action == 'presenca':
             # Passo Inicial: Escolha entre Realizar Chamada ou Listar Faltosos
             if step == 'choose_initial_presenca_option':
-                if text.lower() in ['cancelar', '❌ cancelar']:
+                if text.lower() in ['cancelar', '❌ cancelar', 'voltar', '⬅️ voltar']:
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
                     return
@@ -1946,7 +1998,7 @@ def setup_handlers(bot_instance):
                     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
                     for idx, pel in enumerate(pelotoes):
                         markup.add(types.KeyboardButton(f"{idx + 1} — {pel}"))
-                    markup.add(types.KeyboardButton("❌ Cancelar"))
+                    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
                     
                     prompt = "📋 Chamada Diária: Selecione a Turma (Pelotão) abaixo:\n\n"
                     for idx, pel in enumerate(pelotoes):
@@ -1987,7 +2039,7 @@ def setup_handlers(bot_instance):
                     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
                     for idx, al in enumerate(absent_students_sorted):
                         markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al.get('especialidade') or 'Sem Esp.'})"))
-                    markup.add(types.KeyboardButton("❌ Cancelar"))
+                    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
                     
                     prompt = "❌ **LISTA DE FALTOSOS DE HOJE**\n\nSelecione o aluno para gerenciar a ausência:"
                     await bot_instance.reply_to(message, prompt, reply_markup=markup, parse_mode='Markdown')
@@ -2053,6 +2105,14 @@ def setup_handlers(bot_instance):
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
                     return
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    state['step'] = 'choose_initial_presenca_option'
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    markup.row(types.KeyboardButton("📋 Realizar Chamada"), types.KeyboardButton("❌ Listar Faltosos (Ausentes)"))
+                    markup.row(types.KeyboardButton("⏳ Listar Pendentes (Sem Chamada)"))
+                    markup.row(types.KeyboardButton("❌ Cancelar"))
+                    await bot_instance.reply_to(message, "📞 Controle de Presença: Selecione uma opção abaixo:", reply_markup=markup)
+                    return
                 faltosos = state['data']['faltosos_list']
                 try:
                     clean_text = text.split('—')[0].strip()
@@ -2084,9 +2144,15 @@ def setup_handlers(bot_instance):
                     return
                 elif "voltar" in text.lower() or "⬅️" in text.lower():
                     # Volta para a lista de faltosos
-                    state['step'] = 'choose_initial_presenca_option'
-                    message.text = "❌ Listar Faltosos (Ausentes)"
-                    await handle_normal_message(message)
+                    state['step'] = 'choose_faltoso_student'
+                    absent_students_sorted = state['data']['faltosos_list']
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    for idx, al in enumerate(absent_students_sorted):
+                        markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al.get('especialidade') or 'Sem Esp.'})"))
+                    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
+                    
+                    prompt = "❌ **LISTA DE FALTOSOS DE HOJE**\n\nSelecione o aluno para gerenciar a ausência:"
+                    await bot_instance.reply_to(message, prompt, reply_markup=markup, parse_mode='Markdown')
                     return
                     
                 selected = state['data']['selected_student']
@@ -2116,6 +2182,14 @@ def setup_handlers(bot_instance):
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
                     return
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    state['step'] = 'choose_initial_presenca_option'
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    markup.row(types.KeyboardButton("📋 Realizar Chamada"), types.KeyboardButton("❌ Listar Faltosos (Ausentes)"))
+                    markup.row(types.KeyboardButton("⏳ Listar Pendentes (Sem Chamada)"))
+                    markup.row(types.KeyboardButton("❌ Cancelar"))
+                    await bot_instance.reply_to(message, "📞 Controle de Presença: Selecione uma opção abaixo:", reply_markup=markup)
+                    return
                 pelotoes = state['data']['pelotoes']
                 try:
                     clean_text = text.split('—')[0].strip()
@@ -2128,7 +2202,7 @@ def setup_handlers(bot_instance):
                         markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
                         markup.add(types.KeyboardButton("1 — Marcar TODOS como PRESENTES"))
                         markup.add(types.KeyboardButton("2 — Marcar todos como PRESENTES, EXCETO ausentes"))
-                        markup.add(types.KeyboardButton("❌ Cancelar"))
+                        markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
 
                         prompt = (
                             f"Turma Selecionada: {pelotao}\n\n"
@@ -2145,6 +2219,19 @@ def setup_handlers(bot_instance):
                 if text.lower() in ['cancelar', '❌ cancelar']:
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
+                    return
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    state['step'] = 'choose_pelotao'
+                    pelotoes = state['data']['pelotoes']
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    for idx, pel in enumerate(pelotoes):
+                        markup.add(types.KeyboardButton(f"{idx + 1} — {pel}"))
+                    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
+                    
+                    prompt = "📋 Chamada Diária: Selecione a Turma (Pelotão) abaixo:\n\n"
+                    for idx, pel in enumerate(pelotoes):
+                        prompt += f"{idx + 1} — {pel}\n"
+                    await bot_instance.reply_to(message, prompt, reply_markup=markup, parse_mode='Markdown')
                     return
                 try:
                     clean_text = text.split('—')[0].strip()
@@ -2171,7 +2258,7 @@ def setup_handlers(bot_instance):
                             nomes_lista = "  _(erro ao carregar lista)_"
                         
                         markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-                        markup.row(types.KeyboardButton("✅ SIM — Confirmar"), types.KeyboardButton("❌ NÃO — Cancelar"))
+                        markup.row(types.KeyboardButton("✅ SIM — Confirmar"), types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ NÃO — Cancelar"))
 
                         confirm_prompt = (
                             f"⚠️ **ATENÇÃO: Confirmar Presença em Massa?**\n\n"
@@ -2201,6 +2288,20 @@ def setup_handlers(bot_instance):
                 if text.lower() in ['cancelar', '❌ cancelar']:
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
+                    return
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    state['step'] = 'choose_presenca_mode'
+                    pelotao = state['data']['pelotao']
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    markup.add(types.KeyboardButton("1 — Marcar TODOS como PRESENTES"))
+                    markup.add(types.KeyboardButton("2 — Marcar todos como PRESENTES, EXCETO ausentes"))
+                    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
+
+                    prompt = (
+                        f"Turma Selecionada: {pelotao}\n\n"
+                        "Selecione o tipo de lançamento de presença abaixo:"
+                    )
+                    await bot_instance.reply_to(message, prompt, reply_markup=markup)
                     return
                 pelotao = state['data']['pelotao']
                 
@@ -2258,7 +2359,7 @@ def setup_handlers(bot_instance):
                 markup.add(types.KeyboardButton("4 — Pernoite"))
                 markup.add(types.KeyboardButton("5 — Saída Autorizada"))
                 markup.add(types.KeyboardButton("6 — Outro"))
-                markup.add(types.KeyboardButton("❌ Cancelar"))
+                markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
 
                 prompt = (
                     f"{warning_lbl}"
@@ -2273,6 +2374,15 @@ def setup_handlers(bot_instance):
                 if text.lower() in ['cancelar', '❌ cancelar']:
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
+                    return
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    state['step'] = 'get_absent_numbers'
+                    await bot_instance.reply_to(
+                        message,
+                        "🚫 Digite o Número Interno dos ausentes separados por vírgula (ex: 101, 105, 210):\n"
+                        "Ou envie `/cancelar` para abortar:",
+                        reply_markup=get_cancel_keyboard()
+                    )
                     return
                 reasons_map = {
                     1: 'Falta Injustificada',
@@ -2294,7 +2404,8 @@ def setup_handlers(bot_instance):
                         absent_students = state['data']['absent_students']
                         
                         markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-                        markup.row(types.KeyboardButton("✅ SIM — Confirmar"), types.KeyboardButton("❌ NÃO — Cancelar"))
+                        markup.row(types.KeyboardButton("✅ SIM — Confirmar"))
+                        markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ NÃO — Cancelar"))
 
                         confirm_prompt = (
                             f"⚠️ *ATENÇÃO: Confirmar Presença Coletiva?*\n\n"
@@ -2312,6 +2423,40 @@ def setup_handlers(bot_instance):
 
             # Passo 5: Confirmação e Inserção no Supabase
             elif step == 'confirm_presenca_submit':
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    mode = state['data']['mode']
+                    if mode == 'todos_presentes':
+                        state['step'] = 'choose_presenca_mode'
+                        pelotao = state['data']['pelotao']
+                        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                        markup.add(types.KeyboardButton("1 — Marcar TODOS como PRESENTES"))
+                        markup.add(types.KeyboardButton("2 — Marcar todos como PRESENTES, EXCETO ausentes"))
+                        markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
+
+                        prompt = (
+                            f"Turma Selecionada: {pelotao}\n\n"
+                            "Selecione o tipo de lançamento de presença abaixo:"
+                        )
+                        await bot_instance.reply_to(message, prompt, reply_markup=markup)
+                    else:
+                        state['step'] = 'choose_absent_reason'
+                        absent_students = state['data']['absent_students']
+                        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                        markup.add(types.KeyboardButton("1 — Falta Injustificada"))
+                        markup.add(types.KeyboardButton("2 — Doença"))
+                        markup.add(types.KeyboardButton("3 — Licença"))
+                        markup.add(types.KeyboardButton("4 — Pernoite"))
+                        markup.add(types.KeyboardButton("5 — Saída Autorizada"))
+                        markup.add(types.KeyboardButton("6 — Outro"))
+                        markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
+
+                        prompt = (
+                            f"🚫 Ausentes Detectados:\n"
+                            f"{', '.join([a['nome_guerra'] for a in absent_students])}\n\n"
+                            "Selecione o motivo padrão de ausência abaixo:"
+                        )
+                        await bot_instance.reply_to(message, prompt, reply_markup=markup)
+                    return
                 ans = text.strip().lower()
                 if ans in ['s', 'sim', 'y', 'yes', 's — confirmar', '✅ sim — confirmar']:
                     try:
@@ -2402,7 +2547,7 @@ def setup_handlers(bot_instance):
                         markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
                         for idx, al in enumerate(state['data']['matches']):
                             markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al.get('especialidade') or 'Sem Esp.'})"))
-                        markup.add(types.KeyboardButton("❌ Cancelar"))
+                        markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
                         
                         prompt = "🔍 Múltiplos alunos encontrados. Selecione o correspondente abaixo:\n\n"
                         for idx, al in enumerate(state['data']['matches']):
@@ -2576,7 +2721,7 @@ def setup_handlers(bot_instance):
                         markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
                         for idx, row in enumerate(state['data']['active_cases']):
                             markup.add(types.KeyboardButton(f"{idx + 1} — {row['numero_interno']} : {row['nome_guerra']} ({row['status']})"))
-                        markup.add(types.KeyboardButton("❌ Cancelar"))
+                        markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
                         
                         tipo_label = "Baixados (Enfermaria/Hospital)" if is_baixados else "Dispensados"
                         prompt = f"🏥 Militares com registros ativos em {tipo_label}:\nSelecione um para ver detalhes ou dar alta/encerrar:\n\n"
@@ -2619,6 +2764,9 @@ def setup_handlers(bot_instance):
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
                     return
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    await prompt_pelotao_selection(bot_instance, message, state)
+                    return
                 try:
                     res = conn.table('Alunos').select('*').execute()
                     alunos = res.data if res.data else []
@@ -2647,7 +2795,7 @@ def setup_handlers(bot_instance):
                     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
                     for idx, al in enumerate(state['data']['matches']):
                         markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al.get('especialidade') or 'Sem Esp.'})"))
-                    markup.add(types.KeyboardButton("❌ Cancelar"))
+                    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
 
                     prompt = "🔍 Múltiplos alunos encontrados. Selecione o correspondente abaixo:\n\n"
                     for idx, al in enumerate(state['data']['matches']):
@@ -2661,6 +2809,10 @@ def setup_handlers(bot_instance):
                 if text.lower() in ['cancelar', '❌ cancelar']:
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
+                    return
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    state['step'] = 'search_student'
+                    await bot_instance.reply_to(message, "🔍 Digite o Nome de Guerra ou Número Interno do aluno para registrar saúde:", reply_markup=get_cancel_keyboard())
                     return
                 matches = state['data'].get('matches', [])
                 try:
@@ -2680,11 +2832,25 @@ def setup_handlers(bot_instance):
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
                     return
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    if state['data'].get('alunos_pelotao'):
+                        state['step'] = 'choose_student_button'
+                        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                        alunos_pelotao_sorted = sorted(state['data']['alunos_pelotao'], key=lambda x: natural_sort_key(x.get('numero_interno', '')))
+                        for i in range(0, len(alunos_pelotao_sorted), 2):
+                            row = [types.KeyboardButton(f"MIKE {a['numero_interno']} - {a['nome_guerra']}") for a in alunos_pelotao_sorted[i:i+2]]
+                            markup.row(*row)
+                        markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
+                        await bot_instance.reply_to(message, "📋 Alunos do pelotão: Selecione o militar desejado abaixo:", reply_markup=markup)
+                    else:
+                        state['step'] = 'search_student'
+                        await bot_instance.reply_to(message, "🔍 Digite o Nome de Guerra ou Número Interno do aluno:", reply_markup=get_cancel_keyboard())
+                    return
                 status_map = {
-                    1: ('Internado', 'enfermaria'),
-                    2: ('Encaminhado para enfermaria', 'enfermaria'),
-                    3: ('Hospital', 'enfermaria'),
-                    4: ('Dispensado', 'dispensa'),
+                    1: ('Encaminhado para enfermaria', 'enfermaria'),
+                    2: ('Internado', 'enfermaria'),
+                    3: ('Dispensado', 'dispensa'),
+                    4: ('Hospital', 'enfermaria'),
                     5: ('Licença', 'licenca'),
                     6: ('Alta', 'alta')
                 }
@@ -2699,25 +2865,9 @@ def setup_handlers(bot_instance):
                         if status == 'Dispensado':
                             state['step'] = 'choose_dispensa_type'
                             state['data']['selected_dispensas'] = []
-                            markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-                            
-                            prompt = "📋 **Selecione os Tipos de Dispensa (Múltiplas Opções):**\n"
-                            prompt += "_Selecione os números correspondentes para marcar/desmarcar. Quando terminar, clique no botão '👉 Concluir Seleção'._\n\n"
-                            
-                            for idx, val in enumerate(TIPOS_DISPENSA):
-                                markup.add(types.KeyboardButton(f"{idx + 1} — {val}"))
-                                prompt += f"{idx + 1} — {val}\n"
-                            
-                            markup.add(types.KeyboardButton("❌ Cancelar"))
-                            await bot_instance.reply_to(message, prompt, reply_markup=markup, parse_mode='Markdown')
+                            await show_dispensa_selection(bot_instance, message, state)
                         elif status == 'Licença':
-                            state['step'] = 'choose_licenca_type'
-                            markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-                            for idx, val in enumerate(TIPOS_LICENCA):
-                                markup.add(types.KeyboardButton(f"{idx + 1} — {val}"))
-                            markup.add(types.KeyboardButton("❌ Cancelar"))
-                            prompt = "✈️ Selecione o Tipo de Licença:"
-                            await bot_instance.reply_to(message, prompt, reply_markup=markup)
+                            await show_licenca_selection(bot_instance, message, state)
                         else:
                             state['data']['detalhe'] = ''
                             state['step'] = 'get_health_motive'
@@ -2732,6 +2882,9 @@ def setup_handlers(bot_instance):
                 if text.lower() in ['cancelar', '❌ cancelar']:
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
+                    return
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    await prompt_health_status(bot_instance, message, state, state['data']['student'])
                     return
                 
                 if 'selected_dispensas' not in state['data']:
@@ -2779,7 +2932,7 @@ def setup_handlers(bot_instance):
                     markup.add(types.KeyboardButton(f"{check_icon}{idx + 1} — {val}"))
                     prompt += f"{check_icon}{idx + 1} — {val}\n"
                     
-                markup.add(types.KeyboardButton("❌ Cancelar"))
+                markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
                 await bot_instance.reply_to(message, prompt, reply_markup=markup, parse_mode='Markdown')
 
             # Passo 4b: Tipo de Licença
@@ -2787,6 +2940,9 @@ def setup_handlers(bot_instance):
                 if text.lower() in ['cancelar', '❌ cancelar']:
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
+                    return
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    await prompt_health_status(bot_instance, message, state, state['data']['student'])
                     return
                 try:
                     clean_text = text.split('—')[0].strip()
@@ -2806,6 +2962,15 @@ def setup_handlers(bot_instance):
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
                     return
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    status = state['data']['status']
+                    if status == 'Dispensado':
+                        await show_dispensa_selection(bot_instance, message, state)
+                    elif status == 'Licença':
+                        await show_licenca_selection(bot_instance, message, state)
+                    else:
+                        await prompt_health_status(bot_instance, message, state, state['data']['student'])
+                    return
                 state['data']['motivo'] = text
                 status = state['data']['status']
                 
@@ -2815,7 +2980,8 @@ def setup_handlers(bot_instance):
                 else:
                     state['step'] = 'get_health_obs'
                     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-                    markup.row(types.KeyboardButton("⏭️ Pular"), types.KeyboardButton("❌ Cancelar"))
+                    markup.row(types.KeyboardButton("⏭️ Pular"))
+                    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
                     await bot_instance.reply_to(message, "📝 Digite alguma observação adicional (ou escolha Pular/Cancelar):", reply_markup=markup)
 
             # Passo 6: Duração em dias
@@ -2824,13 +2990,18 @@ def setup_handlers(bot_instance):
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
                     return
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    state['step'] = 'get_health_motive'
+                    await bot_instance.reply_to(message, "🩺 Digite o Motivo/Diagnóstico (ex: Cefaleia, Entorse, Cirurgia):", reply_markup=get_cancel_keyboard())
+                    return
                 try:
                     dias = int(text)
                     if dias > 0:
                         state['data']['dias'] = dias
                         state['step'] = 'get_health_obs'
                         markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-                        markup.row(types.KeyboardButton("⏭️ Pular"), types.KeyboardButton("❌ Cancelar"))
+                        markup.row(types.KeyboardButton("⏭️ Pular"))
+                        markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
                         await bot_instance.reply_to(message, "📝 Digite alguma observação adicional (ou escolha Pular/Cancelar):", reply_markup=markup)
                     else:
                         await bot_instance.reply_to(message, "⚠️ A duração em dias deve ser um número maior que 0:")
@@ -2843,6 +3014,15 @@ def setup_handlers(bot_instance):
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
                     return
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    status = state['data']['status']
+                    if status in ('Dispensado', 'Licença'):
+                        state['step'] = 'get_health_duration'
+                        await bot_instance.reply_to(message, "🕒 Selecione ou digite a duração em dias (ex: 5):", reply_markup=get_duration_keyboard())
+                    else:
+                        state['step'] = 'get_health_motive'
+                        await bot_instance.reply_to(message, "🩺 Digite o Motivo/Diagnóstico (ex: Cefaleia, Entorse, Cirurgia):", reply_markup=get_cancel_keyboard())
+                    return
                 obs = "" if text in ("/pular", "⏭️ Pular", "⏭️ pular", "pular") else text
                 state['data']['observacao'] = obs
                 
@@ -2853,7 +3033,8 @@ def setup_handlers(bot_instance):
                 dias = state['data'].get('dias', None)
                 
                 markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-                markup.row(types.KeyboardButton("S — Confirmar"), types.KeyboardButton("N — Cancelar"))
+                markup.row(types.KeyboardButton("S — Confirmar"))
+                markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
 
                 confirm_prompt = (
                     "⚠️ Confirmar Lançamento de Saúde?\n\n"
@@ -2874,6 +3055,13 @@ def setup_handlers(bot_instance):
 
             # Passo 8: Confirmação e inserção
             elif step == 'confirm_health_submit':
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    state['step'] = 'get_health_obs'
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    markup.row(types.KeyboardButton("⏭️ Pular"))
+                    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
+                    await bot_instance.reply_to(message, "📝 Digite alguma observação adicional (ou escolha Pular/Voltar/Cancelar):", reply_markup=markup)
+                    return
                 ans = text.strip().lower()
                 if ans in ['s', 'sim', 'y', 'yes', 's — confirmar']:
                     try:
@@ -2944,6 +3132,14 @@ def setup_handlers(bot_instance):
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
                     return
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    state['step'] = 'choose_initial_option'
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    markup.row(types.KeyboardButton("🆕 Novo Lançamento"))
+                    markup.row(types.KeyboardButton("🏥 Listar Baixados"), types.KeyboardButton("📋 Listar Dispensados"))
+                    markup.add(types.KeyboardButton("❌ Cancelar"))
+                    await bot_instance.reply_to(message, "🏥 Gestão de Saúde / Enfermaria: Selecione uma opção abaixo:", reply_markup=markup)
+                    return
                 
                 active_cases = state['data'].get('active_cases', [])
                 try:
@@ -2958,7 +3154,8 @@ def setup_handlers(bot_instance):
                         acao_alta = "Encerrar Dispensa" if is_dispensa else "Dar Alta"
                         
                         markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-                        markup.row(types.KeyboardButton(f"🟢 {acao_alta}"), types.KeyboardButton("❌ Cancelar"))
+                        markup.row(types.KeyboardButton(f"🟢 {acao_alta}"))
+                        markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
                         
                         detalhe_str = f"\n📋 Detalhe: {selected['detalhe']}" if selected.get('detalhe') else ""
                         periodo_str = f"\n🕒 Período: {selected['data_ini']} a {selected['data_fim']}" if selected.get('data_ini') else ""
@@ -2980,6 +3177,20 @@ def setup_handlers(bot_instance):
 
             # Passo 10: Confirmação de Alta
             elif step == 'confirm_alta':
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    state['step'] = 'choose_baixado'
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    for idx, row in enumerate(state['data']['active_cases']):
+                        markup.add(types.KeyboardButton(f"{idx + 1} — {row['numero_interno']} : {row['nome_guerra']} ({row['status']})"))
+                    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
+                    
+                    is_baixados = any(r.get('status') in ('Internado', 'Hospital', 'Encaminhado para enfermaria') for r in state['data']['active_cases'])
+                    tipo_label = "Baixados (Enfermaria/Hospital)" if is_baixados else "Dispensados"
+                    prompt = f"🏥 Militares com registros ativos em {tipo_label}:\nSelecione um para ver detalhes ou dar alta/encerrar:\n\n"
+                    for idx, row in enumerate(state['data']['active_cases']):
+                        prompt += f"{idx + 1} — {row['numero_interno']} : {row['nome_guerra']} ({row['status']})\n"
+                    await bot_instance.reply_to(message, prompt, reply_markup=markup)
+                    return
                 ans = text.strip().lower()
                 is_confirm = False
                 for possible_ans in ['s', 'sim', 'y', 'yes', '🟢 dar alta', 'dar alta', 's — dar alta', '🟢 encerrar dispensa', 'encerrar dispensa', 's — encerrar dispensa']:
@@ -3021,16 +3232,49 @@ def setup_handlers(bot_instance):
                         )
                         
                         msg_sucesso = f"✅ Dispensa para {selected['nome_guerra']} encerrada com sucesso!" if selected.get('status') == 'Dispensado' else f"✅ Alta para {selected['nome_guerra']} registrada com sucesso!"
-                        await bot_instance.reply_to(message, msg_sucesso, reply_markup=get_main_menu_keyboard())
+                        
+                        # Check if status before alta was not dispensa/licença/alta
+                        status_anterior = selected.get('status')
+                        if status_anterior not in ('Dispensado', 'Licença', 'Alta'):
+                            state['step'] = 'ask_add_dispensa_after_alta'
+                            student_data = {
+                                'numero_interno': selected['numero_interno'],
+                                'nome_guerra': selected['nome_guerra'],
+                                'pelotao': selected.get('turma') or selected.get('turma_aluno') or selected.get('pelotao') or ''
+                            }
+                            state['data'] = {'student': student_data}
+                            
+                            markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                            markup.row(types.KeyboardButton("🟢 Sim (Adicionar Dispensa)"), types.KeyboardButton("🔴 Não (Concluir)"))
+                            
+                            prompt = (
+                                f"{msg_sucesso}\n\n"
+                                f"❓ **Deseja adicionar uma Dispensa Médica para o militar {student_data['nome_guerra']}?**"
+                            )
+                            await bot_instance.reply_to(message, prompt, reply_markup=markup, parse_mode='Markdown')
+                        else:
+                            await bot_instance.reply_to(message, msg_sucesso, reply_markup=get_main_menu_keyboard())
+                            clear_state(chat_id)
                     except Exception as e:
                         await bot_instance.reply_to(message, f"❌ Erro ao registrar alta: {e}", reply_markup=get_main_menu_keyboard())
-                    finally:
                         clear_state(chat_id)
                 elif ans in ['n', 'não', 'nao', 'no', 'cancelar', '❌ cancelar']:
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
                 else:
                     await bot_instance.reply_to(message, "⚠️ Escolha uma das opções de confirmação ou '❌ Cancelar':")
+                    
+            elif step == 'ask_add_dispensa_after_alta':
+                ans = text.strip().lower()
+                if "sim" in ans or "🟢" in ans or ans == 's':
+                    state['data']['status'] = 'Dispensado'
+                    state['data']['categoria'] = 'dispensa'
+                    state['step'] = 'choose_dispensa_type'
+                    state['data']['selected_dispensas'] = []
+                    await show_dispensa_selection(bot_instance, message, state)
+                else:
+                    await bot_instance.reply_to(message, "👍 Alta registrada e processo concluído.", reply_markup=get_main_menu_keyboard())
+                    clear_state(chat_id)
 
         # ── PROCESSAMENTO DO LANÇAMENTO DE ESCALA ─────────────────────
         elif action == 'escala':
@@ -3406,6 +3650,13 @@ def setup_handlers(bot_instance):
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
                     return
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    state['step'] = 'choose_initial_option'
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    markup.row(types.KeyboardButton("✍️ Lançar Pernoite"), types.KeyboardButton("📋 Listar Pernoites de Hoje"))
+                    markup.row(types.KeyboardButton("❌ Cancelar"))
+                    await bot_instance.reply_to(message, "🛌 **Controle de Pernoite**\n\nSelecione uma opção:", reply_markup=markup, parse_mode='Markdown')
+                    return
                 if "digitar" in text.lower() or "lote" in text.lower() or "buscar" in text.lower() or "🔍" in text:
                     state['step'] = 'search_student'
                     await bot_instance.reply_to(message, "🔍 Digite o nome de guerra, número interno ou números em lote (separados por vírgula):", reply_markup=get_cancel_keyboard())
@@ -3435,7 +3686,8 @@ def setup_handlers(bot_instance):
                         nomes_lista += f"\n  _(... e mais {len(alunos_pelotao) - 10} alunos)_"
                         
                     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-                    markup.row(types.KeyboardButton("🟢 CONFIRMAR LANÇAMENTO"), types.KeyboardButton("❌ Cancelar"))
+                    markup.row(types.KeyboardButton("🟢 CONFIRMAR LANÇAMENTO"))
+                    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
                     
                     prompt = (
                         f"⚠️ **Confirmar Lançamento de Pernoite Coletivo?**\n\n"
@@ -3512,7 +3764,8 @@ def setup_handlers(bot_instance):
                     nomes_lista += f"\n  _(... e mais {len(mass_students) - 10} alunos)_"
                 
                 markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-                markup.row(types.KeyboardButton("🟢 CONFIRMAR LANÇAMENTO"), types.KeyboardButton("❌ Cancelar"))
+                markup.row(types.KeyboardButton("🟢 CONFIRMAR LANÇAMENTO"))
+                markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
                 
                 except_info = f"🚫 *Exceções (NÃO pernoitam):* {', '.join(found_except_nis)}\n" if found_except_nis else ""
                 prompt = (
@@ -3532,7 +3785,12 @@ def setup_handlers(bot_instance):
                     clear_state(chat_id)
                     return
                 if "voltar" in text.lower() or "⬅️" in text:
-                    await prompt_pelotao_selection(bot_instance, message, state)
+                    state['step'] = 'choose_pernoite_mode'
+                    pelotao = state['data']['pelotao']
+                    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                    markup.row(types.KeyboardButton("✅ Todos Pernoitam"), types.KeyboardButton("🚫 Pernoitam com Exceção"))
+                    markup.row(types.KeyboardButton("👤 Lançar Individual"), types.KeyboardButton("⬅️ Voltar"))
+                    await bot_instance.reply_to(message, f"🛌 **Lançamento de Pernoite - Pelotão {pelotao}**\n\nEscolha o modo de lançamento para este pelotão:", reply_markup=markup, parse_mode='Markdown')
                     return
                 await handle_student_button_selection(bot_instance, message, state)
                 return
@@ -3541,6 +3799,9 @@ def setup_handlers(bot_instance):
                 if text.lower() in ['cancelar', '❌ cancelar']:
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
+                    return
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    await prompt_pelotao_selection(bot_instance, message, state)
                     return
 
                 # Obter o ano letivo do usuário (para filtrar)
@@ -3597,7 +3858,8 @@ def setup_handlers(bot_instance):
                         f"Clique em um dos botões abaixo para confirmar:"
                     )
                     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-                    markup.row(types.KeyboardButton("🟢 CONFIRMAR LANÇAMENTO"), types.KeyboardButton("❌ Cancelar"))
+                    markup.row(types.KeyboardButton("🟢 CONFIRMAR LANÇAMENTO"))
+                    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
                     await bot_instance.reply_to(message, prompt, reply_markup=markup, parse_mode='Markdown')
                     return
 
@@ -3629,7 +3891,7 @@ def setup_handlers(bot_instance):
                     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
                     for idx, al in enumerate(state['data']['matches']):
                         markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al.get('especialidade') or 'Sem Esp.'})"))
-                    markup.add(types.KeyboardButton("❌ Cancelar"))
+                    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
                     
                     prompt = "🔍 Múltiplos alunos encontrados. Selecione o correspondente abaixo:\n\n"
                     for idx, al in enumerate(state['data']['matches']):
@@ -3642,6 +3904,10 @@ def setup_handlers(bot_instance):
                 if text.lower() in ['cancelar', '❌ cancelar']:
                     await bot_instance.reply_to(message, "❌ Operação cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
+                    return
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    state['step'] = 'search_student'
+                    await bot_instance.reply_to(message, "🔍 Digite o nome de guerra, número interno ou números em lote (separados por vírgula):", reply_markup=get_cancel_keyboard())
                     return
                 matches = state['data'].get('matches', [])
                 try:
@@ -3656,6 +3922,22 @@ def setup_handlers(bot_instance):
                     await bot_instance.reply_to(message, "⚠️ Digite apenas o número correspondente à sua escolha:")
             
             elif step == 'confirm_pernoite_submit':
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    if state['data'].get('alunos_pelotao'):
+                        state['step'] = 'choose_student_button'
+                        pelotao = state['data']['pelotao']
+                        alunos_pelotao = state['data']['alunos_pelotao']
+                        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                        alunos_pelotao_sorted = sorted(alunos_pelotao, key=lambda x: str(x.get('nome_guerra', '')).upper())
+                        for i in range(0, len(alunos_pelotao_sorted), 2):
+                            row = [types.KeyboardButton(f"MIKE {a['numero_interno']} - {a['nome_guerra']}") for a in alunos_pelotao_sorted[i:i+2]]
+                            markup.row(*row)
+                        markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
+                        await bot_instance.reply_to(message, f"📋 Alunos do {pelotao}: Selecione o militar desejado abaixo:", reply_markup=markup)
+                    else:
+                        state['step'] = 'search_student'
+                        await bot_instance.reply_to(message, "🔍 Digite o nome de guerra, número interno ou números em lote (separados por vírgula):", reply_markup=get_cancel_keyboard())
+                    return
                 ans = text.strip().lower()
                 if ans in ['s', 'sim', 'y', 'yes', 's — confirmar']:
                     try:
@@ -3694,6 +3976,18 @@ def setup_handlers(bot_instance):
                     await bot_instance.reply_to(message, "⚠️ Responda apenas com S (Sim) ou N (Não):")
 
             elif step == 'confirm_mass_pernoite':
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    if state['data'].get('pelotao'):
+                        state['step'] = 'choose_pernoite_mode'
+                        pelotao = state['data']['pelotao']
+                        markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+                        markup.row(types.KeyboardButton("✅ Todos Pernoitam"), types.KeyboardButton("🚫 Pernoitam com Exceção"))
+                        markup.row(types.KeyboardButton("👤 Lançar Individual"), types.KeyboardButton("⬅️ Voltar"))
+                        await bot_instance.reply_to(message, f"🛌 **Lançamento de Pernoite - Pelotão {pelotao}**\n\nEscolha o modo de lançamento para este pelotão:", reply_markup=markup, parse_mode='Markdown')
+                    else:
+                        state['step'] = 'search_student'
+                        await bot_instance.reply_to(message, "🔍 Digite o nome de guerra, número interno ou números em lote (separados por vírgula):", reply_markup=get_cancel_keyboard())
+                    return
                 ans = text.strip().lower()
                 if "confirmar" in ans or ans == 's' or ans == 'sim' or ans == '🟢 confirmar lançamento':
                     try:
@@ -3741,6 +4035,10 @@ def setup_handlers(bot_instance):
                 if text.lower() in ['cancelar', '❌ cancelar']:
                     await bot_instance.reply_to(message, "❌ Consulta cancelada.", reply_markup=get_main_menu_keyboard())
                     clear_state(chat_id)
+                    return
+                if text.lower() in ['voltar', '⬅️ voltar']:
+                    state['step'] = 'search_student'
+                    await bot_instance.reply_to(message, "🔍 Consulta de Aluno: Digite o nome de guerra ou número interno do aluno:", reply_markup=get_cancel_keyboard())
                     return
                 matches = state['data'].get('matches', [])
                 try:
@@ -4056,7 +4354,8 @@ async def prompt_pernoite_confirm(bot_instance, message, state, student):
     state['data']['student'] = student
     
     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-    markup.row(types.KeyboardButton("S — Confirmar"), types.KeyboardButton("N — Cancelar"))
+    markup.row(types.KeyboardButton("S — Confirmar"))
+    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
     
     confirm_prompt = (
         "🛌 Confirmar Autorização de Pernoite?\n\n"
@@ -4067,19 +4366,45 @@ async def prompt_pernoite_confirm(bot_instance, message, state, student):
     )
     await bot_instance.reply_to(message, confirm_prompt, reply_markup=markup)
 
+async def show_dispensa_selection(bot_instance, message, state):
+    selected = state['data'].setdefault('selected_dispensas', [])
+    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+    markup.add(types.KeyboardButton("👉 Concluir Seleção"))
+    
+    prompt = "📋 **Selecione os Tipos de Dispensa (Múltiplas Opções):**\n"
+    prompt += "_Selecione os números correspondentes para marcar/desmarcar. Quando terminar, clique no botão '👉 Concluir Seleção'._\n\n"
+    
+    for idx, val in enumerate(TIPOS_DISPENSA):
+        is_sel = val in selected
+        check_icon = "✅ " if is_sel else ""
+        markup.add(types.KeyboardButton(f"{check_icon}{idx + 1} — {val}"))
+        prompt += f"{check_icon}{idx + 1} — {val}\n"
+        
+    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
+    await bot_instance.reply_to(message, prompt, reply_markup=markup, parse_mode='Markdown')
+
+async def show_licenca_selection(bot_instance, message, state):
+    state['step'] = 'choose_licenca_type'
+    markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
+    for idx, val in enumerate(TIPOS_LICENCA):
+        markup.add(types.KeyboardButton(f"{idx + 1} — {val}"))
+    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
+    prompt = "✈️ Selecione o Tipo de Licença:"
+    await bot_instance.reply_to(message, prompt, reply_markup=markup)
+
 async def prompt_health_status(bot_instance, message, state, student):
     """Apresenta as opções de status de saúde para seleção."""
     state['step'] = 'choose_health_status'
     state['data']['student'] = student
     
     markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
-    markup.add(types.KeyboardButton("1 — 🏥 Internado (Enfermaria)"))
-    markup.add(types.KeyboardButton("2 — 👁️ Encaminhado para enfermaria"))
-    markup.add(types.KeyboardButton("3 — 🚑 Hospital (Hospitalizado)"))
-    markup.add(types.KeyboardButton("4 — 📝 Dispensado (Dispensa Médica)"))
-    markup.add(types.KeyboardButton("5 — ✈️ Licença (Afastado da Unidade)"))
+    markup.add(types.KeyboardButton("1 — 👁️ Encaminhado para enfermaria"))
+    markup.add(types.KeyboardButton("2 — 🏥 Baixado (Enfermaria)"))
+    markup.add(types.KeyboardButton("3 — 📝 Dispensado (Dispensa Médica)"))
+    markup.add(types.KeyboardButton("4 — 🚑 Hospital (Hospitalizado)"))
+    markup.add(types.KeyboardButton("5 — ✈️ Licença (Dispensa Domiciliar)"))
     markup.add(types.KeyboardButton("6 — 🟢 Alta (Retorno ao Serviço/Atividades)"))
-    markup.add(types.KeyboardButton("❌ Cancelar"))
+    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
 
     prompt = (
         f"👤 Aluno Selecionado: **{student['nome_guerra']}** ({student['numero_interno']})\n\n"
@@ -4195,7 +4520,7 @@ async def prompt_action_type(bot_instance, message, state, student):
             markup.add(types.KeyboardButton(f"{idx + 1} — {tp['nome']}"))
             idx += 1
 
-    markup.add(types.KeyboardButton("❌ Cancelar"))
+    markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
     await bot_instance.reply_to(message, prompt, reply_markup=markup)
 
 def salvar_escala_diaria_data(conn, data_str, cargo, nome, observacao=''):
@@ -4288,7 +4613,7 @@ async def perform_consulta_search(bot_instance, message, profile, term):
         markup = types.ReplyKeyboardMarkup(one_time_keyboard=True, resize_keyboard=True)
         for idx, al in enumerate(chat_states[chat_id]['data']['matches']):
             markup.add(types.KeyboardButton(f"{idx + 1} — {al['numero_interno']} : {al['nome_guerra']} ({al.get('especialidade') or 'Sem Esp.'})"))
-        markup.add(types.KeyboardButton("❌ Cancelar"))
+        markup.row(types.KeyboardButton("⬅️ Voltar"), types.KeyboardButton("❌ Cancelar"))
         
         prompt = "🔍 Múltiplos alunos encontrados. Selecione o correspondente abaixo:\n\n"
         for idx, al in enumerate(chat_states[chat_id]['data']['matches']):
